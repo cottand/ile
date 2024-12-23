@@ -83,7 +83,6 @@ DECIMAL_FLOAT_LIT: DECIMALS ('.' DECIMALS? EXPONENT? | EXPONENT) | '.' DECIMALS 
 
 HEX_FLOAT_LIT: '0' [xX] HEX_MANTISSA HEX_EXPONENT;
 
-
 fragment HEX_MANTISSA:
     ('_'? HEX_DIGIT)+ ('.' ( '_'? HEX_DIGIT)*)?
     | '.' HEX_DIGIT ('_'? HEX_DIGIT)*
@@ -101,7 +100,21 @@ fragment ESCAPED_VALUE:
         | OCTAL_DIGIT OCTAL_DIGIT OCTAL_DIGIT
         | 'x' HEX_DIGIT HEX_DIGIT
     )
+    | '\n'
 ;
+
+// String literals
+
+RAW_STRING_LIT         : '`' ~'`'* '`'                     -> mode(NLSEMI);
+INTERPRETED_STRING_LIT : '"' (~["\\] | ESCAPED_VALUE)* '"' -> mode(NLSEMI);
+
+// Hidden tokens
+
+WS           : [ \t]+        -> channel(HIDDEN);
+COMMENT      : '/*' .*? '*/' -> channel(HIDDEN);
+TERMINATOR   : [\r\n]+       -> channel(HIDDEN);
+LINE_COMMENT : '//' ~[\r\n]* -> channel(HIDDEN);
+
 
 fragment DECIMALS: [0-9] ('_'? [0-9])*;
 

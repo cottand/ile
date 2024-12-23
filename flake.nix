@@ -4,8 +4,10 @@
   inputs.flake-utils.url = "github:numtide/flake-utils";
 
   outputs = { nixpkgs, flake-utils, ... }: (flake-utils.lib.eachDefaultSystem (system:
-    let pkgs = import nixpkgs { inherit system; }; in {
-
+    let
+      pkgs = import nixpkgs { inherit system; };
+    in
+    {
       packages.default = pkgs.buildGoModule {
         inherit system;
         vendorHash = null;
@@ -15,10 +17,10 @@
         ldflags = [ "-s -w" ];
         CGO_ENABLED = "0";
 
-        ANTLR_BIN = "${pkgs.antlr4_13}/bin/antlr";
+        ANTLR_BIN = "${pkgs.antlr}/bin/antlr";
 
         buildInputs = [
-          pkgs.antlr4_13
+          pkgs.antlr
         ];
       };
     }));

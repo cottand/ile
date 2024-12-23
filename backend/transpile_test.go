@@ -81,3 +81,18 @@ func TestIntDecl(t *testing.T) {
 
 	assert.Equal(t, int64(2), v.Int())
 }
+func TestStringDecl(t *testing.T) {
+	v := evalExpr(t, &ir.BasicLit{
+		Kind:  token.STRING,
+		Value: `"aa"`,
+	})
+
+	assert.Equal(t, "aa", v.String())
+
+	v = evalExpr(t, &ir.BasicLit{
+		Kind:  token.STRING,
+		Value: "`aa`",
+	})
+
+	assert.Equal(t, "aa", v.String())
+}
