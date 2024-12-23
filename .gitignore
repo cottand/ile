@@ -5,3 +5,5 @@ parser/*.tokens
 parser/*.interp
 parser/*.go
 !parser/generate.go
+# from the intelliJ antlr plugin
+gen/
