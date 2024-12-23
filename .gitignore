@@ -1,1 +1,7 @@
 idea/
+
+# codegen
+parser/*.tokens
+parser/*.interp
+parser/*.go
+!parser/generate.go

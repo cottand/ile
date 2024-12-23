@@ -1,0 +1,83 @@
+package backend
+
+import (
+	"bytes"
+	"github.com/cottand/ile/ir"
+	"github.com/stretchr/testify/assert"
+	"github.com/traefik/yaegi/interp"
+	"go/ast"
+	"go/format"
+	"go/token"
+	"reflect"
+	"testing"
+)
+
+func evalNode(node ast.Node) (reflect.Value, *interp.Interpreter, error) {
+	sourceBuf := bytes.NewBuffer(nil)
+
+	// Print the generated Go code
+	_ = format.Node(sourceBuf, token.NewFileSet(), node)
+	i := interp.New(interp.Options{})
+	v, err := i.Eval(sourceBuf.String())
+	return v, i, err
+}
+
+func evalExpr(t *testing.T, ile ir.Expr) reflect.Value {
+	f := ir.File{
+		PkgName: "main",
+		Declarations: []ir.ValDecl{
+			{
+				Name: "Value",
+				E:    ile,
+			},
+		},
+	}
+
+	g, err := TranspileFile(f)
+	assert.NoError(t, err)
+
+	_, i, err := evalNode(g)
+	assert.NoError(t, err)
+	return i.Globals()["Value"]
+}
+
+func TestVarDecl(t *testing.T) {
+	f := ir.File{
+		PkgName: "main",
+		Declarations: []ir.ValDecl{
+			{
+				Name: "Hello",
+				E: &ir.BasicLit{
+					Kind:  token.INT,
+					Value: "1",
+				},
+			},
+			{
+				Name: "Bye",
+				E: &ir.BasicLit{
+					Kind:  token.INT,
+					Value: "2",
+				},
+			},
+		},
+	}
+
+	g, err := TranspileFile(f)
+	assert.NoError(t, err)
+	assert.Equal(t, g.Name.Name, "main")
+
+	_, i, err := evalNode(g)
+	assert.NoError(t, err)
+	assert.Contains(t, i.Globals(), "Hello")
+	assert.Contains(t, i.Globals(), "Bye")
+	assert.Equal(t, int64(2), i.Globals()["Bye"].Int())
+}
+
+func TestIntDecl(t *testing.T) {
+	v := evalExpr(t, &ir.BasicLit{
+		Kind:  token.INT,
+		Value: "2",
+	})
+
+	assert.Equal(t, int64(2), v.Int())
+}
