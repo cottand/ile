@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"log/slog"
 	"reflect"
 	"testing"
 )
@@ -19,13 +20,16 @@ func evalNode(node ast.Node) (reflect.Value, *interp.Interpreter, error) {
 	_ = format.Node(sourceBuf, token.NewFileSet(), node)
 	i := interp.New(interp.Options{})
 	v, err := i.Eval(sourceBuf.String())
+	if err != nil {
+		slog.Warn("had errors while evaluating", "err", err.Error(), "body", sourceBuf.String())
+	}
 	return v, i, err
 }
 
 func evalExpr(t *testing.T, ile ir.Expr) reflect.Value {
 	f := ir.File{
 		PkgName: "main",
-		Declarations: []ir.ValDecl{
+		Values: []ir.ValDecl{
 			{
 				Name: "Value",
 				E:    ile,
@@ -44,17 +48,17 @@ func evalExpr(t *testing.T, ile ir.Expr) reflect.Value {
 func TestVarDecl(t *testing.T) {
 	f := ir.File{
 		PkgName: "main",
-		Declarations: []ir.ValDecl{
+		Values: []ir.ValDecl{
 			{
 				Name: "Hello",
-				E: &ir.BasicLit{
+				E: ir.BasicLit{
 					Kind:  token.INT,
 					Value: "1",
 				},
 			},
 			{
 				Name: "Bye",
-				E: &ir.BasicLit{
+				E: ir.BasicLit{
 					Kind:  token.INT,
 					Value: "2",
 				},
@@ -74,25 +78,60 @@ func TestVarDecl(t *testing.T) {
 }
 
 func TestIntDecl(t *testing.T) {
-	v := evalExpr(t, &ir.BasicLit{
+	v := evalExpr(t, ir.BasicLit{
 		Kind:  token.INT,
 		Value: "2",
 	})
 
 	assert.Equal(t, int64(2), v.Int())
 }
+
 func TestStringDecl(t *testing.T) {
-	v := evalExpr(t, &ir.BasicLit{
+	v := evalExpr(t, ir.BasicLit{
 		Kind:  token.STRING,
 		Value: `"aa"`,
 	})
 
 	assert.Equal(t, "aa", v.String())
 
-	v = evalExpr(t, &ir.BasicLit{
+	v = evalExpr(t, ir.BasicLit{
 		Kind:  token.STRING,
 		Value: "`aa`",
 	})
 
 	assert.Equal(t, "aa", v.String())
+}
+
+func TestFunctionDecl(t *testing.T) {
+	f := ir.File{
+		PkgName: "main",
+		Functions: []ir.FuncDecl{
+			{
+				Name: "OneInt",
+				Params: []ir.ParamDecl{
+					{
+						Name: ir.Ident{Name: "a"},
+						T:    ir.TypeLit{Name: "Int"},
+					},
+				},
+				Result: ir.TypeLit{Name: "Int"},
+				Body: ir.BasicLit{
+					Kind:  token.INT,
+					Value: "32",
+				},
+			},
+		},
+	}
+
+	g, err := TranspileFile(f)
+	assert.NoError(t, err)
+	assert.Equal(t, g.Name.Name, "main")
+
+	_, i, err := evalNode(g)
+	assert.NoError(t, err)
+	i.Symbols("main")
+	assert.Contains(t, i.Symbols("main")["main"], "OneInt")
+	res, err := i.Eval("OneInt(1)")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(32), res.Int())
 }

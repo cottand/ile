@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"errors"
+	"fmt"
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/ir"
 	"github.com/cottand/ile/parser"
@@ -22,15 +23,50 @@ type listener struct {
 
 	visitErrors []error
 
-	expressionStack []ir.Expr
+	expressionStack         []ir.Expr
+	paramDeclStack          []ir.ParamDecl
+	functionReturnTypeStack []ir.Type
+	typeStack               []ir.Type
 }
 
 func (l *listener) popExpr() (ir.Expr, error) {
 	if len(l.expressionStack) <= 0 {
 		return nil, errors.New("expected to have successfully parsed an expression, but none were found")
 	}
+	lastIndex := len(l.expressionStack) - 1
+	defer func() {
+		l.expressionStack = l.expressionStack[:lastIndex]
+	}()
 	return l.expressionStack[len(l.expressionStack)-1], nil
+}
 
+func (l *listener) popAllParamDecl() []ir.ParamDecl {
+	defer func() {
+		l.paramDeclStack = make([]ir.ParamDecl, 0)
+	}()
+	return l.paramDeclStack
+}
+
+func (l *listener) popFunctionReturnType() (ir.Type, error) {
+	if len(l.functionReturnTypeStack) <= 0 {
+		return nil, errors.New("expected to have successfully parsed a functionReturnType, but none were found")
+	}
+	lastIndex := len(l.functionReturnTypeStack) - 1
+	defer func() {
+		l.functionReturnTypeStack = l.functionReturnTypeStack[:lastIndex]
+	}()
+	return l.functionReturnTypeStack[len(l.functionReturnTypeStack)-1], nil
+}
+
+func (l *listener) popType() (ir.Type, error) {
+	if len(l.typeStack) <= 0 {
+		return nil, errors.New("expected to have successfully parsed a type, but none were found")
+	}
+	lastIndex := len(l.typeStack) - 1
+	defer func() {
+		l.typeStack = l.typeStack[:lastIndex]
+	}()
+	return l.typeStack[lastIndex], nil
 }
 
 func (l *listener) Result() (ir.File, []ir.CompileError) {
@@ -40,6 +76,14 @@ func (l *listener) Result() (ir.File, []ir.CompileError) {
 func (l *listener) VisitErrors() error {
 	return errors.Join(l.visitErrors...)
 }
+
+func (l *listener) ExitSourceFile(ctx *parser.SourceFileContext) {
+	l.file.Range = intervalTo2Pos(ctx.GetSourceInterval())
+}
+
+//
+// Expressions
+//
 
 func (l *listener) EnterPackageClause(ctx *parser.PackageClauseContext) {
 	l.file.PkgName = ctx.IDENTIFIER().GetText()
@@ -53,9 +97,10 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			l.visitErrors = append(l.visitErrors, err)
 			return
 		}
-		l.file.Declarations = append(l.file.Declarations, ir.ValDecl{
-			Name: ctx.IDENTIFIER().GetText(),
-			E:    expr,
+		l.file.Values = append(l.file.Values, ir.ValDecl{
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+			Name:  ctx.IDENTIFIER().GetText(),
+			E:     expr,
 		})
 	}
 }
@@ -84,42 +129,122 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 	}
 }
 
-func intervalTo2Pos(i antlr.Interval) (start token.Pos, end token.Pos) {
-	return token.Pos(i.Start), token.Pos(i.Stop)
+func intervalTo2Pos(i antlr.Interval) ir.Range {
+	return ir.Range{
+		PosStart: token.Pos(i.Start),
+		PosEnd:   token.Pos(i.Stop),
+	}
 }
 
 func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	if s := ctx.String_(); s != nil {
 		if strLit := s.RAW_STRING_LIT(); strLit != nil {
-			start, end := intervalTo2Pos(ctx.GetSourceInterval())
-			l.expressionStack = append(l.expressionStack, &ir.BasicLit{
-				Kind:        token.STRING,
-				Value:       strings.Trim(strLit.GetText(), "`"),
-				ValuePos:    start,
-				ValuePosEnd: end,
+			l.expressionStack = append(l.expressionStack, ir.BasicLit{
+				Kind:  token.STRING,
+				Value: strings.Trim(strLit.GetText(), "`"),
+				Range: intervalTo2Pos(ctx.GetSourceInterval()),
 			})
 			return
 		}
 		if strLit := s.INTERPRETED_STRING_LIT(); strLit != nil {
-			start, end := intervalTo2Pos(ctx.GetSourceInterval())
-			l.expressionStack = append(l.expressionStack, &ir.BasicLit{
-				Kind:        token.STRING,
-				Value:       strings.Trim(strLit.GetText(), "\""),
-				ValuePos:    start,
-				ValuePosEnd: end,
+			l.expressionStack = append(l.expressionStack, ir.BasicLit{
+				Kind:  token.STRING,
+				Value: strings.Trim(strLit.GetText(), "\""),
+				Range: intervalTo2Pos(ctx.GetSourceInterval()),
 			})
 			return
 		}
 	}
 
 	if ctx.Integer() != nil {
-		l.expressionStack = append(l.expressionStack, &ir.BasicLit{
-			Kind:     token.INT,
-			Value:    ctx.Integer().GetText(),
-			ValuePos: token.Pos(ctx.GetStart().GetStart()),
+		l.expressionStack = append(l.expressionStack, ir.BasicLit{
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+			Kind:  token.INT,
+			Value: ctx.Integer().GetText(),
 		})
 	}
 }
+
+//
+// Functions
+//
+
+func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
+	fun := ir.FuncDecl{
+		Range:  intervalTo2Pos(ctx.GetSourceInterval()),
+		Name:   ctx.IDENTIFIER().GetText(),
+		Params: l.popAllParamDecl(),
+	}
+	defer func() {
+		l.file.Functions = append(l.file.Functions, fun)
+	}()
+
+	expr, err := l.popExpr()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse an expression, but none found in function %v: %v", fun.Name, err))
+		return
+	}
+	fun.Body = expr
+	if ctx.Signature().Result() != nil {
+		retT, err := l.popFunctionReturnType()
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, err)
+			return
+		}
+		fun.Result = retT
+	}
+}
+
+func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
+	typ, err := l.popType()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, err)
+		return
+	}
+	l.paramDeclStack = append(l.paramDeclStack, ir.ParamDecl{
+		Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		Name: ir.Ident{
+			Range: intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
+			Name:  ctx.IDENTIFIER().GetText(),
+		},
+		T: typ,
+	})
+}
+
+// ExitResult as in function signature result
+// we can expect an ir.Type to be present if a Result return type is present in the function
+func (l *listener) ExitResult(ctx *parser.ResultContext) {
+	if ctx.Type_() != nil {
+		parsedT, err := l.popType()
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, err)
+			return
+		}
+		l.functionReturnTypeStack = append(l.functionReturnTypeStack, parsedT)
+	}
+}
+
+func (l *listener) ExitType_(ctx *parser.Type_Context) {
+	typeName := ctx.TypeName()
+	if typeName != nil {
+		typeLit := ir.TypeLit{
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		}
+		if typeName.QualifiedIdent() != nil {
+			typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
+			typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
+		} else {
+			typeLit.Name = typeName.QualifiedIdent().GetText()
+		}
+
+		l.typeStack = append(l.typeStack, typeLit)
+	}
+	// TODO composite types!
+}
+
+//
+// Errors
+//
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
 	l.errors = append(l.errors, ir.CompileError{

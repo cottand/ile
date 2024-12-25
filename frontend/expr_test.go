@@ -9,24 +9,25 @@ import (
 )
 
 func testExpr(t *testing.T, expr string, expected ir.Expr) {
-	f := fmt.Sprintf(`
+	t.Run("expression "+expr, func(t *testing.T) {
+		f := fmt.Sprintf(`
 package main
 
 a = %s
 `, expr)
-	irFile, _ := testAntlrParse(t, f)
-	actual := irFile.Declarations[0].E
+		irFile, _ := testAntlrParse(t, f)
+		actual := irFile.Values[0].E
 
-	assertTypesEqual(t, expr, expected, actual)
-
+		assertTypesEqual(t, expr, expected, actual)
+	})
 }
 
 func assertTypesEqual(t *testing.T, parentExp string, expected ir.Expr, actual ir.Expr) {
 	assert.IsType(t, expected, actual)
 
 	switch expected := expected.(type) {
-	case *ir.BasicLit:
-		actual := actual.(*ir.BasicLit)
+	case ir.BasicLit:
+		actual := actual.(ir.BasicLit)
 		assert.Equal(t, expected.Kind, actual.Kind, "original expr: "+parentExp)
 		assert.Equal(t, expected.Value, actual.Value, "original expr: "+parentExp)
 
@@ -36,15 +37,15 @@ func assertTypesEqual(t *testing.T, parentExp string, expected ir.Expr, actual i
 }
 
 func TestStringLits(t *testing.T) {
-	testExpr(t, `"aa"`, &ir.BasicLit{
+	testExpr(t, `"aa"`, ir.BasicLit{
 		Kind:  token.STRING,
 		Value: "aa",
 	})
-	testExpr(t, "`aa`", &ir.BasicLit{
+	testExpr(t, "`aa`", ir.BasicLit{
 		Kind:  token.STRING,
 		Value: "aa",
 	})
-	testExpr(t, "`aa\n`", &ir.BasicLit{
+	testExpr(t, "`aa\n`", ir.BasicLit{
 		Kind:  token.STRING,
 		Value: "aa\n",
 	})

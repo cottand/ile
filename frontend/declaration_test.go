@@ -1,29 +1,16 @@
 package frontend
 
 import (
-	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/ir"
-	"github.com/cottand/ile/parser"
 	"github.com/stretchr/testify/assert"
 	"go/token"
 	"testing"
 )
 
 func testAntlrParse(t *testing.T, input string) (ir.File, []ir.CompileError) {
-	iStream := antlr.NewInputStream(input)
-	lexer := parser.NewIleLexer(iStream)
-	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-	p := parser.NewIleParser(tStream)
-
-	walker := antlr.NewIterativeParseTreeWalker()
-
-	l := &listener{}
-
-	walker.Walk(l, p.SourceFile())
-
-	assert.NoError(t, l.VisitErrors())
-
-	return l.Result()
+	f, cErrs, errs := ParseToAST(input)
+	assert.NoError(t, errs)
+	return f, cErrs
 }
 
 func TestNoNewlineEndError(t *testing.T) {
@@ -55,12 +42,12 @@ hello = 1
 `
 	src, _ := testAntlrParse(t, file)
 
-	assert.Len(t, src.Declarations, 1)
-	fst := src.Declarations[0]
+	assert.Len(t, src.Values, 1)
+	fst := src.Values[0]
 	assert.Equal(t, "hello", fst.Name)
-	assert.IsType(t, &ir.BasicLit{}, fst.E)
-	assert.Equal(t, "1", fst.E.(*ir.BasicLit).Value)
-	assert.Equal(t, token.INT, fst.E.(*ir.BasicLit).Kind)
+	assert.IsType(t, ir.BasicLit{}, fst.E)
+	assert.Equal(t, "1", fst.E.(ir.BasicLit).Value)
+	assert.Equal(t, token.INT, fst.E.(ir.BasicLit).Kind)
 }
 
 func TestStrLiteral(t *testing.T) {
@@ -71,10 +58,59 @@ hello = "aa"
 `
 	src, _ := testAntlrParse(t, file)
 
-	assert.Len(t, src.Declarations, 1)
-	fst := src.Declarations[0]
+	assert.Len(t, src.Values, 1)
+	fst := src.Values[0]
 	assert.Equal(t, "hello", fst.Name)
-	assert.IsType(t, &ir.BasicLit{}, fst.E)
-	assert.Equal(t, token.STRING, fst.E.(*ir.BasicLit).Kind)
-	assert.Equal(t, "aa", fst.E.(*ir.BasicLit).Value)
+	assert.IsType(t, ir.BasicLit{}, fst.E)
+	assert.Equal(t, token.STRING, fst.E.(ir.BasicLit).Kind)
+	assert.Equal(t, "aa", fst.E.(ir.BasicLit).Value)
+}
+
+func TestListener_ExitFunctionDecl(t *testing.T) {
+	file := `
+package main
+
+fn hello() { 1 }
+
+`
+	src, _ := testAntlrParse(t, file)
+
+	assert.Len(t, src.Functions, 1)
+	fst := src.Functions[0]
+	assert.Equal(t, "hello", fst.Name)
+}
+
+func TestListener_ExitFunctionDeclParams(t *testing.T) {
+	file := `
+package main
+
+fn hello(i Int, ii Int) { 1 }
+`
+	src, _ := testAntlrParse(t, file)
+
+	assert.Len(t, src.Functions, 1)
+	fn := src.Functions[0]
+	assert.Equal(t, "hello", fn.Name)
+
+	assert.Len(t, fn.Params, 2)
+	assert.Equal(t, "i", fn.Params[0].Name.Name)
+	assert.Equal(t, "ii", fn.Params[1].Name.Name)
+
+	assert.Equal(t, "Int", fn.Params[0].T.(ir.TypeLit).Name)
+}
+
+func TestExitFunction_Body(t *testing.T) {
+	file := `
+package main
+
+fn hello(i Int, ii Int) { 1 }
+`
+	src, _ := testAntlrParse(t, file)
+
+	assert.Len(t, src.Functions, 1)
+	fn := src.Functions[0]
+
+	assert.IsType(t, ir.BasicLit{}, fn.Body)
+	assert.Equal(t, "1", fn.Body.(ir.BasicLit).Value)
+	assert.Equal(t, token.INT, fn.Body.(ir.BasicLit).Kind)
 }

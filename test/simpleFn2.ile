@@ -1,0 +1,9 @@
+//ile:compilerTest main.AnotherInt() | int64(42)
+package main
+
+fn OneInt() Int {
+  42
+}
+fn AnotherInt() Int {
+  42
+}
