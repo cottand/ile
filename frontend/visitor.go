@@ -109,6 +109,24 @@ func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 		// we will deal with in ExitPrimaryExpr
 		return
 	}
+	if ctx.GetAdd_op() != nil {
+		rhs, err := l.popExpr()
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, err)
+			return
+		}
+		lhs, err := l.popExpr()
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, err)
+			return
+		}
+		l.expressionStack = append(l.expressionStack, ir.BinaryOpExpr{
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+			Op:    parser.IleTokenInGo[ctx.GetAdd_op().GetTokenType()],
+			Lhs:   lhs,
+			Rhs:   rhs,
+		})
+	}
 }
 
 func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
@@ -234,7 +252,7 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 			typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
 			typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
 		} else {
-			typeLit.Name = typeName.QualifiedIdent().GetText()
+			typeLit.Name = typeName.GetText()
 		}
 
 		l.typeStack = append(l.typeStack, typeLit)

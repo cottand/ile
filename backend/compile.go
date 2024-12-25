@@ -73,8 +73,20 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 			Kind:  e.Kind,
 			Value: e.Value,
 		}, nil
+
+	case ir.BinaryOpExpr:
+		lhs, err1 := transpileExpr(e.Lhs)
+		rhs, err2 := transpileExpr(e.Rhs)
+		if err1 != nil || err2 != nil {
+			return nil, errors.Join(err1, err2)
+		}
+		return &ast.BinaryExpr{
+			X:  lhs,
+			Y:  rhs,
+			Op: e.Op,
+		}, nil
 	default:
-		return nil, fmt.Errorf("unexpected type %v", reflect.TypeOf(expr))
+		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}
 }
 
@@ -168,15 +180,16 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 	var statements []ast.Stmt
 	var finalExpr ast.Expr
 	switch e := expr.(type) {
+	// add non inlineable Exprs here!
+
 	// some ir.Expr we can inline directly to a Go expression and return that
-	case ir.BasicLit:
+	case ir.BasicLit, ir.BinaryOpExpr:
 		goExpr, err := transpileExpr(e)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)
 		}
 		finalExpr = goExpr
 	default:
-		return nil, fmt.Errorf("unexpected expr type %v", e)
 	}
 
 	var finalStatement ast.Stmt

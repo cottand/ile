@@ -6,5 +6,7 @@ import (
 
 func InferencePhase(file ir.File) (ir.File, []ir.CompileError) {
 	var cErrs = make([]ir.CompileError, 0)
-	return file.TypeInfer(), cErrs
+	file, _ = file.TypeInfer()
+	// TODO hadle error from failed inference as an ir.CompilerErr
+	return file, cErrs
 }

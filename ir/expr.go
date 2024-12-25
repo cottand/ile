@@ -1,6 +1,8 @@
 package ir
 
-import "go/token"
+import (
+	"go/token"
+)
 
 type Expr interface {
 	Node
@@ -15,3 +17,12 @@ type BasicLit struct {
 }
 
 func (BasicLit) exprNode() {}
+
+
+type BinaryOpExpr struct {
+	Range
+	Op       token.Token
+	Lhs, Rhs Expr
+}
+
+func (BinaryOpExpr) exprNode() {}

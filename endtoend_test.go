@@ -13,7 +13,7 @@ import (
 
 // embeds the test folder
 //
-//go:embed test
+//go:embed test/*.ile
 var testSet embed.FS
 
 // format is as follows:
@@ -61,7 +61,6 @@ func TestAllEndToEnd(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.True(t, resExpected.Equal(resActual), "not equal: expected=%v actual=%v ", resExpected, resActual)
-
 		})
 	}
 }
