@@ -4,12 +4,12 @@ go 1.23.3
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
+	github.com/chewxy/hm v1.0.0
 	github.com/stretchr/testify v1.10.0
 	github.com/traefik/yaegi v0.16.1
 )
 
 require (
-	github.com/chewxy/hm v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

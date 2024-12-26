@@ -121,7 +121,7 @@ func transpileFunctionDecls(fs []ir.FuncDecl) ([]ast.Decl, error) {
 			continue
 		}
 
-		body, err := transpileExpressionToStatements(irFunc.Body, "return")
+		body, err := transpileExpressionToStatements(irFunc.BodyLit, "return")
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -140,7 +140,7 @@ func transpileFunctionDecls(fs []ir.FuncDecl) ([]ast.Decl, error) {
 			}
 		}
 		goDecl := ast.FuncDecl{
-			Name: ast.NewIdent(irFunc.Name),
+			Name: ast.NewIdent(irFunc.NameLit),
 			Type: &ast.FuncType{
 				Params:  &paramDecl,
 				Results: resultList,
@@ -175,11 +175,11 @@ func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
 func transpileType(t ir.Type) (ast.Expr, error) {
 	switch e := t.(type) {
 	case ir.TypeLit:
-		goEquivalent, ok := ileToGoTypes[e.Name]
+		goEquivalent, ok := ileToGoTypes[e.NameLit]
 		if ok {
 			return ast.NewIdent(goEquivalent), nil
 		}
-		return ast.NewIdent(e.Name), nil
+		return ast.NewIdent(e.NameLit), nil
 	default:
 		return nil, fmt.Errorf("unexpected ir.Type type: %v", e)
 	}

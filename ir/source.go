@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"github.com/cottand/ile/ir/hm"
 	"go/token"
 )
 
@@ -36,17 +37,3 @@ type ValDecl struct {
 	T    Type
 }
 
-type FuncDecl struct {
-	Range
-	Name   string
-	Params []ParamDecl
-	Body   Expr
-	// consider multiple returns
-	Result Type
-}
-
-type ParamDecl struct {
-	Range
-	Name Ident
-	T    Type
-}

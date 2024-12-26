@@ -215,9 +215,9 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 
 func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 	fun := ir.FuncDecl{
-		Range:  intervalTo2Pos(ctx.GetSourceInterval()),
-		Name:   ctx.IDENTIFIER().GetText(),
-		Params: l.popAllParamDecl(),
+		Range:   intervalTo2Pos(ctx.GetSourceInterval()),
+		NameLit: ctx.IDENTIFIER().GetText(),
+		Params:  l.popAllParamDecl(),
 	}
 	defer func() {
 		l.file.Functions = append(l.file.Functions, fun)
@@ -225,10 +225,10 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 
 	expr, err := l.popExpr()
 	if err != nil {
-		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse an expression, but none found in function %v: %v", fun.Name, err))
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse an expression, but none found in function %v: %v", fun.NameLit, err))
 		return
 	}
-	fun.Body = expr
+	fun.BodyLit = expr
 	if ctx.Signature().Result() != nil {
 		retT, err := l.popFunctionReturnType()
 		if err != nil {
@@ -276,9 +276,9 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 		}
 		if typeName.QualifiedIdent() != nil {
 			typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
-			typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
+			typeLit.NameLit = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
 		} else {
-			typeLit.Name = typeName.GetText()
+			typeLit.NameLit = typeName.GetText()
 		}
 
 		l.typeStack = append(l.typeStack, typeLit)

@@ -107,15 +107,15 @@ func TestFunctionDecl(t *testing.T) {
 		PkgName: "main",
 		Functions: []ir.FuncDecl{
 			{
-				Name: "OneInt",
+				NameLit: "OneInt",
 				Params: []ir.ParamDecl{
 					{
 						Name: ir.Ident{Name: "a"},
-						T:    ir.TypeLit{Name: "Int"},
+						T:    ir.TypeLit{NameLit: "Int"},
 					},
 				},
-				Result: ir.TypeLit{Name: "Int"},
-				Body: ir.BasicLitExpr{
+				Result: ir.TypeLit{NameLit: "Int"},
+				BodyLit: ir.BasicLitExpr{
 					Kind:  token.INT,
 					Value: "32",
 				},

@@ -77,7 +77,7 @@ fn hello() { 1 }
 
 	assert.Len(t, src.Functions, 1)
 	fst := src.Functions[0]
-	assert.Equal(t, "hello", fst.Name)
+	assert.Equal(t, "hello", fst.NameLit)
 }
 
 func TestListener_ExitFunctionDeclParams(t *testing.T) {
@@ -90,13 +90,13 @@ fn hello(i Int, ii Int) { 1 }
 
 	assert.Len(t, src.Functions, 1)
 	fn := src.Functions[0]
-	assert.Equal(t, "hello", fn.Name)
+	assert.Equal(t, "hello", fn.NameLit)
 
 	assert.Len(t, fn.Params, 2)
 	assert.Equal(t, "i", fn.Params[0].Name.Name)
 	assert.Equal(t, "ii", fn.Params[1].Name.Name)
 
-	assert.Equal(t, "Int", fn.Params[0].T.(ir.TypeLit).Name)
+	assert.Equal(t, "Int", fn.Params[0].T.(ir.TypeLit).NameLit)
 }
 
 func TestExitFunction_Body(t *testing.T) {
@@ -110,7 +110,7 @@ fn hello(i Int, ii Int) { 1 }
 	assert.Len(t, src.Functions, 1)
 	fn := src.Functions[0]
 
-	assert.IsType(t, ir.BasicLitExpr{}, fn.Body)
-	assert.Equal(t, "1", fn.Body.(ir.BasicLitExpr).Value)
-	assert.Equal(t, token.INT, fn.Body.(ir.BasicLitExpr).Kind)
+	assert.IsType(t, ir.BasicLitExpr{}, fn.BodyLit)
+	assert.Equal(t, "1", fn.BodyLit.(ir.BasicLitExpr).Value)
+	assert.Equal(t, token.INT, fn.BodyLit.(ir.BasicLitExpr).Kind)
 }

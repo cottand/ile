@@ -7,6 +7,7 @@ import (
 	"reflect"
 )
 
+
 // Universe keeps track of identName -> Type
 // and can mutate it freely
 type Universe struct {
@@ -72,7 +73,7 @@ func TypeInfer(u Universe, expr Expr) (t Type, errs []*CompileError) {
 
 	case IdentifierLitExpr:
 		if u.Has(t.Ident) {
-			
+
 		}
 		// TODO validate that it must be in u
 
@@ -89,14 +90,14 @@ func TypeInfer(u Universe, expr Expr) (t Type, errs []*CompileError) {
 			return lhs, errs
 		}
 
-		if !lhs.CanBinaryOp(rhs) {
-			return lhs, []*CompileError{{
-				At:      t.Range,
-				Message: fmt.Sprintf("invalid operation: type mismatch for (%v) and (%v)", lhs, rhs),
-			}}
-		}
+		//if !lhs.CanBinaryOp(rhs) {
+		//	return lhs, []*CompileError{{
+		//		At:      t.Range,
+		//		Message: fmt.Sprintf("invalid operation: type mismatch for (%v) and (%v)", lhs, rhs),
+		//	}}
+		//}
 		if t.IsBoolOp() {
-			return TypeLit{Name: "Bool"}, nil
+			return TypeLit{NameLit: "Bool"}, nil
 		}
 		return lhs, nil
 	default:
@@ -111,9 +112,9 @@ func TypeInfer(u Universe, expr Expr) (t Type, errs []*CompileError) {
 func (e BasicLitExpr) TypeInfer() (Type, *CompileError) {
 	switch e.Kind {
 	case token.INT:
-		return TypeLit{Name: "Int"}, nil
+		return TypeLit{NameLit: "Int"}, nil
 	case token.STRING:
-		return TypeLit{Name: "String"}, nil
+		return TypeLit{NameLit: "String"}, nil
 	default:
 
 	}
