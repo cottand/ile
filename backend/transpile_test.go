@@ -51,14 +51,14 @@ func TestVarDecl(t *testing.T) {
 		Values: []ir.ValDecl{
 			{
 				Name: "Hello",
-				E: ir.BasicLit{
+				E: ir.BasicLitExpr{
 					Kind:  token.INT,
 					Value: "1",
 				},
 			},
 			{
 				Name: "Bye",
-				E: ir.BasicLit{
+				E: ir.BasicLitExpr{
 					Kind:  token.INT,
 					Value: "2",
 				},
@@ -78,7 +78,7 @@ func TestVarDecl(t *testing.T) {
 }
 
 func TestIntDecl(t *testing.T) {
-	v := evalExpr(t, ir.BasicLit{
+	v := evalExpr(t, ir.BasicLitExpr{
 		Kind:  token.INT,
 		Value: "2",
 	})
@@ -87,14 +87,14 @@ func TestIntDecl(t *testing.T) {
 }
 
 func TestStringDecl(t *testing.T) {
-	v := evalExpr(t, ir.BasicLit{
+	v := evalExpr(t, ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: `"aa"`,
 	})
 
 	assert.Equal(t, "aa", v.String())
 
-	v = evalExpr(t, ir.BasicLit{
+	v = evalExpr(t, ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: "`aa`",
 	})
@@ -115,7 +115,7 @@ func TestFunctionDecl(t *testing.T) {
 					},
 				},
 				Result: ir.TypeLit{Name: "Int"},
-				Body: ir.BasicLit{
+				Body: ir.BasicLitExpr{
 					Kind:  token.INT,
 					Value: "32",
 				},

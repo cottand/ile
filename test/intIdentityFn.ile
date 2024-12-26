@@ -1,0 +1,6 @@
+//ile:compilerTest main.IntId(923) | int64(923)
+package main
+
+fn IntId(a Int) Int {
+  a
+}

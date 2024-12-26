@@ -11,6 +11,13 @@ import (
 
 const goVersion = "1.23.3"
 
+var ileToGoTypes = map[string]string{
+	"Int":    "int64",
+	"String": "string",
+	"Float":  "float64",
+	"Bool":   "bool",
+}
+
 func TranspileFile(file ir.File) (*ast.File, error) {
 	var decls []ast.Decl
 	var declarations *ast.GenDecl
@@ -68,11 +75,25 @@ func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
 
 func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 	switch e := expr.(type) {
-	case ir.BasicLit:
-		return &ast.BasicLit{
-			Kind:  e.Kind,
-			Value: e.Value,
-		}, nil
+	case ir.BasicLitExpr:
+		switch e.Kind {
+		case token.STRING:
+			return &ast.BasicLit{
+				Kind: e.Kind,
+				// TODO reconsider escaping!
+				Value: "`" + e.Value + "`",
+			}, nil
+		case token.INT:
+			return &ast.BasicLit{
+				Kind:  e.Kind,
+				Value: e.Value,
+			}, nil
+		default:
+			return nil, fmt.Errorf("for basicLit expr, unexpected type %v", reflect.TypeOf(expr))
+		}
+
+	case ir.IdentifierLitExpr:
+		return ast.NewIdent(e.Name), nil
 
 	case ir.BinaryOpExpr:
 		lhs, err1 := transpileExpr(e.Lhs)
@@ -151,12 +172,6 @@ func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
 	return fieldList, errors.Join(errs...)
 }
 
-var ileToGoTypes = map[string]string{
-	"Int":    "int64",
-	"String": "string",
-	"Float":  "float64",
-}
-
 func transpileType(t ir.Type) (ast.Expr, error) {
 	switch e := t.(type) {
 	case ir.TypeLit:
@@ -183,7 +198,7 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 	// add non inlineable Exprs here!
 
 	// some ir.Expr we can inline directly to a Go expression and return that
-	case ir.BasicLit, ir.BinaryOpExpr:
+	case ir.BasicLitExpr, ir.BinaryOpExpr, ir.IdentifierLitExpr:
 		goExpr, err := transpileExpr(e)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)

@@ -17,12 +17,6 @@ type Range struct {
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }
 
-type CompileError struct {
-	Message string
-	At      *Node
-	// TODO suggestions?
-}
-
 type Ident struct {
 	Range
 	Name string

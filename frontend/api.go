@@ -10,7 +10,7 @@ import (
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
 // See ParseToIR
-func ParseToAST(input string) (ir.File, []ir.CompileError, error) {
+func ParseToAST(input string) (ir.File, []*ir.CompileError, error) {
 	iStream := antlr.NewInputStream(input)
 	lexer := parser.NewIleLexer(iStream)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
@@ -32,7 +32,7 @@ func ParseToAST(input string) (ir.File, []ir.CompileError, error) {
 
 // ParseToIR is like ParseToAST but does any additional processing needed
 // to produce valid and correct Go code
-func ParseToIR(input string) (ir.File, []ir.CompileError, error) {
+func ParseToIR(input string) (ir.File, []*ir.CompileError, error) {
 	file, compileErrors, err := ParseToAST(input)
 	if err != nil {
 		return ir.File{}, compileErrors, err

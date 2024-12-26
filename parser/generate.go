@@ -48,17 +48,17 @@ var IleTokenInGo = map[int]token.Token {
 	//IleParserDOT                    = 23
 	//IleParserPLUS_PLUS              = 24
 	//IleParserMINUS_MINUS            = 25
-	//IleParserELLIPSIS               = 26
-	//IleParserLOGICAL_OR             = 27
-	//IleParserLOGICAL_AND            = 28
-	//IleParserEQUALS                 = 29
-	//IleParserNOT_EQUALS             = 30
-	//IleParserLESS                   = 31
-	//IleParserLESS_OR_EQUALS         = 32
-	//IleParserGREATER                = 33
-	//IleParserGREATER_OR_EQUALS      = 34
+	//IleParserELLIPSIS               = 2
+	IleParserLOGICAL_OR             : token.OR,
+	IleParserLOGICAL_AND            : token.AND,
+	IleParserEQUALS                 : token.EQL,
+	IleParserNOT_EQUALS             : token.NEQ,
+	IleParserLESS                   : token.LSS,
+	IleParserLESS_OR_EQUALS         : token.LEQ,
+	IleParserGREATER                : token.GTR,
+	IleParserGREATER_OR_EQUALS      : token.GEQ,
 	//IleParserOR                     = 35
-	//IleParserDIV                    = 36
+	IleParserDIV                    : token.QUO,
 	//IleParserMOD                    = 37
 	//IleParserLSHIFT                 = 38
 	//IleParserRSHIFT                 = 39
@@ -68,7 +68,7 @@ var IleTokenInGo = map[int]token.Token {
 	IleParserPLUS                   : token.ADD,
 	IleParserMINUS                  : token.SUB,
 	//IleParserCARET                  = 45
-	//IleParserSTAR                   = 46
+	IleParserSTAR                   : token.MUL,
 	//IleParserAMPERSAND              = 47
 	//IleParserRECEIVE                = 48
 	//IleParserDECIMAL_LIT            = 49

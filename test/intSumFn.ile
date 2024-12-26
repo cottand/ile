@@ -1,0 +1,6 @@
+//ile:compilerTest main.IntId(1) | int64(42)
+package main
+
+fn IntId(a Int) Int {
+  a + 10 * 4 + 1
+}

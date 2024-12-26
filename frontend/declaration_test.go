@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func testAntlrParse(t *testing.T, input string) (ir.File, []ir.CompileError) {
+func testAntlrParse(t *testing.T, input string) (ir.File, []*ir.CompileError) {
 	f, cErrs, errs := ParseToAST(input)
 	assert.NoError(t, errs)
 	return f, cErrs
@@ -45,9 +45,9 @@ hello = 1
 	assert.Len(t, src.Values, 1)
 	fst := src.Values[0]
 	assert.Equal(t, "hello", fst.Name)
-	assert.IsType(t, ir.BasicLit{}, fst.E)
-	assert.Equal(t, "1", fst.E.(ir.BasicLit).Value)
-	assert.Equal(t, token.INT, fst.E.(ir.BasicLit).Kind)
+	assert.IsType(t, ir.BasicLitExpr{}, fst.E)
+	assert.Equal(t, "1", fst.E.(ir.BasicLitExpr).Value)
+	assert.Equal(t, token.INT, fst.E.(ir.BasicLitExpr).Kind)
 }
 
 func TestStrLiteral(t *testing.T) {
@@ -61,9 +61,9 @@ hello = "aa"
 	assert.Len(t, src.Values, 1)
 	fst := src.Values[0]
 	assert.Equal(t, "hello", fst.Name)
-	assert.IsType(t, ir.BasicLit{}, fst.E)
-	assert.Equal(t, token.STRING, fst.E.(ir.BasicLit).Kind)
-	assert.Equal(t, "aa", fst.E.(ir.BasicLit).Value)
+	assert.IsType(t, ir.BasicLitExpr{}, fst.E)
+	assert.Equal(t, token.STRING, fst.E.(ir.BasicLitExpr).Kind)
+	assert.Equal(t, "aa", fst.E.(ir.BasicLitExpr).Value)
 }
 
 func TestListener_ExitFunctionDecl(t *testing.T) {
@@ -110,7 +110,7 @@ fn hello(i Int, ii Int) { 1 }
 	assert.Len(t, src.Functions, 1)
 	fn := src.Functions[0]
 
-	assert.IsType(t, ir.BasicLit{}, fn.Body)
-	assert.Equal(t, "1", fn.Body.(ir.BasicLit).Value)
-	assert.Equal(t, token.INT, fn.Body.(ir.BasicLit).Kind)
+	assert.IsType(t, ir.BasicLitExpr{}, fn.Body)
+	assert.Equal(t, "1", fn.Body.(ir.BasicLitExpr).Value)
+	assert.Equal(t, token.INT, fn.Body.(ir.BasicLitExpr).Kind)
 }

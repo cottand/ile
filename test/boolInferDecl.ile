@@ -1,0 +1,4 @@
+//ile:compilerTest main.SomeVal | true
+package main
+
+SomeVal = 32 > (1 + 2)

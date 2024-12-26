@@ -1,11 +1,14 @@
 package ile
 
 import (
+	"bytes"
 	"embed"
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/interp"
+	"go/format"
+	"go/token"
 	"path"
 	"strings"
 	"testing"
@@ -47,9 +50,14 @@ func TestAllEndToEnd(t *testing.T) {
 			goAst, err := backend.TranspileFile(transpiled)
 			assert.NoError(t, err)
 
-			prog, err := i.CompileAST(goAst)
-			assert.NoError(t, err)
+			sourceBuf := bytes.NewBuffer(nil)
 
+			prog, err := i.CompileAST(goAst)
+			if err != nil {
+				// Print the generated Go code
+				_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
+				t.Fatalf("could not compile AST: %v\n%v", err, sourceBuf.String())
+			}
 			_, err = i.Execute(prog)
 			assert.NoError(t, err)
 

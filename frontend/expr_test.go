@@ -5,6 +5,8 @@ import (
 	"github.com/cottand/ile/ir"
 	"github.com/stretchr/testify/assert"
 	"go/token"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -22,12 +24,40 @@ a = %s
 	})
 }
 
+func testBadExpr(t *testing.T, expr string, containsErr ...string) {
+	t.Run("failing expression "+expr, func(t *testing.T) {
+		f := fmt.Sprintf(`
+package main
+
+a = %s
+
+`, expr)
+
+		_, cErrs, err := ParseToIR(f)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, cErrs)
+		messages := make([]string, 0)
+		found := slices.ContainsFunc(cErrs, func(err *ir.CompileError) bool {
+			messages = append(messages, err.Message)
+			for _, c := range containsErr {
+				if !strings.Contains(err.Message, c) {
+					return false
+				}
+			}
+			return true
+		})
+		if !found {
+			t.Fatalf("expected to find %s in %v", containsErr, messages)
+		}
+	})
+}
+
 func assertTypesEqual(t *testing.T, parentExp string, expected ir.Expr, actual ir.Expr) {
 	assert.IsType(t, expected, actual)
 
 	switch expected := expected.(type) {
-	case ir.BasicLit:
-		actual := actual.(ir.BasicLit)
+	case ir.BasicLitExpr:
+		actual := actual.(ir.BasicLitExpr)
 		assert.Equal(t, expected.Kind, actual.Kind, "original expr: "+parentExp)
 		assert.Equal(t, expected.Value, actual.Value, "original expr: "+parentExp)
 
@@ -37,23 +67,28 @@ func assertTypesEqual(t *testing.T, parentExp string, expected ir.Expr, actual i
 }
 
 func TestStringLits(t *testing.T) {
-	testExpr(t, `"aa"`, ir.BasicLit{
+	testExpr(t, `"aa"`, ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: "aa",
 	})
-	testExpr(t, "`aa`", ir.BasicLit{
+	testExpr(t, "`aa`", ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: "aa",
 	})
-	testExpr(t, "`aa\n`", ir.BasicLit{
+	testExpr(t, "`aa\n`", ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: "aa\n",
 	})
 }
 func TestStringEscapingLits(t *testing.T) {
 	t.Skip("TODO string escaping")
-	testExpr(t, `"aa\n"`, &ir.BasicLit{
+	testExpr(t, `"aa\n"`, &ir.BasicLitExpr{
 		Kind:  token.STRING,
 		Value: "aa\n",
 	})
+}
+
+func TestBadBinaryOps(t *testing.T) {
+	testBadExpr(t, `1 + "a"`, "type mismatch", "Int", "String")
+	testBadExpr(t, `1 + a`, "undefined variable", "a")
 }

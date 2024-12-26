@@ -1,0 +1,6 @@
+//ile:compilerTest main.SomeVal+main.OtherVal | "aabbccdd"
+package main
+
+SomeVal = "aa" + "bb"
+
+OtherVal String = "cc" + "dd"

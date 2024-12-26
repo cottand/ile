@@ -124,7 +124,13 @@ primaryExpr
 
 operand
     : literal
+    | operandName // typeArgs?
+
     | L_PAREN expression R_PAREN
+    ;
+
+operandName
+    : IDENTIFIER
     ;
 
 literal

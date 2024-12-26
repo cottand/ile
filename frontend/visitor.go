@@ -19,7 +19,7 @@ type listener struct {
 	*parser.BaseIleParserListener
 
 	file   ir.File
-	errors []ir.CompileError
+	errors []*ir.CompileError
 
 	visitErrors []error
 
@@ -69,7 +69,7 @@ func (l *listener) popType() (ir.Type, error) {
 	return l.typeStack[lastIndex], nil
 }
 
-func (l *listener) Result() (ir.File, []ir.CompileError) {
+func (l *listener) Result() (ir.File, []*ir.CompileError) {
 	return l.file, l.errors
 }
 
@@ -109,24 +109,41 @@ func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 		// we will deal with in ExitPrimaryExpr
 		return
 	}
-	if ctx.GetAdd_op() != nil {
-		rhs, err := l.popExpr()
-		if err != nil {
-			l.visitErrors = append(l.visitErrors, err)
-			return
-		}
-		lhs, err := l.popExpr()
-		if err != nil {
-			l.visitErrors = append(l.visitErrors, err)
-			return
-		}
-		l.expressionStack = append(l.expressionStack, ir.BinaryOpExpr{
-			Range: intervalTo2Pos(ctx.GetSourceInterval()),
-			Op:    parser.IleTokenInGo[ctx.GetAdd_op().GetTokenType()],
-			Lhs:   lhs,
-			Rhs:   rhs,
-		})
+
+	var binOp int
+	switch {
+	case ctx.GetAdd_op() != nil:
+		binOp = ctx.GetAdd_op().GetTokenType()
+	case ctx.GetMul_op() != nil:
+		binOp = ctx.GetMul_op().GetTokenType()
+	case ctx.GetRel_op() != nil:
+		binOp = ctx.GetRel_op().GetTokenType()
+	case ctx.LOGICAL_OR() != nil:
+		binOp = ctx.LOGICAL_OR().GetSymbol().GetTokenType()
+	case ctx.LOGICAL_AND() != nil:
+		binOp = ctx.LOGICAL_AND().GetSymbol().GetTokenType()
+
+	default:
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("unexpected binary operator: %v", ctx.GetText()))
+		return
 	}
+
+	rhs, err := l.popExpr()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, err)
+		return
+	}
+	lhs, err := l.popExpr()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, err)
+		return
+	}
+	l.expressionStack = append(l.expressionStack, ir.BinaryOpExpr{
+		Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		Op:    parser.IleTokenInGo[binOp],
+		Lhs:   lhs,
+		Rhs:   rhs,
+	})
 }
 
 func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
@@ -145,6 +162,15 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 		// we will deal with in ExitLiteral
 		return
 	}
+	// TODO qualified operands!
+	if ctx.OperandName() != nil {
+		l.expressionStack = append(l.expressionStack, ir.IdentifierLitExpr{
+			Ident: ir.Ident{
+				Range: intervalTo2Pos(ctx.GetSourceInterval()),
+				Name:  ctx.GetText(),
+			},
+		})
+	}
 }
 
 func intervalTo2Pos(i antlr.Interval) ir.Range {
@@ -157,7 +183,7 @@ func intervalTo2Pos(i antlr.Interval) ir.Range {
 func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	if s := ctx.String_(); s != nil {
 		if strLit := s.RAW_STRING_LIT(); strLit != nil {
-			l.expressionStack = append(l.expressionStack, ir.BasicLit{
+			l.expressionStack = append(l.expressionStack, ir.BasicLitExpr{
 				Kind:  token.STRING,
 				Value: strings.Trim(strLit.GetText(), "`"),
 				Range: intervalTo2Pos(ctx.GetSourceInterval()),
@@ -165,7 +191,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 			return
 		}
 		if strLit := s.INTERPRETED_STRING_LIT(); strLit != nil {
-			l.expressionStack = append(l.expressionStack, ir.BasicLit{
+			l.expressionStack = append(l.expressionStack, ir.BasicLitExpr{
 				Kind:  token.STRING,
 				Value: strings.Trim(strLit.GetText(), "\""),
 				Range: intervalTo2Pos(ctx.GetSourceInterval()),
@@ -175,7 +201,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	}
 
 	if ctx.Integer() != nil {
-		l.expressionStack = append(l.expressionStack, ir.BasicLit{
+		l.expressionStack = append(l.expressionStack, ir.BasicLitExpr{
 			Range: intervalTo2Pos(ctx.GetSourceInterval()),
 			Kind:  token.INT,
 			Value: ctx.Integer().GetText(),
@@ -265,12 +291,12 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, ir.CompileError{
+	l.errors = append(l.errors, &ir.CompileError{
 		Message: "error at: " + node.GetText(),
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {
-	l.errors = append(l.errors, ir.CompileError{
-		Message: "terminal at: " + node.GetText(),
-	})
+	//l.errors = append(l.errors, &ir.CompileError{
+	//	Message: "terminal at: " + node.GetText(),
+	//})
 }
