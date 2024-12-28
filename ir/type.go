@@ -49,7 +49,31 @@ func (t TypeLit) Format(s fmt.State, c rune) { _, _ = fmt.Fprintf(s, t.String())
 // ---------
 
 type FuncType struct {
+	Range
+	*hm.FunctionType
 	Params []Type
 	Result Type
 }
+
+func NewFuncType(params []Type, result Type) FuncType {
+	if params == nil {
+		params = []Type{TypeLit{NameLit: "Nil"}}
+	}
+	newSlice := make([]hm.Type, len(params)+1)
+	// copy slice
+	for i, p := range params {
+		newSlice[i] = p
+	}
+	newSlice[len(params)] = result
+
+	return FuncType{
+		FunctionType: hm.NewFnType(newSlice...),
+		Params:       params,
+		Result:       result,
+	}
+}
+
 func (FuncType) typeNode() {}
+func (f FuncType) String() string {
+	return fmt.Sprintf("(%s)", f.FunctionType.String())
+}

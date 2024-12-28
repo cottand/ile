@@ -140,7 +140,7 @@ func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 	}
 	l.expressionStack = append(l.expressionStack, ir.BinaryOpExpr{
 		Range: intervalTo2Pos(ctx.GetSourceInterval()),
-		Op:    parser.IleTokenInGo[binOp],
+		Op:    ir.PrimOp(parser.IleTokenInGo[binOp]),
 		Lhs:   lhs,
 		Rhs:   rhs,
 	})

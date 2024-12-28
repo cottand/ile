@@ -52,10 +52,14 @@ func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
 			errs = append(errs, err)
 			continue
 		}
-		type_, err := transpileType(rawVar.T)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		var type_ ast.Expr
+		if rawVar.T != nil {
+			type_, err = transpileType(rawVar.T)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+
 		}
 		spec := &ast.ValueSpec{
 			Names: []*ast.Ident{
@@ -93,7 +97,7 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 		}
 
 	case ir.IdentifierLitExpr:
-		return ast.NewIdent(e.Name), nil
+		return ast.NewIdent(e.Ident.Name), nil
 
 	case ir.BinaryOpExpr:
 		lhs, err1 := transpileExpr(e.Lhs)
@@ -104,7 +108,7 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 		return &ast.BinaryExpr{
 			X:  lhs,
 			Y:  rhs,
-			Op: e.Op,
+			Op: e.Op.Token(),
 		}, nil
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))

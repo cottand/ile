@@ -23,7 +23,7 @@ type BasicLitExpr struct {
 	Value string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
 }
 
-func (BasicLitExpr) exprNode() {}
+func (BasicLitExpr) exprNode()             {}
 func (e BasicLitExpr) Body() hm.Expression { return e }
 func (e BasicLitExpr) Name() string        { return e.Value }
 func (e BasicLitExpr) Type() hm.Type {
@@ -48,8 +48,6 @@ type BinaryOpExpr struct {
 
 func (BinaryOpExpr) exprNode() {}
 
-//func (BinaryOpExpr) String() string { return "+" }
-
 // IsBoolOp returns true when the operation returns a Bool regardless
 // of whether its LHS and RHS are booleans (for example, 3 > 4)
 func (op BinaryOpExpr) IsBoolOp() bool {
@@ -63,27 +61,31 @@ func (op BinaryOpExpr) IsBoolOp() bool {
 func (op BinaryOpExpr) Fn() hm.Expression {
 	return unaryApplication{
 		f:   op.Op,
-		arg: op.Rhs.(BasicLitExpr),
+		arg: op.Rhs,
 	}
 }
 func (op BinaryOpExpr) Body() hm.Expression { return op.Lhs }
 func (op BinaryOpExpr) Arg() hm.Expression  { return op.Lhs }
-func (op BinaryOpExpr) IsLambda() bool      { return true }
-
 
 // ----------------------------------------------
 
 type IdentifierLitExpr struct {
-	Ident
+	Range
+	NameLit   string
+	KnownType Type
 }
 
-func (IdentifierLitExpr) exprNode() {}
+func (IdentifierLitExpr) exprNode()             {}
+func (e IdentifierLitExpr) Name() string        { return "ident:" + e.NameLit }
+func (e IdentifierLitExpr) Body() hm.Expression { return e }
+func (e IdentifierLitExpr) Type() hm.Type       { return nil }
 
-func (e IdentifierLitExpr) Body() hm.Expression {
-	//TODO implement me
-	panic("implement me")
+func (e IdentifierLitExpr) AsIdent() Ident {
+	return Ident{
+		Range: e.Range,
+		Name:  e.NameLit,
+	}
 }
-
 
 // --------------------------------
 
@@ -102,4 +104,3 @@ func (n unaryApplication) Body() hm.Expression { return n.arg }
 func (n unaryApplication) Arg() hm.Expression  { return n.arg }
 
 // ------------------------------
-

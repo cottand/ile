@@ -15,6 +15,12 @@ type Inferer interface {
 	Infer(Env, Fresher) (Type, error)
 }
 
+// A PartialInferer is capable of somewhat guessing its own Type, which can then
+// be unified
+type PartialInferer interface {
+	InferPartial(Env, Fresher) (Type, error)
+}
+
 // An Expression is basically an AST node. In its simplest form, it's lambda calculus
 type Expression interface {
 	Body() Expression

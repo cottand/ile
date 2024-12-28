@@ -8,9 +8,12 @@ type FunctionType struct {
 }
 
 // NewFnType creates a new FunctionType. Functions are by default right associative. This:
-//		NewFnType(a, a, a)
+//
+//	NewFnType(a, a, a)
+//
 // is short hand for this:
-// 		NewFnType(a, NewFnType(a, a))
+//
+//	NewFnType(a, NewFnType(a, a))
 func NewFnType(ts ...Type) *FunctionType {
 	if len(ts) < 2 {
 		panic("Expected at least 2 input types")
@@ -34,9 +37,15 @@ func (t *FunctionType) Apply(sub Subs) Substitutable {
 	return t
 }
 
-func (t *FunctionType) FreeTypeVar() TypeVarSet    { return t.a.FreeTypeVar().Union(t.b.FreeTypeVar()) }
-func (t *FunctionType) Format(s fmt.State, c rune) { fmt.Fprintf(s, "%v → %v", t.a, t.b) }
-func (t *FunctionType) String() string             { return fmt.Sprintf("%v", t) }
+func (t *FunctionType) FreeTypeVar() TypeVarSet { return t.a.FreeTypeVar().Union(t.b.FreeTypeVar()) }
+func (t *FunctionType) Format(s fmt.State, c rune) {
+	if _, ok := t.a.(*FunctionType); ok {
+		fmt.Fprintf(s, "(%v) → %v", t.a, t.b)
+	} else {
+		fmt.Fprintf(s, "%v → %v", t.a, t.b)
+	}
+}
+func (t *FunctionType) String() string { return fmt.Sprintf("%v", t) }
 func (t *FunctionType) Normalize(k, v TypeVarSet) (Type, error) {
 	var a, b Type
 	var err error
@@ -59,6 +68,9 @@ func (t *FunctionType) Types() Types {
 
 func (t *FunctionType) Eq(other Type) bool {
 	if ot, ok := other.(*FunctionType); ok {
+		if ot.a == nil || ot.b == nil {
+			panic("malformed funcType with nil to or from types")
+		}
 		return ot.a.Eq(t.a) && ot.b.Eq(t.b)
 	}
 	return false

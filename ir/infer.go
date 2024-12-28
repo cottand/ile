@@ -2,124 +2,82 @@ package ir
 
 import (
 	"fmt"
-	"go/token"
-	"log/slog"
+	"github.com/cottand/ile/ir/hm"
 	"reflect"
 )
 
-
-// Universe keeps track of identName -> Type
-// and can mutate it freely
-type Universe struct {
-	idents map[string]Type
+// InferEnv maps literals to general types, like: isZero: Float -> Bool
+var InferEnv = func() hm.SimpleEnv {
+	// only lits are looked up here!
+	return hm.SimpleEnv{}
 }
 
-func (u *Universe) Has(i Ident) bool {
-	_, ok := u.idents[i.Name]
-	return ok
-}
-
-func (u *Universe) TypeOf(i Ident) (Type, bool) {
-	t, ok := u.idents[i.Name]
-	return t, ok
-}
-
-// TypeInferrable is capable of producing a new node of itself
-// with additional type annotations
-// It should return itself if no inference could be performed.
-//
-// When N is not the leaf node of the AST, TypeInfer should be called
-// on children too
 type TypeInferrable[N Node] interface {
-	TypeInfer(u Universe) (N, []*CompileError)
+	TypeInfer() (N, []*CompileError)
 }
 
 type ExprInferrable[E Expr] interface {
-	TypeInfer(u Universe) (Type, []*CompileError)
+	TypeInfer() (Type, []*CompileError)
 }
 
-func (f File) TypeInfer(u Universe) (res File, errs []*CompileError) {
-	newVals := make([]ValDecl, 0)
-
-	for _, v := range f.Values {
-		inferredVal, err := v.TypeInfer(u)
-		if err != nil {
-			errs = append(errs, err...)
-			continue
-		}
-		newVals = append(newVals, inferredVal)
+func (f FuncDecl) TypeInfer() (Type, []*CompileError) {
+	scheme, err := hm.Infer(InferEnv(), f.ToTypeExpression(IdentifierLitExpr{
+		NameLit: f.NameLit,
+	}))
+	if err != nil {
+		return nil, []*CompileError{{}}
 	}
-	f.Values = newVals
-	return f, errs
+	t, _ := scheme.Type()
+	return convertInferred(t, len(f.Params)), nil
 }
 
-func (v ValDecl) TypeInfer(u Universe) (ValDecl, []*CompileError) {
-	if v.T != nil {
-		return v, nil
+func (f ValDecl) TypeInfer() (Type, []*CompileError) {
+	scheme, err := hm.Infer(InferEnv(), f.E)
+	if err != nil {
+		return nil, []*CompileError{{}}
 	}
-	var errs []*CompileError
-	v.T, errs = TypeInfer(u, v.E)
-	return v, errs
+	t, _ := scheme.Type()
+	return convertInferred(t, -1), nil
 }
 
-func TypeInfer(u Universe, expr Expr) (t Type, errs []*CompileError) {
-	switch t := expr.(type) {
-	case BasicLitExpr:
-		eT, err := t.TypeInfer()
-		if err != nil {
-			errs = append(errs, err)
-		}
-		return eT, errs
+func convertFuncType(t hm.FunctionType, nParams int, paramsFoundSoFar []Type) (params []Type) {
+	ts := t.Types()
+	t0 := ts[0]
+	t1 := ts[1]
 
-	case IdentifierLitExpr:
-		if u.Has(t.Ident) {
+	// then our first arg is Nil
+	if nParams == 0 {
+		return []Type{TypeLit{NameLit: "Nil"}, convertInferred(t1, -1)}
+	}
+	if nParams == 1 {
+		paramsFoundSoFar = append(paramsFoundSoFar, convertInferred(t0, -1), convertInferred(t1, -1))
+		return paramsFoundSoFar
+	}
+	// we have more than 1 param, so the return type will be
+	// of type (oneParam) -> T
+	// So we need to uncurry
+	ft, ok := t1.(*hm.FunctionType)
+	if !ok {
+		panic("unexpected no func type, got " + reflect.TypeOf(t1).String())
+	}
+	paramsFoundSoFar = append(paramsFoundSoFar, convertInferred(t0, -1))
+	return convertFuncType(*ft, nParams-1, paramsFoundSoFar)
+}
 
+func convertInferred(t hm.Type, funcTypeArgs int) Type {
+	switch t := t.(type) {
+	case *hm.FunctionType:
+		params := convertFuncType(*t, funcTypeArgs, nil)
+		return FuncType{
+			Params: params[:1],
+			Result: params[len(params)-1],
 		}
-		// TODO validate that it must be in u
-
-	case BinaryOpExpr:
-		lhs, err := TypeInfer(u, t.Lhs)
-		rhs, err2 := TypeInfer(u, t.Rhs)
-		if err != nil {
-			errs = append(errs, err...)
-		}
-		if err2 != nil {
-			errs = append(errs, err2...)
-		}
-		if lhs == nil || rhs == nil {
-			return lhs, errs
-		}
-
-		//if !lhs.CanBinaryOp(rhs) {
-		//	return lhs, []*CompileError{{
-		//		At:      t.Range,
-		//		Message: fmt.Sprintf("invalid operation: type mismatch for (%v) and (%v)", lhs, rhs),
-		//	}}
-		//}
-		if t.IsBoolOp() {
-			return TypeLit{NameLit: "Bool"}, nil
-		}
-		return lhs, nil
+	case TypeLit:
+		return t
+		// function generic!
+	case hm.TypeVariable:
+		return TypeLit{NameLit: "GENERIC_" + t.Name()}
 	default:
-		slog.Warn("ignoring inference attempt on unknown type", "type", reflect.TypeOf(expr))
-	}
-	return nil, []*CompileError{{
-		Message: "failed to infer on unknown types",
-		//At:      // TODO
-	}}
-}
-
-func (e BasicLitExpr) TypeInfer() (Type, *CompileError) {
-	switch e.Kind {
-	case token.INT:
-		return TypeLit{NameLit: "Int"}, nil
-	case token.STRING:
-		return TypeLit{NameLit: "String"}, nil
-	default:
-
-	}
-	return nil, &CompileError{
-		Message: fmt.Sprintf("unknown type for basic lit %v", e.Kind),
-		At:      e.Range,
+		panic(fmt.Sprintf("unexpected implementor of Type: %v", reflect.TypeOf(t)))
 	}
 }

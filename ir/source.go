@@ -1,7 +1,6 @@
 package ir
 
 import (
-	"github.com/cottand/ile/ir/hm"
 	"go/token"
 )
 
@@ -36,4 +35,3 @@ type ValDecl struct {
 	E    Expr
 	T    Type
 }
-

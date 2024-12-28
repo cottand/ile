@@ -52,6 +52,8 @@ func TestAllEndToEnd(t *testing.T) {
 
 			sourceBuf := bytes.NewBuffer(nil)
 
+			//_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
+			//t.Errorf("could not compile AST: %v\n%v", err, sourceBuf.String())
 			prog, err := i.CompileAST(goAst)
 			if err != nil {
 				// Print the generated Go code

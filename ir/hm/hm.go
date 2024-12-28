@@ -1,6 +1,8 @@
 package hm
 
-import "github.com/pkg/errors"
+import (
+	"github.com/pkg/errors"
+)
 
 // Cloner is any type that can clone
 type Cloner interface {
@@ -43,12 +45,18 @@ func (infer *inferer) lookup(name string) error {
 
 func (infer *inferer) consGen(expr Expression) (err error) {
 
+	var partiallyInferred Type
+
 	// explicit types/inferers - can fail
 	switch et := expr.(type) {
 	case Typer:
 		if infer.t = et.Type(); infer.t != nil {
 			return nil
 		}
+	case PartialInferer:
+		partiallyInferred, err = et.InferPartial(infer.env, infer)
+		err = nil // reset errors
+
 	case Inferer:
 		if infer.t, err = et.Infer(infer.env, infer); err == nil && infer.t != nil {
 			return nil
@@ -70,20 +78,45 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 		}
 
 	case Lambda:
-		tv := infer.Fresh()
 		env := infer.env // backup
+		var tv Type
 
-		infer.env = infer.env.Clone()
-		infer.env.Remove(et.Name())
-		sc := new(Scheme)
-		sc.t = tv
-		infer.env.Add(et.Name(), sc)
+		// allow type annotations:
+		existingS, ok := infer.env.SchemeOf(et.Name())
+		if ok {
+			tv = Instantiate(infer, existingS)
+		} else {
+			tv = infer.Fresh()
+
+			infer.env = infer.env.Clone()
+			infer.env.Remove(et.Name())
+			sc := new(Scheme)
+			sc.t = tv
+			infer.env.Add(et.Name(), sc)
+		}
 
 		if err = infer.consGen(et.Body()); err != nil {
 			return errors.Wrapf(err, "Unable to infer body of %v. BodyLit: %v", et, et.Body())
 		}
 
-		infer.t = NewFnType(tv, infer.t)
+		fnType := Type(NewFnType(tv, infer.t))
+
+		// this is a vestige of when I tried to implement 'partial inference'
+		// turns out the best way to do this is modifying the scheme, not randomly unifying stuff
+		if //goland:noinspection ALL
+		false && partiallyInferred != nil {
+			subs, err := Unify(fnType, partiallyInferred)
+			if err == nil {
+				fnType.Apply(subs)
+				partiallyInferred.Apply(subs)
+				if fnType.FreeTypeVar().Len() > partiallyInferred.FreeTypeVar().Len() {
+					fnType = partiallyInferred
+				}
+				infer.env.Apply(subs)
+			}
+		}
+
+		infer.t = fnType
 		infer.env = env // restore backup
 
 	case Apply:
@@ -120,7 +153,7 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 		s := newSolver()
 		s.solve(defCs)
 		if s.err != nil {
-			return errors.Wrapf(s.err, "Unable to solve constraints of def: %v", defCs)
+			return errors.Wrapf(s.err, "unable to solve constraints of def: %v", defCs)
 		}
 
 		sc := Generalize(infer.env.Apply(s.sub).(Env), defType.Apply(s.sub).(Type))
@@ -170,7 +203,7 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 	return nil
 }
 
-// Instantiate takes a fresh name generator, an a polytype and makes a concrete type out of it.
+// Instantiate takes a fresh name generator, and a polytype and makes a concrete type out of it.
 //
 // If ...
 //
@@ -404,9 +437,12 @@ func unifyMany(a, b Types) (sub Subs, err error) {
 func bind(tv TypeVariable, t Type) (sub Subs, err error) {
 	logf("Binding %v to %v", tv, t)
 	switch {
-	// case tv == t:
+
+	case tv == t: // TODO added by me, is ti right
+		return BorrowSSubs(0), nil
+
 	case occurs(tv, t):
-		err = errors.Errorf("recursive unification")
+		err = errors.Errorf("recursive unification: %v occurs in %v", tv, t)
 	default:
 		ssub := BorrowSSubs(1)
 		ssub.s[0] = Substitution{tv, t}

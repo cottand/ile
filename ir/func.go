@@ -1,20 +1,41 @@
 package ir
 
 import (
+	"errors"
+	"fmt"
 	"github.com/cottand/ile/ir/hm"
 	"go/token"
 )
 
 type PrimOp token.Token
 
-func (p PrimOp) Token() token.Token  { return token.Token(p) }
-func (p PrimOp) IsLambda() bool      { return true }
+func (p PrimOp) Token() token.Token { return token.Token(p) }
+
+func (p PrimOp) IsLambda() bool { return true }
+
 func (p PrimOp) IsLit() bool         { return true }
 func (p PrimOp) Body() hm.Expression { return p }
 func (p PrimOp) Name() string {
 	return "PrimOp:" + token.Token(p).String()
 }
-func (p PrimOp) Type() hm.Type { return nil }
+
+func (p PrimOp) Infer(_ hm.Env, f hm.Fresher) (hm.Type, error) {
+	switch p.Token() {
+	case token.NOT:
+		return hm.NewFnType(TypeLit{NameLit: "Bool"}, TypeLit{NameLit: "Bool"}), nil
+
+	case token.AND, token.OR:
+		return hm.NewFnType(TypeLit{NameLit: "Bool"}, TypeLit{NameLit: "Bool"}, TypeLit{NameLit: "Bool"}), nil
+
+	case token.GTR, token.LEQ, token.GEQ, token.LSS, token.EQL, token.NEQ:
+		typeVar := f.Fresh()
+		return hm.NewFnType(typeVar, typeVar, TypeLit{NameLit: "Bool"}), nil
+
+	default:
+		typeVar := f.Fresh()
+		return hm.NewFnType(typeVar, typeVar, typeVar), nil
+	}
+}
 
 // ----------------------------
 
@@ -30,16 +51,67 @@ type FuncDecl struct {
 	Result Type
 }
 
-func (f FuncDecl) Scheme() *hm.Scheme {
-	// TODO generics for free bound vars?
+func (param ParamDecl) scheme() *hm.Scheme {
+	var typeSet hm.TypeVarSet
+	var paramT hm.Type
+	if param.T != nil {
+		paramT = param.T
+	} else {
+		typeSet = append(typeSet, hm.TypeVariable('a'))
+		paramT = hm.TypeVariable('a')
+	}
+	return hm.NewScheme(typeSet, paramT)
+}
+
+func (f FuncDecl) expandArgsAsLambda(params []ParamDecl) hm.Expression {
+	if len(params) == 0 {
+		return lambdaBodyArg{
+			paramName:   Ident{Name: "Nil"},
+			body:        f.BodyLit,
+			paramScheme: hm.NewScheme(hm.TypeVarSet{}, TypeLit{NameLit: "Nil"}),
+		}
+	}
+	if len(params) == 1 {
+		arg := lambdaBodyArg{
+			paramName:   params[0].Name,
+			body:        f.BodyLit,
+			paramScheme: params[0].scheme(),
+		}
+		return arg
+	}
+
+	fstParam := params[0]
+	remainingParams := params[1:]
+	println(fstParam.Name.Name)
+	return lambdaBodyArg{
+		paramName:   fstParam.Name,
+		body:        f.expandArgsAsLambda(remainingParams),
+		paramScheme: fstParam.scheme(),
+	}
+}
+
+func (f FuncDecl) ToTypeExpression(usedIn hm.Expression) hm.LetRec {
+	return letrec{
+		name: f.NameLit,
+		def:  f.expandArgsAsLambda(f.Params),
+		in:   usedIn,
+	}
+}
+
+func (f FuncDecl) String() string {
+	return fmt.Sprintf("%v -> %v", f.Params, f.Result)
+}
+
+func (f FuncDecl) AdditionalEnv() hm.Env {
 	var fnType []hm.Type
 	var newTypeVars []hm.TypeVariable
+
 	for i, param := range f.Params {
 		if param.T != nil {
 			fnType = append(fnType, param.T)
 		} else {
-			// TODO when generics are implemented,
-			//  we won't make a new var for every param, we will make
+			// TODO issue#1 when generics are implemented,
+			//  we won'paramT make a new var for every param, we will make
 			//  a var per generic parameter instead
 			newTypeVar := hm.TypeVariable(i)
 			// type was not declared, so we make a type variable which will get inferred
@@ -48,25 +120,58 @@ func (f FuncDecl) Scheme() *hm.Scheme {
 		}
 	}
 
-	return hm.NewScheme(newTypeVars, hm.NewFnType(fnType...))
-}
+	if f.Result != nil {
+		fnType = append(fnType, f.Result)
+	} else {
+		newTypeVar := hm.TypeVariable(len(f.Params) + 1)
+		newTypeVars = append(newTypeVars, newTypeVar)
+		fnType = append(fnType, newTypeVar)
+	}
 
-func (f FuncDecl) Body() hm.Expression {
-	return f
-}
-
-func (f FuncDecl) Name() string {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (f FuncDecl) IsLambda() bool {
-	//TODO implement me
-	panic("implement me")
+	return hm.SimpleEnv{
+		"ident:" + f.NameLit: hm.NewScheme(newTypeVars, hm.NewFnType(fnType...)),
+	}
 }
 
 type ParamDecl struct {
 	Range
 	Name Ident
 	T    Type
+}
+
+// ------------------------
+type letrec struct {
+	name string
+	def  hm.Expression
+	in   hm.Expression
+}
+
+func (n letrec) Name() string              { return "ident:" + n.name }
+func (n letrec) Def() hm.Expression        { return n.def }
+func (n letrec) Body() hm.Expression       { return n.in }
+func (n letrec) Children() []hm.Expression { return []hm.Expression{n.def, n.in} }
+func (n letrec) IsRecursive() bool         { return true }
+
+// ------------------------
+
+type lambdaBodyArg struct {
+	paramName Ident
+	body      hm.Expression
+
+	// all parameter types, including return
+	// can be nil if those are unknown
+	paramScheme *hm.Scheme
+}
+
+func (n lambdaBodyArg) Name() string        { return "ident:" + n.paramName.Name }
+func (n lambdaBodyArg) Body() hm.Expression { return n.body }
+func (n lambdaBodyArg) IsLambda() bool      { return true }
+
+func (n lambdaBodyArg) Infer(e hm.Env, f hm.Fresher) (hm.Type, error) {
+	if n.paramScheme != nil {
+		// add the scheme of the parameter to the environment!
+		e.Add("ident:"+n.paramName.Name, n.paramScheme)
+	}
+	// error will be handled ok by hm, this is not a crash
+	return nil, errors.New("not found")
 }
