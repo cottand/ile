@@ -8,6 +8,9 @@ func InferencePhase(file ir.File) (ir.File, []*ir.CompileError) {
 	var errs []*ir.CompileError
 
 	for i, funDecl := range file.Functions {
+		if funDecl.Result != nil {
+			continue
+		}
 		t, errs2 := funDecl.TypeInfer()
 		if errs2 != nil {
 			errs = append(errs, errs2...)
@@ -22,6 +25,9 @@ func InferencePhase(file ir.File) (ir.File, []*ir.CompileError) {
 	}
 
 	for i, valDecl := range file.Values {
+		if valDecl.T != nil {
+			continue
+		}
 		t, errs2 := valDecl.TypeInfer()
 		if len(errs2) > 0 {
 			errs = append(errs, errs2...)

@@ -97,7 +97,7 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 		}
 
 	case ir.IdentifierLitExpr:
-		return ast.NewIdent(e.Ident.Name), nil
+		return ast.NewIdent(e.NameLit), nil
 
 	case ir.BinaryOpExpr:
 		lhs, err1 := transpileExpr(e.Lhs)

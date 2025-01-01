@@ -3,25 +3,43 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
 
-  outputs = { nixpkgs, flake-utils, ... }: (flake-utils.lib.eachDefaultSystem (system:
+  outputs = { self, nixpkgs, flake-utils, ... }: (flake-utils.lib.eachDefaultSystem (system:
     let
       pkgs = import nixpkgs { inherit system; };
+      name = "ile";
     in
     {
-      packages.default = pkgs.buildGoModule {
+      packages.default = self.packages.${system}.ile;
+      packages.ile = pkgs.buildGoModule {
         inherit system;
         vendorHash = null;
-        pname = "ile";
+        pname = name;
         version = "0.0-dev";
         src = nixpkgs.lib.sources.cleanSource ./.;
         ldflags = [ "-s -w" ];
-        CGO_ENABLED = "0";
 
+        CGO_ENABLED = "0";
         ANTLR_BIN = "${pkgs.antlr}/bin/antlr";
+
+        # will run antlr codegen
+        preBuild = ''
+          go generate ./...
+        '';
 
         buildInputs = [
           pkgs.antlr
+          pkgs.installShellFiles
         ];
+
+        postInstall = ''
+          mkdir -p share/completions
+          $out/bin/${name} completion bash > share/completions/${name}.bash
+          $out/bin/${name} completion fish > share/completions/${name}.fish
+          $out/bin/${name} completion zsh > share/completions/${name}.zsh
+
+          # implicit behavior
+          installShellCompletion share/completions/${name}.{bash,fish,zsh}
+        '';
       };
     }));
 }

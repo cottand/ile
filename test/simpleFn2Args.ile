@@ -1,0 +1,6 @@
+//ile:compilerTest main.OneInt(1, 10) | int64(52)
+package main
+
+fn OneInt(a Int, b Int) Int {
+  40 + 1 + a + b
+}

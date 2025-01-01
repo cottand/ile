@@ -1,4 +1,4 @@
-package ile
+package main
 
 import (
 	"bytes"
@@ -44,7 +44,7 @@ func TestAllEndToEnd(t *testing.T) {
 			i := interp.New(interp.Options{})
 			assert.NoError(t, err)
 
-			transpiled, _, err := frontend.ParseToIR(string(content))
+			transpiled, _, err := frontend.ParseToIR(bytes.NewBuffer(content))
 			assert.NoError(t, err)
 
 			goAst, err := backend.TranspileFile(transpiled)

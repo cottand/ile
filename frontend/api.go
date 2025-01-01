@@ -2,16 +2,33 @@ package frontend
 
 import (
 	"errors"
+	"fmt"
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/ir"
 	"github.com/cottand/ile/parser"
+	"go/token"
+	"io"
+	"os"
+	"path"
 )
+
+func FilesetFrom(file string) (*token.FileSet, *token.File, error) {
+	file = path.Clean(file)
+	open, err := os.Stat(file)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not stat %s: %v", file, err)
+	}
+
+	fs := token.NewFileSet()
+	fsFile := fs.AddFile(path.Base(file), -1, int(open.Size()))
+	return fs, fsFile, nil
+}
 
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
 // See ParseToIR
-func ParseToAST(input string) (ir.File, []*ir.CompileError, error) {
-	iStream := antlr.NewInputStream(input)
+func ParseToAST(input io.Reader) (ir.File, []*ir.CompileError, error) {
+	iStream := antlr.NewIoStream(input)
 	lexer := parser.NewIleLexer(iStream)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	p := parser.NewIleParser(tStream)
@@ -32,8 +49,8 @@ func ParseToAST(input string) (ir.File, []*ir.CompileError, error) {
 
 // ParseToIR is like ParseToAST but does any additional processing needed
 // to produce valid and correct Go code
-func ParseToIR(input string) (ir.File, []*ir.CompileError, error) {
-	file, compileErrors, err := ParseToAST(input)
+func ParseToIR(reader io.Reader) (ir.File, []*ir.CompileError, error) {
+	file, compileErrors, err := ParseToAST(reader)
 	if err != nil {
 		return ir.File{}, compileErrors, err
 	}

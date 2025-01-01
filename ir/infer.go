@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/cottand/ile/ir/hm"
 	"reflect"
+	"strings"
 )
 
 // InferEnv maps literals to general types, like: isZero: Float -> Bool
@@ -34,7 +35,14 @@ func (f FuncDecl) TypeInfer() (Type, []*CompileError) {
 func (f ValDecl) TypeInfer() (Type, []*CompileError) {
 	scheme, err := hm.Infer(InferEnv(), f.E)
 	if err != nil {
-		return nil, []*CompileError{{}}
+		if strings.Contains(err.Error(), "Unification Fail:") && strings.Contains(err.Error(), "cannot be unified") {
+			trimmed := strings.TrimPrefix(err.Error(), "Unification Fail: ")
+			trimmed = strings.TrimSuffix(trimmed, " cannot be unified")
+			return nil, []*CompileError{{
+				Message: fmt.Sprintf("type mismatch: " + trimmed),
+			}}
+		}
+		return nil, []*CompileError{{Message: err.Error()}}
 	}
 	t, _ := scheme.Type()
 	return convertInferred(t, -1), nil

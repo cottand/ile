@@ -162,14 +162,14 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 		// we will deal with in ExitLiteral
 		return
 	}
+
 	// TODO qualified operands!
 	if ctx.OperandName() != nil {
 		l.expressionStack = append(l.expressionStack, ir.IdentifierLitExpr{
-			Ident: ir.Ident{
-				Range: intervalTo2Pos(ctx.GetSourceInterval()),
-				Name:  ctx.GetText(),
-			},
+			Range:   intervalTo2Pos(ctx.GetSourceInterval()),
+			NameLit: ctx.GetText(),
 		})
+		return
 	}
 }
 

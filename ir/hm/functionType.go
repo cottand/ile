@@ -69,7 +69,7 @@ func (t *FunctionType) Types() Types {
 func (t *FunctionType) Eq(other Type) bool {
 	if ot, ok := other.(*FunctionType); ok {
 		if ot.a == nil || ot.b == nil {
-			panic("malformed funcType with nil to or from types")
+			panic(fmt.Sprintf("malformed funcType with nil to or from types (%v -> %v)", ot.a, ot.b))
 		}
 		return ot.a.Eq(t.a) && ot.b.Eq(t.b)
 	}

@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"bytes"
 	"github.com/cottand/ile/ir"
 	"github.com/stretchr/testify/assert"
 	"go/token"
@@ -8,7 +9,7 @@ import (
 )
 
 func testAntlrParse(t *testing.T, input string) (ir.File, []*ir.CompileError) {
-	f, cErrs, errs := ParseToAST(input)
+	f, cErrs, errs := ParseToAST(bytes.NewBufferString(input))
 	assert.NoError(t, errs)
 	return f, cErrs
 }
@@ -113,4 +114,22 @@ fn hello(i Int, ii Int) { 1 }
 	assert.IsType(t, ir.BasicLitExpr{}, fn.BodyLit)
 	assert.Equal(t, "1", fn.BodyLit.(ir.BasicLitExpr).Value)
 	assert.Equal(t, token.INT, fn.BodyLit.(ir.BasicLitExpr).Kind)
+}
+
+func TestExitOperand(t *testing.T) {
+	file := `
+package main
+
+a = 1 + a
+
+`
+	src, _ := testAntlrParse(t, file)
+
+	assert.Len(t, src.Values, 1)
+	fst := src.Values[0]
+	assert.Equal(t, "a", fst.Name)
+	assert.IsType(t, ir.BinaryOpExpr{}, fst.E)
+	expr := fst.E.(ir.BinaryOpExpr)
+	assert.IsType(t, ir.BasicLitExpr{}, expr.Lhs)
+	assert.IsType(t, ir.IdentifierLitExpr{}, expr.Rhs)
 }

@@ -89,14 +89,14 @@ func TestIntDecl(t *testing.T) {
 func TestStringDecl(t *testing.T) {
 	v := evalExpr(t, ir.BasicLitExpr{
 		Kind:  token.STRING,
-		Value: `"aa"`,
+		Value: `aa`,
 	})
 
 	assert.Equal(t, "aa", v.String())
 
 	v = evalExpr(t, ir.BasicLitExpr{
 		Kind:  token.STRING,
-		Value: "`aa`",
+		Value: "aa",
 	})
 
 	assert.Equal(t, "aa", v.String())
