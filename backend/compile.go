@@ -62,9 +62,7 @@ func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
 
 		}
 		spec := &ast.ValueSpec{
-			Names: []*ast.Ident{
-				ast.NewIdent(rawVar.Name),
-			},
+			Names:  []*ast.Ident{ast.NewIdent(rawVar.Name)},
 			Values: []ast.Expr{value},
 			Type:   type_,
 		}
@@ -88,9 +86,13 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 				Value: "`" + e.Value + "`",
 			}, nil
 		case token.INT:
-			return &ast.BasicLit{
-				Kind:  e.Kind,
-				Value: e.Value,
+			return &ast.CallExpr{
+				Fun: ast.NewIdent("int64"),
+				Args: []ast.Expr{
+					&ast.BasicLit{
+						Kind:  e.Kind,
+						Value: e.Value,
+					}},
 			}, nil
 		default:
 			return nil, fmt.Errorf("for basicLit expr, unexpected type %v", reflect.TypeOf(expr))
@@ -177,6 +179,9 @@ func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
 }
 
 func transpileType(t ir.Type) (ast.Expr, error) {
+	if t == nil {
+		return nil, nil
+	}
 	switch e := t.(type) {
 	case ir.TypeLit:
 		goEquivalent, ok := ileToGoTypes[e.NameLit]
@@ -208,7 +213,52 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)
 		}
 		finalExpr = goExpr
+
+	case ir.AssignExpr:
+		goRHSExpr, err := transpileExpr(e.RHS)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transpile expression: %v", err)
+		}
+		remainder, err := transpileExpressionToStatements(e.Remainder, finalLocalVarName)
+		t, err := transpileType(e.Type)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transpile type: %v", err)
+		}
+		final := []ast.Stmt{
+			&ast.DeclStmt{Decl: &ast.GenDecl{
+				Tok: token.VAR,
+				Specs: []ast.Spec{
+					&ast.ValueSpec{
+						Names:  []*ast.Ident{{Name: e.IdentName}},
+						Values: []ast.Expr{goRHSExpr},
+						Type:   t,
+					},
+				},
+			}},
+		}
+
+		return append(final, remainder...), nil
+
+	// we do like in Go, and add a statement that should evaluate the expression,
+	// but we do not actually do anything with it
+	case ir.UnusedExpr:
+		goStatement, err := transpileExpr(e.Expr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transpile expression: %v", err)
+		}
+		remainder, err := transpileExpressionToStatements(e.Remainder, finalLocalVarName)
+		if err != nil {
+			return nil, err
+		}
+		final := []ast.Stmt{&ast.ExprStmt{X: goStatement}}
+
+		return append(final, remainder...), nil
+
+	case nil:
+		panic("unexpected nil expression")
+
 	default:
+		panic("unimplemented expression type: " + reflect.TypeOf(expr).String())
 	}
 
 	var finalStatement ast.Stmt

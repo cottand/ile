@@ -99,7 +99,7 @@ func (f FuncDecl) ToTypeExpression(usedIn hm.Expression) hm.LetRec {
 }
 
 func (f FuncDecl) String() string {
-	return fmt.Sprintf("%v -> %v", f.Params, f.Result)
+	return fmt.Sprintf("%v %v -> %v {\n%v\n}", f.NameLit, f.Params, f.Result, f.BodyLit)
 }
 
 func (f FuncDecl) AdditionalEnv() hm.Env {

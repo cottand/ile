@@ -6,6 +6,7 @@ package ir
 // - backend:compile.go/transpileExpr
 
 import (
+	"fmt"
 	"github.com/cottand/ile/ir/hm"
 	"go/token"
 )
@@ -37,6 +38,9 @@ func (e BasicLitExpr) Type() hm.Type {
 	}
 }
 func (e BasicLitExpr) IsLit() bool { return true }
+func (e BasicLitExpr) String() string {
+	return e.Value
+}
 
 // ----------------------------------------------
 
@@ -66,6 +70,9 @@ func (op BinaryOpExpr) Fn() hm.Expression {
 }
 func (op BinaryOpExpr) Body() hm.Expression { return op.Lhs }
 func (op BinaryOpExpr) Arg() hm.Expression  { return op.Lhs }
+func (op BinaryOpExpr) String() string {
+	return fmt.Sprintf("%v %v %v", op.Lhs, op.Op.Token().String(), op.Rhs)
+}
 
 // ----------------------------------------------
 
@@ -79,7 +86,9 @@ func (IdentifierLitExpr) exprNode()             {}
 func (e IdentifierLitExpr) Name() string        { return "ident:" + e.NameLit }
 func (e IdentifierLitExpr) Body() hm.Expression { return e }
 func (e IdentifierLitExpr) Type() hm.Type       { return nil }
-
+func (e IdentifierLitExpr) String() string {
+	return e.NameLit
+}
 func (e IdentifierLitExpr) AsIdent() Ident {
 	return Ident{
 		Range: e.Range,
@@ -88,6 +97,39 @@ func (e IdentifierLitExpr) AsIdent() Ident {
 }
 
 // --------------------------------
+
+type AssignExpr struct {
+	// range of the LHS including the assignment operator
+	Range
+	IdentName string
+	RHS       Expr
+	Remainder Expr
+	Type      Type // can be nil
+}
+
+func (AssignExpr) exprNode()             {}
+func (e AssignExpr) Name() string        { return "ident:" + e.IdentName }
+func (e AssignExpr) Def() hm.Expression  { return e.RHS }
+func (e AssignExpr) Body() hm.Expression { return e.Remainder }
+func (e AssignExpr) String() string {
+	return fmt.Sprintf("%v = %v\n%v", e.IdentName, e.RHS, e.Remainder)
+}
+
+// ------------------------------
+
+// UnusedExpr represents an expression that is part of a block but its result is not used
+type UnusedExpr struct {
+	Range
+	Expr      Expr
+	Remainder Expr
+}
+
+func (UnusedExpr) exprNode()             {}
+func (e UnusedExpr) Name() string        { return "_" }
+func (e UnusedExpr) Def() hm.Expression  { return e.Expr }
+func (e UnusedExpr) Body() hm.Expression { return e.Remainder }
+
+// ------------------------------
 
 // unaryApplication does not actually make part of the syntax tree,
 // it is used for inference and is returned by
@@ -104,3 +146,13 @@ func (n unaryApplication) Body() hm.Expression { return n.arg }
 func (n unaryApplication) Arg() hm.Expression  { return n.arg }
 
 // ------------------------------
+
+// ErrorNodeExpr is for when parsing failed, but we still want an IR representation
+// You should only see these in a context in which ir.CompileError is present too
+type ErrorNodeExpr struct {
+	Range
+	Text string
+}
+
+func (ErrorNodeExpr) exprNode()             {}
+func (e ErrorNodeExpr) Body() hm.Expression { return e }

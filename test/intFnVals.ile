@@ -1,0 +1,7 @@
+//ile:compilerTest main.MakeInt(1) | int64(2)
+package main
+
+fn MakeInt(a Int) Int {
+  b = 1
+  a + b
+}

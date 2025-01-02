@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"fmt"
 	"go/token"
 )
 
@@ -17,6 +18,10 @@ type Range struct {
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }
 
+func GetRange(e Expr) Range {
+	return Range{e.Pos(), e.End()}
+}
+
 type Ident struct {
 	Range
 	Name string
@@ -27,6 +32,10 @@ type File struct {
 	PkgName   string
 	Values    []ValDecl
 	Functions []FuncDecl
+}
+
+func (f File) String() string {
+	return fmt.Sprint(f.PkgName, " values=", f.Values, " functions=", f.Functions)
 }
 
 type ValDecl struct {

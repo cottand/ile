@@ -51,14 +51,18 @@ func TestAllEndToEnd(t *testing.T) {
 			assert.NoError(t, err)
 
 			sourceBuf := bytes.NewBuffer(nil)
+			defer func() {
+				err := recover()
+				if err != nil {
+					// Print the generated Go code
+					t.Fatalf("could not compile AST: %v\n%v", err, goAst)
+				}
+			}()
 
-			//_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
-			//t.Errorf("could not compile AST: %v\n%v", err, sourceBuf.String())
 			prog, err := i.CompileAST(goAst)
 			if err != nil {
-				// Print the generated Go code
 				_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
-				t.Fatalf("could not compile AST: %v\n%v", err, sourceBuf.String())
+				t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
 			}
 			_, err = i.Execute(prog)
 			assert.NoError(t, err)

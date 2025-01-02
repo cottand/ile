@@ -24,9 +24,23 @@ type listener struct {
 	visitErrors []error
 
 	expressionStack         []ir.Expr
+	blockExprStack          []ir.Expr
 	paramDeclStack          []ir.ParamDecl
 	functionReturnTypeStack []ir.Type
 	typeStack               []ir.Type
+
+	pendingScopedExprStack []pendingScoped
+}
+
+type pendingScoped interface {
+	assignRemainder(expr ir.Expr) ir.Expr
+}
+
+type pendingAssign ir.AssignExpr
+
+func (p pendingAssign) assignRemainder(expr ir.Expr) ir.Expr {
+	p.Remainder = expr
+	return ir.AssignExpr(p)
 }
 
 func (l *listener) popExpr() (ir.Expr, error) {
@@ -38,6 +52,28 @@ func (l *listener) popExpr() (ir.Expr, error) {
 		l.expressionStack = l.expressionStack[:lastIndex]
 	}()
 	return l.expressionStack[len(l.expressionStack)-1], nil
+}
+
+func (l *listener) popBlockExpr() (ir.Expr, error) {
+	if len(l.blockExprStack) <= 0 {
+		return nil, errors.New("expected to have successfully parsed a block expression, but none were found")
+	}
+	lastIndex := len(l.blockExprStack) - 1
+	defer func() {
+		l.blockExprStack = l.blockExprStack[:lastIndex]
+	}()
+	return l.blockExprStack[len(l.blockExprStack)-1], nil
+}
+
+func (l *listener) popPending() (pendingScoped, bool) {
+	if len(l.pendingScopedExprStack) <= 0 {
+		return nil, false
+	}
+	lastIndex := len(l.pendingScopedExprStack) - 1
+	defer func() {
+		l.pendingScopedExprStack = l.pendingScopedExprStack[:lastIndex]
+	}()
+	return l.pendingScopedExprStack[len(l.pendingScopedExprStack)-1], true
 }
 
 func (l *listener) popAllParamDecl() []ir.ParamDecl {
@@ -102,8 +138,56 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			Name:  ctx.IDENTIFIER().GetText(),
 			E:     expr,
 		})
+		return
 	}
+
+	// declaration is inside block
+	rem, err := l.popExpr()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("declaration without expression %s", err.Error()))
+	}
+
+	// declaration is inside some other expression, so it's an assignment
+	l.pendingScopedExprStack = append(l.pendingScopedExprStack, pendingAssign(ir.AssignExpr{
+		Range:     ir.Range{},
+		IdentName: ctx.IDENTIFIER().GetText(),
+		RHS:       rem,
+		Remainder: nil,
+	}))
 }
+
+func (l *listener) ExitBlockExpr(ctx *parser.BlockExprContext) {
+	hasChild := ctx.BlockExpr() != nil
+	if !hasChild {
+		// then this is the latest expression of the block, so we do nothing
+		return
+	}
+
+	remainderExpr, err := l.popExpr()
+	if err != nil {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("declaration without expression %s", err.Error()))
+		return
+	}
+	scoped, ok := l.popPending()
+	var fullExpr ir.Expr
+	if ok {
+		fullExpr = scoped.assignRemainder(remainderExpr)
+	} else {
+		latestExpr, err := l.popExpr()
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("declaration without expression %s", err.Error()))
+			return
+		}
+		fullExpr = ir.UnusedExpr{
+			Range:     ir.GetRange(remainderExpr),
+			Expr:      latestExpr,
+			Remainder: remainderExpr,
+		}
+	}
+	l.expressionStack = append(l.expressionStack, fullExpr)
+	return
+}
+
 func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 	if ctx.PrimaryExpr() != nil {
 		// we will deal with in ExitPrimaryExpr
@@ -154,7 +238,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 }
 
 func (l *listener) ExitOperand(ctx *parser.OperandContext) {
-	if ctx.Expression() != nil {
+	if ctx.BlockExpr() != nil {
 		// then the latest expression on the stack is this one, do nothing
 		return
 	}

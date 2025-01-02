@@ -31,7 +31,7 @@ declaration
     ;
 
 varDecl
-    : IDENTIFIER (type_ (ASSIGN expression)? | ASSIGN expression)
+    : IDENTIFIER (type_ (ASSIGN expression) | ASSIGN expression)
     ;
 
 block
@@ -40,8 +40,8 @@ block
     ;
 
 blockExpr
-    : expression EOS?
-    | expression EOS blockExpr
+    : expressionInBlock EOS?
+    | expressionInBlock EOS blockExpr
     ;
 
 type_
@@ -101,6 +101,13 @@ parameterDecl
 //    : identifierList? ELLIPSIS? type_
     ;
 
+// a normal expression, except it cannot appear on the RHS of assignment
+expressionInBlock
+    : varDecl
+    | expression
+    ;
+
+
 expression
     : primaryExpr
     | unary_op = (PLUS | MINUS | EXCLAMATION | CARET | STAR | AMPERSAND | RECEIVE) expression
@@ -126,7 +133,7 @@ operand
     : literal
     | operandName // typeArgs?
 
-    | L_PAREN expression R_PAREN
+    | L_PAREN blockExpr R_PAREN
     ;
 
 operandName
