@@ -304,3 +304,46 @@ func TestFnParamInferRetType(t *testing.T) {
 	ty, _ := scheme.Type()
 	assert.Equal(t, "(Nil → Bool) → Int → Nil → Bool", ty.String())
 }
+
+func TestFnMultiExprInferRetType(t *testing.T) {
+	ast := FuncDecl{
+		NameLit: "Fn",
+		Params: []ParamDecl{
+			{
+				Name: Ident{Name: "a"},
+				T:    TypeLit{NameLit: "Int"},
+			},
+		},
+		BodyLit: AssignExpr{
+			IdentName: "x",
+			Rhs: BinaryOpExpr{
+				Op:  PrimOp(token.ADD),
+				Lhs: IdentifierLitExpr{NameLit: "a"},
+				Rhs: IdentifierLitExpr{NameLit: "a"},
+			},
+			Remainder: AssignExpr{
+				IdentName: "y",
+				Rhs: BinaryOpExpr{
+					Op:  PrimOp(token.ADD),
+					Lhs: IdentifierLitExpr{NameLit: "x"},
+					Rhs: IdentifierLitExpr{NameLit: "a"},
+				},
+				Remainder: BinaryOpExpr{
+					Op:  PrimOp(token.ADD),
+					Lhs: IdentifierLitExpr{NameLit: "x"},
+					Rhs: IdentifierLitExpr{NameLit: "a"},
+				},
+				Type: nil,
+			},
+			Type: nil,
+		},
+		Result: nil,
+	}
+
+	expression := ast.ToTypeExpression(IdentifierLitExpr{NameLit: "Fn"})
+	env := env()
+	scheme, err := hm.Infer(env, expression)
+	assert.NoError(t, err)
+	ty, _ := scheme.Type()
+	assert.Equal(t, "Int → Int", ty.String())
+}

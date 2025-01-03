@@ -151,7 +151,7 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 	l.pendingScopedExprStack = append(l.pendingScopedExprStack, pendingAssign(ir.AssignExpr{
 		Range:     ir.Range{},
 		IdentName: ctx.IDENTIFIER().GetText(),
-		RHS:       rem,
+		Rhs:       rem,
 		Remainder: nil,
 	}))
 }

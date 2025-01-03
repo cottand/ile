@@ -34,7 +34,7 @@ func (e BasicLitExpr) Type() hm.Type {
 	case token.INT:
 		return TypeLit{NameLit: "Int"}
 	default:
-		return TypeLit{NameLit: "ERROR!"}
+		panic(fmt.Sprintf("unexpected token kind %v (%v)", e.Kind, e.Kind.String()))
 	}
 }
 func (e BasicLitExpr) IsLit() bool { return true }
@@ -53,7 +53,7 @@ type BinaryOpExpr struct {
 func (BinaryOpExpr) exprNode() {}
 
 // IsBoolOp returns true when the operation returns a Bool regardless
-// of whether its LHS and RHS are booleans (for example, 3 > 4)
+// of whether its LHS and Rhs are booleans (for example, 3 > 4)
 func (op BinaryOpExpr) IsBoolOp() bool {
 	switch op.Op.Token() {
 	case token.GTR, token.LEQ, token.GEQ, token.LSS:
@@ -102,17 +102,17 @@ type AssignExpr struct {
 	// range of the LHS including the assignment operator
 	Range
 	IdentName string
-	RHS       Expr
+	Rhs       Expr
 	Remainder Expr
 	Type      Type // can be nil
 }
 
 func (AssignExpr) exprNode()             {}
 func (e AssignExpr) Name() string        { return "ident:" + e.IdentName }
-func (e AssignExpr) Def() hm.Expression  { return e.RHS }
+func (e AssignExpr) Def() hm.Expression  { return e.Rhs }
 func (e AssignExpr) Body() hm.Expression { return e.Remainder }
 func (e AssignExpr) String() string {
-	return fmt.Sprintf("%v = %v\n%v", e.IdentName, e.RHS, e.Remainder)
+	return fmt.Sprintf("%v = %v\n%v", e.IdentName, e.Rhs, e.Remainder)
 }
 
 // ------------------------------

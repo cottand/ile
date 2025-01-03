@@ -32,6 +32,8 @@ func NewFnType(ts ...Type) *FunctionType {
 
 func (t *FunctionType) Name() string { return "→" }
 func (t *FunctionType) Apply(sub Subs) Substitutable {
+	// if these are null there might be an undefined identifier in scope
+	// try adding compiler checks before inference to catch this
 	t.a = t.a.Apply(sub).(Type)
 	t.b = t.b.Apply(sub).(Type)
 	return t

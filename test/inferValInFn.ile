@@ -1,0 +1,8 @@
+//ile:compilerTest main.SomeFn() | int64(33)
+package main
+
+SomeVal = 32
+
+fn SomFn() {
+    SomeVal + 1
+}

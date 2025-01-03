@@ -215,7 +215,7 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 		finalExpr = goExpr
 
 	case ir.AssignExpr:
-		goRHSExpr, err := transpileExpr(e.RHS)
+		goRHSExpr, err := transpileExpr(e.Rhs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)
 		}
