@@ -58,7 +58,7 @@ func TestAllEndToEnd(t *testing.T) {
 					t.Fatalf("could not compile AST: %v\n%v", err, goAst)
 				}
 			}()
-				
+
 			prog, err := i.CompileAST(goAst)
 			if err != nil {
 				_ = format.Node(sourceBuf, token.NewFileSet(), goAst)

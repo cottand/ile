@@ -14,6 +14,15 @@ type Subs interface {
 	Clone() Subs
 }
 
+// MakeSubs is a utility function to help make substitution lists.
+// This is useful for cases where there isn't a real need to implement Subs
+func MakeSubs(n int) Subs {
+	if n >= 30 {
+		return make(mSubs)
+	}
+	return newSliceSubs(n)
+}
+
 // A Substitution is a tuple representing the TypeVariable and the replacement Type
 type Substitution struct {
 	Tv TypeVariable
@@ -116,7 +125,8 @@ func (s mSubs) Clone() Subs {
 	return retVal
 }
 
-func compose(a, b Subs) (retVal Subs) {
+// Compose composes two substitution lists together.
+func Compose(a, b Subs) (retVal Subs) {
 	if b == nil {
 		return a
 	}

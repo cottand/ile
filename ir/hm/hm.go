@@ -132,7 +132,7 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 
 		tv := infer.Fresh()
 		cs := append(fnCs, bodyCs...)
-		cs = append(cs, Constraint{fnType, NewFnType(bodyType, tv)})
+		cs = append(cs, Constraint{NewFnType(bodyType, tv), fnType})
 
 		infer.t = tv
 		infer.cs = cs
@@ -372,14 +372,14 @@ func Unify(a, b Type) (sub Subs, err error) {
 
 	switch at := a.(type) {
 	case TypeVariable:
-		return bind(at, b)
+		return Bind(at, b)
 	default:
 		if a.Eq(b) {
 			return nil, nil
 		}
 
 		if btv, ok := b.(TypeVariable); ok {
-			return bind(btv, a)
+			return Bind(btv, a)
 		}
 		atypes := a.Types()
 		btypes := b.Types()
@@ -423,7 +423,7 @@ func unifyMany(a, b Types) (sub Subs, err error) {
 		if sub == nil {
 			sub = s2
 		} else {
-			sub2 := compose(sub, s2)
+			sub2 := Compose(sub, s2)
 			defer ReturnSubs(s2)
 			if sub2 != sub {
 				defer ReturnSubs(sub)
@@ -434,14 +434,14 @@ func unifyMany(a, b Types) (sub Subs, err error) {
 	return
 }
 
-func bind(tv TypeVariable, t Type) (sub Subs, err error) {
+// Bind binds a TypeVariable to a Type. It returns a substitution list.
+func Bind(tv TypeVariable, t Type) (sub Subs, err error) {
 	logf("Binding %v to %v", tv, t)
 	switch {
-
-	case tv == t: // TODO added by me, is ti right
+	case tv == t: // TODO added by me, is it right
 		return BorrowSSubs(0), nil
 
-	case occurs(tv, t):
+	case Occurs(tv, t):
 		err = errors.Errorf("recursive unification: %v occurs in %v", tv, t)
 	default:
 		ssub := BorrowSSubs(1)
@@ -452,7 +452,8 @@ func bind(tv TypeVariable, t Type) (sub Subs, err error) {
 	return
 }
 
-func occurs(tv TypeVariable, s Substitutable) bool {
+// Occurs checks if a TypeVariable exists in any Substitutable (type, scheme, map etc).
+func Occurs(tv TypeVariable, s Substitutable) bool {
 	ftv := s.FreeTypeVar()
 	defer ReturnTypeVarSet(ftv)
 
