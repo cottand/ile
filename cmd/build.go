@@ -23,7 +23,7 @@ var BuildCmd = &cobra.Command{
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	fs, _, err := frontend.FilesetFrom(args[0])
+	fs, _, err := frontend1.FilesetFrom(args[0])
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func irFromFile(at string) (*ir.File, []*ir.CompileError, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read file %s: %w", p, err)
 	}
-	node, cErrs, err := frontend.ParseToIR(f)
+	node, cErrs, err := frontend1.ParseToIR(f)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not compile file %s: %w", p, err)
 	}

@@ -347,3 +347,11 @@ func TestFnMultiExprInferRetType(t *testing.T) {
 	ty, _ := scheme.Type()
 	assert.Equal(t, "Int → Int", ty.String())
 }
+
+func TestPolyPlayground(t *testing.T) {
+	//a := polyast.LetGroup{}
+	//polyast.Func{
+	//	ArgNames: nil,
+	//	Body:     nil,
+	//}
+}

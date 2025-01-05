@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/ir"
-	"go/ast"
+	goast "go/ast"
 	"go/token"
 	"reflect"
 )
@@ -18,9 +18,9 @@ var ileToGoTypes = map[string]string{
 	"Bool":   "bool",
 }
 
-func TranspileFile(file ir.File) (*ast.File, error) {
-	var decls []ast.Decl
-	var declarations *ast.GenDecl
+func TranspileFile(file ir.File) (*goast.File, error) {
+	var decls []goast.Decl
+	var declarations *goast.GenDecl
 	var err error
 
 	if len(file.Values) > 0 {
@@ -35,16 +35,16 @@ func TranspileFile(file ir.File) (*ast.File, error) {
 		return nil, err
 	}
 	decls = append(decls, functions...)
-	return &ast.File{
-		Name:      &ast.Ident{Name: file.PkgName},
+	return &goast.File{
+		Name:      &goast.Ident{Name: file.PkgName},
 		GoVersion: goVersion,
 		Decls:     decls,
 	}, nil
 }
 
 // returns
-func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
-	goDecls := make([]ast.Spec, 0)
+func transpileValDeclarations(vars []ir.ValDecl) (*goast.GenDecl, error) {
+	goDecls := make([]goast.Spec, 0)
 	errs := make([]error, 0)
 	for _, rawVar := range vars {
 		value, err := transpileExpr(rawVar.E)
@@ -52,7 +52,7 @@ func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
 			errs = append(errs, err)
 			continue
 		}
-		var type_ ast.Expr
+		var type_ goast.Expr
 		if rawVar.T != nil {
 			type_, err = transpileType(rawVar.T)
 			if err != nil {
@@ -61,35 +61,35 @@ func transpileValDeclarations(vars []ir.ValDecl) (*ast.GenDecl, error) {
 			}
 
 		}
-		spec := &ast.ValueSpec{
-			Names:  []*ast.Ident{ast.NewIdent(rawVar.Name)},
-			Values: []ast.Expr{value},
+		spec := &goast.ValueSpec{
+			Names:  []*goast.Ident{goast.NewIdent(rawVar.Name)},
+			Values: []goast.Expr{value},
 			Type:   type_,
 		}
 		goDecls = append(goDecls, spec)
 	}
 	joined := errors.Join(errs...)
-	return &ast.GenDecl{
+	return &goast.GenDecl{
 		Specs: goDecls,
 		Tok:   token.VAR,
 	}, joined
 }
 
-func transpileExpr(expr ir.Expr) (ast.Expr, error) {
+func transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	switch e := expr.(type) {
 	case ir.BasicLitExpr:
 		switch e.Kind {
 		case token.STRING:
-			return &ast.BasicLit{
+			return &goast.BasicLit{
 				Kind: e.Kind,
 				// TODO reconsider escaping!
 				Value: "`" + e.Value + "`",
 			}, nil
 		case token.INT:
-			return &ast.CallExpr{
-				Fun: ast.NewIdent("int64"),
-				Args: []ast.Expr{
-					&ast.BasicLit{
+			return &goast.CallExpr{
+				Fun: goast.NewIdent("int64"),
+				Args: []goast.Expr{
+					&goast.BasicLit{
 						Kind:  e.Kind,
 						Value: e.Value,
 					}},
@@ -99,7 +99,7 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 		}
 
 	case ir.IdentifierLitExpr:
-		return ast.NewIdent(e.NameLit), nil
+		return goast.NewIdent(e.NameLit), nil
 
 	case ir.BinaryOpExpr:
 		lhs, err1 := transpileExpr(e.Lhs)
@@ -107,7 +107,7 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 		if err1 != nil || err2 != nil {
 			return nil, errors.Join(err1, err2)
 		}
-		return &ast.BinaryExpr{
+		return &goast.BinaryExpr{
 			X:  lhs,
 			Y:  rhs,
 			Op: e.Op.Token(),
@@ -117,8 +117,8 @@ func transpileExpr(expr ir.Expr) (ast.Expr, error) {
 	}
 }
 
-func transpileFunctionDecls(fs []ir.FuncDecl) ([]ast.Decl, error) {
-	var goDecls []ast.Decl
+func transpileFunctionDecls(fs []ir.FuncDecl) ([]goast.Decl, error) {
+	var goDecls []goast.Decl
 	var errs []error
 	for _, irFunc := range fs {
 		paramDecl, err := transpileParameterDecls(irFunc.Params)
@@ -132,34 +132,34 @@ func transpileFunctionDecls(fs []ir.FuncDecl) ([]ast.Decl, error) {
 			errs = append(errs, err)
 			continue
 		}
-		var resultList *ast.FieldList
+		var resultList *goast.FieldList
 		if irFunc.Result != nil {
 			resultType, err := transpileType(irFunc.Result)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
-			resultList = &ast.FieldList{
-				List: []*ast.Field{{
+			resultList = &goast.FieldList{
+				List: []*goast.Field{{
 					Type: resultType,
 				}},
 			}
 		}
-		goDecl := ast.FuncDecl{
-			Name: ast.NewIdent(irFunc.NameLit),
-			Type: &ast.FuncType{
+		goDecl := goast.FuncDecl{
+			Name: goast.NewIdent(irFunc.NameLit),
+			Type: &goast.FuncType{
 				Params:  &paramDecl,
 				Results: resultList,
 			},
-			Body: &ast.BlockStmt{List: body},
+			Body: &goast.BlockStmt{List: body},
 		}
 		goDecls = append(goDecls, &goDecl)
 	}
 	return goDecls, errors.Join(errs...)
 }
 
-func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
-	fieldList := ast.FieldList{}
+func transpileParameterDecls(params []ir.ParamDecl) (goast.FieldList, error) {
+	fieldList := goast.FieldList{}
 	errs := make([]error, 0)
 	for _, param := range params {
 		t, err := transpileType(param.T)
@@ -168,8 +168,8 @@ func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
 			continue
 		}
 
-		fieldList.List = append(fieldList.List, &ast.Field{
-			Names: []*ast.Ident{{
+		fieldList.List = append(fieldList.List, &goast.Field{
+			Names: []*goast.Ident{{
 				Name: param.Name.Name,
 			}},
 			Type: t,
@@ -178,7 +178,7 @@ func transpileParameterDecls(params []ir.ParamDecl) (ast.FieldList, error) {
 	return fieldList, errors.Join(errs...)
 }
 
-func transpileType(t ir.Type) (ast.Expr, error) {
+func transpileType(t ir.Type) (goast.Expr, error) {
 	if t == nil {
 		return nil, nil
 	}
@@ -186,9 +186,9 @@ func transpileType(t ir.Type) (ast.Expr, error) {
 	case ir.TypeLit:
 		goEquivalent, ok := ileToGoTypes[e.NameLit]
 		if ok {
-			return ast.NewIdent(goEquivalent), nil
+			return goast.NewIdent(goEquivalent), nil
 		}
-		return ast.NewIdent(e.NameLit), nil
+		return goast.NewIdent(e.NameLit), nil
 	default:
 		return nil, fmt.Errorf("unexpected ir.Type type: %v", e)
 	}
@@ -200,9 +200,9 @@ func transpileType(t ir.Type) (ast.Expr, error) {
 // Exceptionally, if finalLocalVarName is a string with "return",
 // then transpileExpressionToStatements makes the last statement a return statement
 // for the resulting ir.Expr
-func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]ast.Stmt, error) {
-	var statements []ast.Stmt
-	var finalExpr ast.Expr
+func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]goast.Stmt, error) {
+	var statements []goast.Stmt
+	var finalExpr goast.Expr
 	switch e := expr.(type) {
 	// add non inlineable Exprs here!
 
@@ -224,13 +224,13 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile type: %v", err)
 		}
-		final := []ast.Stmt{
-			&ast.DeclStmt{Decl: &ast.GenDecl{
+		final := []goast.Stmt{
+			&goast.DeclStmt{Decl: &goast.GenDecl{
 				Tok: token.VAR,
-				Specs: []ast.Spec{
-					&ast.ValueSpec{
-						Names:  []*ast.Ident{{Name: e.IdentName}},
-						Values: []ast.Expr{goRHSExpr},
+				Specs: []goast.Spec{
+					&goast.ValueSpec{
+						Names:  []*goast.Ident{{Name: e.IdentName}},
+						Values: []goast.Expr{goRHSExpr},
 						Type:   t,
 					},
 				},
@@ -250,7 +250,7 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 		if err != nil {
 			return nil, err
 		}
-		final := []ast.Stmt{&ast.ExprStmt{X: goStatement}}
+		final := []goast.Stmt{&goast.ExprStmt{X: goStatement}}
 
 		return append(final, remainder...), nil
 
@@ -261,18 +261,18 @@ func transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]
 		panic("unimplemented expression type: " + reflect.TypeOf(expr).String())
 	}
 
-	var finalStatement ast.Stmt
+	var finalStatement goast.Stmt
 	switch finalLocalVarName {
 	case "":
 		return nil, errors.New("unexpected empty local variable name")
 	case "return":
-		finalStatement = &ast.ReturnStmt{
-			Results: []ast.Expr{finalExpr},
+		finalStatement = &goast.ReturnStmt{
+			Results: []goast.Expr{finalExpr},
 		}
 	default:
-		finalStatement = &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent(finalLocalVarName)},
-			Rhs: []ast.Expr{finalExpr},
+		finalStatement = &goast.AssignStmt{
+			Lhs: []goast.Expr{goast.NewIdent(finalLocalVarName)},
+			Rhs: []goast.Expr{finalExpr},
 			Tok: token.DEFINE,
 		}
 	}

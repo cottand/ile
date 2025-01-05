@@ -1,6 +1,8 @@
 package hm
 
-import "testing"
+import (
+	"testing"
+)
 
 var solverTest = []struct {
 	cs Constraints
@@ -27,16 +29,6 @@ var solverTest = []struct {
 			{TypeVariable('a'), proton},
 		},
 		mSubs{'a': proton}, false,
-	},
-
-	{
-		Constraints{
-			{
-				NewRecordType("", TypeVariable('a'), TypeVariable('a'), TypeVariable('b')),
-				NewRecordType("", neutron, neutron, proton),
-			},
-		},
-		mSubs{'a': neutron, 'b': proton}, false,
 	},
 
 	// (a -> a) and (b -> c)

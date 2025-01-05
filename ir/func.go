@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/ir/hm"
+	hmtypes "github.com/cottand/ile/ir/hm/types"
 	"go/token"
 )
 
@@ -51,7 +52,7 @@ type FuncDecl struct {
 	Result Type
 }
 
-func (param ParamDecl) scheme() *hm.Scheme {
+func (param ParamDecl) scheme() (hm.TypeVarSet, hm.Type) {
 	var typeSet hm.TypeVarSet
 	var paramT hm.Type
 	if param.T != nil {
@@ -60,34 +61,68 @@ func (param ParamDecl) scheme() *hm.Scheme {
 		typeSet = append(typeSet, hm.TypeVariable('a'))
 		paramT = hm.TypeVariable('a')
 	}
-	return hm.NewScheme(typeSet, paramT)
+	return typeSet, paramT
 }
 
 func (f FuncDecl) expandArgsAsLambda(params []ParamDecl) hm.Expression {
+	var typeSet hm.TypeVarSet
+	var fields []hmtypes.Field
 	if len(params) == 0 {
-		return lambdaBodyArg{
-			paramName:   Ident{Name: "Nil"},
-			body:        f.BodyLit,
-			paramScheme: hm.NewScheme(hm.TypeVarSet{}, TypeLit{NameLit: "Nil"}),
+		fields = append(fields, hmtypes.Field{
+			Name: "ident:Nil",
+			Type: TypeLit{NameLit: "Nil"},
+		})
+		//return lambdaBodyArg{
+		//	paramName:   Ident{Name: "Nil"},
+		//	body:        f.BodyLit,
+		//	paramScheme: hm.NewScheme(hm.TypeVarSet{}, TypeLit{NameLit: "Nil"}),
+		//}
+	} else {
+		for i, param := range params {
+			var paramT hm.Type
+			if param.T != nil {
+				paramT = param.T
+			} else {
+				typeSet = append(typeSet, hm.TypeVariable(i))
+				paramT = hm.TypeVariable(i)
+			}
+			fields = append(fields, hmtypes.Field{
+				Name: "ident:" + param.Name.Name,
+				Type: paramT,
+			})
 		}
-	}
-	if len(params) == 1 {
-		arg := lambdaBodyArg{
-			paramName:   params[0].Name,
-			body:        f.BodyLit,
-			paramScheme: params[0].scheme(),
-		}
-		return arg
 	}
 
-	fstParam := params[0]
-	remainingParams := params[1:]
-	println(fstParam.Name.Name)
-	return lambdaBodyArg{
-		paramName:   fstParam.Name,
-		body:        f.expandArgsAsLambda(remainingParams),
-		paramScheme: fstParam.scheme(),
+	paramsScheme := hm.NewScheme(typeSet, hmtypes.NewRecordType("", fields...))
+
+	return tupleLambda{
+		fName:        Ident{Name: f.NameLit},
+		body:         f.BodyLit,
+		paramsScheme: paramsScheme,
 	}
+
+	//return lambdaBodyArg{
+	//	paramName:   Ident{},
+	//	body:        nil,
+	//	paramScheme: nil,
+	//}
+	//
+	//if len(params) == 1 {
+	//	arg := lambdaBodyArg{
+	//		paramName:   params[0].Name,
+	//		body:        f.BodyLit,
+	//		paramScheme: params[0].scheme(),
+	//	}
+	//	return arg
+	//}
+	//
+	//fstParam := params[0]
+	//remainingParams := params[1:]
+	//return lambdaBodyArg{
+	//	paramName:   fstParam.Name,
+	//	body:        f.expandArgsAsLambda(remainingParams),
+	//	paramScheme: fstParam.scheme(),
+	//}
 }
 
 func (f FuncDecl) ToTypeExpression(usedIn hm.Expression) hm.LetRec {
@@ -171,6 +206,32 @@ func (n lambdaBodyArg) Infer(e hm.Env, f hm.Fresher) (hm.Type, error) {
 	if n.paramScheme != nil {
 		// add the scheme of the parameter to the environment!
 		e.Add("ident:"+n.paramName.Name, n.paramScheme)
+	}
+	// error will be handled ok by hm, this is not a crash
+	return nil, errors.New("not found")
+}
+
+// ----------------------
+
+type tupleLambda struct {
+	fName Ident
+	body  hm.Expression
+
+	// all parameter types, including return
+	// can be nil if those are unknown
+	paramsScheme *hm.Scheme
+}
+
+func (n tupleLambda) Name() string        { return "func:" + n.fName.Name }
+func (n tupleLambda) Body() hm.Expression { return n.body }
+func (n tupleLambda) IsLambda() bool      { return true }
+
+func (n tupleLambda) Infer(e hm.Env, f hm.Fresher) (hm.Type, error) {
+	if n.paramsScheme != nil {
+		// add the scheme of the parameter to the environment!
+		//e.Add("ident:"+n.paramName.Name, n.paramScheme)
+		//n.paramsScheme.
+
 	}
 	// error will be handled ok by hm, this is not a crash
 	return nil, errors.New("not found")

@@ -1,4 +1,4 @@
-package frontend
+package frontend1
 
 import (
 	"bytes"

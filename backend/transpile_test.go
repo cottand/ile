@@ -5,7 +5,7 @@ import (
 	"github.com/cottand/ile/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/interp"
-	"go/ast"
+	goast "go/ast"
 	"go/format"
 	"go/token"
 	"log/slog"
@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func evalNode(node ast.Node) (reflect.Value, *interp.Interpreter, error) {
+func evalNode(node goast.Node) (reflect.Value, *interp.Interpreter, error) {
 	sourceBuf := bytes.NewBuffer(nil)
 
 	// Print the generated Go code

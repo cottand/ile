@@ -45,6 +45,13 @@ type Apply interface {
 	Fn() Expression
 }
 
+// ApplyRecord is like Apply, except that Fn can also use the named parameters when
+// Expression is a Record (think of it like destructuring)
+type ApplyRecord interface {
+	Apply
+	IsApplyRecord() bool
+}
+
 // LetRec is an Expression/AST node that represents a recursive let
 type LetRec interface {
 	Let

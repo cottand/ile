@@ -82,12 +82,12 @@ func (t *Tuple) Eq(other hm.Type) bool {
 	return false
 }
 
-// Clone implements Cloner
+// Clone implements hm.Cloner
 func (t *Tuple) Clone() interface{} {
 	retVal := new(Tuple)
 	ts := hm.BorrowTypes(len(t.ts))
 	for i, tt := range t.ts {
-		if c, ok := tt.(Cloner); ok {
+		if c, ok := tt.(hm.Cloner); ok {
 			ts[i] = c.Clone().(hm.Type)
 		} else {
 			ts[i] = tt
