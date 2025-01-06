@@ -106,8 +106,8 @@ type Expr interface {
 //
 // If the Expr is a TypeDeclarable that did not have a declared type, it
 // may return nil
-type TypeDeclarable[T types.Type] interface {
-	DeclaredType() T
+type TypeDeclarable interface {
+	DeclaredType() TypeAnnotationFn
 }
 
 // PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.

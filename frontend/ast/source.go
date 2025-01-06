@@ -6,8 +6,8 @@ import (
 	"go/token"
 )
 
-// Positioner allows finding the location in the original source file
-// the easiest way to be a Positioner is to embed a Range
+// Positioner allows finding the location in the original source file.
+// The easiest way to be a Positioner is to embed a Range
 type Positioner interface {
 	Pos() token.Pos // position of first character belonging to the node
 	End() token.Pos // position of first character immediately after the node
