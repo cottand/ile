@@ -275,7 +275,6 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 		Range:    intervalTo2Pos(ctx.GetSourceInterval()),
 	}
 	decl := ast.Declaration{
-		IsFunc: true,
 		Range:  intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
 		Name:   ctx.IDENTIFIER().GetText(),
 		E:      fn,
@@ -314,7 +313,7 @@ func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
 	//		Range: intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
 	//		Name:  ctx.IDENTIFIER().GetText(),
 	//	},
-	//	T: typ,
+	//	DeclaredT: typ,
 	//})
 }
 

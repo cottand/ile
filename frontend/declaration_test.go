@@ -124,7 +124,7 @@ a = 1 + a
 
 	assert.Len(t, src.Declarations, 1)
 	fst := src.Declarations[0]
-	assert.Equal(t, "hello", fst.Name)
+	assert.Equal(t, "a", fst.Name)
 
 	assert.IsType(t, &ast.Call{}, fst.E)
 	fn := fst.E.(*ast.Call).Func.(*ast.Literal)

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend"
-	"github.com/cottand/ile/ir"
+	"github.com/cottand/ile/frontend/ast"
 	"github.com/spf13/cobra"
-	"go/ast"
+	goast "go/ast"
 	"go/format"
 	"go/token"
 	"log"
@@ -23,7 +23,7 @@ var BuildCmd = &cobra.Command{
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	fs, _, err := frontend1.FilesetFrom(args[0])
+	fs, _, err := frontend.FilesetFrom(args[0])
 	if err != nil {
 		return err
 	}
@@ -34,20 +34,21 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if len(cErrs) > 0 {
 		log.Printf("%d errors occurred during build\n", len(cErrs))
 		for _, cErr := range cErrs {
-			log.Println("at " + fs.Position(cErr.At.PosStart).String())
+			log.Println("at " + fs.Position(cErr.At.Pos()).String())
 			log.Println(cErr.Message)
 		}
 		return fmt.Errorf("%d errors occurred during build", len(cErrs))
 	}
 
-	transpiled, err := backend.TranspileFile(*f)
+	tp := backend.Transpiler{}
+	transpiled, err := tp.TranspileFile(*f)
 	if err != nil {
 		return err
 	}
 	return write(transpiled, args[0])
 }
 
-func write(goAst *ast.File, at string) error {
+func write(goAst *goast.File, at string) error {
 	p := path.Clean(at)
 	f, err := os.Create(p + ".go")
 	if err != nil {
@@ -61,13 +62,13 @@ func write(goAst *ast.File, at string) error {
 	return nil
 }
 
-func irFromFile(at string) (*ir.File, []*ir.CompileError, error) {
+func irFromFile(at string) (*ast.File, []*ast.CompileError, error) {
 	p := path.Clean(at)
 	f, err := os.Open(p)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read file %s: %w", p, err)
 	}
-	node, cErrs, err := frontend1.ParseToIR(f)
+	node, cErrs, err := frontend.ParseToIR(f)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not compile file %s: %w", p, err)
 	}

@@ -62,7 +62,7 @@ func convertFuncType(t hm.FunctionType, nParams int, paramsFoundSoFar []Type) (p
 		return paramsFoundSoFar
 	}
 	// we have more than 1 param, so the return type will be
-	// of type (oneParam) -> T
+	// of type (oneParam) -> DeclaredT
 	// So we need to uncurry
 	ft, ok := t1.(*hm.FunctionType)
 	if !ok {

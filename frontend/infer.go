@@ -205,6 +205,18 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		env.common.LeaveScope()
 		return t, ti.err
 
+		// desugared to an Assign which does not use its value
+	case *ast.Unused:
+		var t types.Type
+		_, err := ti.infer(env, level+1, e.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		// Infer the body type:
+		t, _ = ti.infer(env, level, e.Body)
+		return t, ti.err
+
 	case *ast.LetGroup:
 		// Grouped let-bindings are sorted into strongly-connected components, then type-checked in dependency order:
 		env.common.EnterScope(e)

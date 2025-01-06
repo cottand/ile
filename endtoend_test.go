@@ -47,7 +47,8 @@ func TestAllEndToEnd(t *testing.T) {
 			transpiled, _, err := frontend.ParseToIR(bytes.NewBuffer(content))
 			assert.NoError(t, err)
 
-			goAst, err := backend.TranspileFile(transpiled)
+			tp := backend.Transpiler{}
+			goAst, err := tp.TranspileFile(transpiled)
 			assert.NoError(t, err)
 
 			sourceBuf := bytes.NewBuffer(nil)
@@ -55,7 +56,8 @@ func TestAllEndToEnd(t *testing.T) {
 				err := recover()
 				if err != nil {
 					// Print the generated Go code
-					t.Fatalf("could not compile AST: %v\n%v", err, goAst)
+					t.Errorf("could not compile AST: %v\n%v", err, goAst)
+					panic(err)
 				}
 			}()
 

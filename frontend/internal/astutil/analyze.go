@@ -258,6 +258,14 @@ func (a *Analysis) analyzeExpr(expr ast.Expr) error {
 		delete(a.Scopes, expr.Var)
 		a.unstash(stashed)
 
+	case *ast.Unused:
+		if err := a.analyzeExpr(expr.Value); err != nil {
+			return err
+		}
+		if err := a.analyzeExpr(expr.Body); err != nil {
+			return err
+		}
+
 	case *ast.LetGroup:
 		num := len(a.Graphs)
 		a.Graphs = append(a.Graphs, Graph{

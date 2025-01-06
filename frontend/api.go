@@ -61,17 +61,24 @@ func ParseToIR(reader io.Reader) (ast.File, []*ast.CompileError, error) {
 
 func InferencePhase(file ast.File) (ast.File, []*ast.CompileError) {
 	var errs []*ast.CompileError
-	for _, decl := range file.Declarations {
+	newDecls := make([]ast.Declaration, len(file.Declarations))
+	for i, decl := range file.Declarations {
 		ctx := NewContext()
 		env := NewTypeEnv(nil)
-		inferred, err := ctx.Infer(file.AsGroupedLet(&ast.Var{Name: decl.Name}), env)
+		inferred, err := ctx.Annotate(file.AsGroupedLet(&ast.Var{Name: decl.Name}), env)
 		if err != nil {
 			errs = append(errs, &ast.CompileError{
 				Message: fmt.Sprintf("could not infer %s: %v", decl.Name, err),
 				At:      decl,
 			})
 		}
-		fmt.Printf("inferred for %v: %v\n", decl.Name, inferred)
+		// should not fail as this was the original type of expr
+		inferredAsGroupedLet := inferred.(*ast.LetGroup)
+		// currentDecl should now be annotated with a type!
+		currentDecl := inferredAsGroupedLet.Vars[i]
+		decl.E = currentDecl.Value
+		newDecls[i] = decl
 	}
+	file.Declarations = newDecls
 	return file, errs
 }

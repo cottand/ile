@@ -13,9 +13,9 @@ type Positioner interface {
 	End() token.Pos // position of first character immediately after the node
 }
 
-// TypeAnnotation should produce a type at the given binding-level. The constructed type may include
+// TypeAnnotationFn should produce a type at the given binding-level. The constructed type may include
 // types derived from variables which are already in scope (retrieved from the type-environment).
-type TypeAnnotation = func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
+type TypeAnnotationFn = func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
 
 type Range struct {
 	PosStart token.Pos
@@ -39,17 +39,17 @@ func (f File) String() string {
 	return fmt.Sprint(f.PkgName, "\n", f.Declarations)
 }
 
-func (f File) AsGroupedLet(in Expr) Expr {
+func (f File) AsGroupedLet(in Expr) *LetGroup {
 	bindings := make([]LetBinding, len(f.Declarations))
 	for i, decl := range f.Declarations {
 		bindings[i] = LetBinding{
-			Var: decl.Name,
+			Var:   decl.Name,
 			Value: decl.E,
 		}
 	}
 	return &LetGroup{
-		Vars:  bindings,
-		Body:  in,
+		Vars: bindings,
+		Body: in,
 	}
 }
 
@@ -58,6 +58,7 @@ type Declaration struct {
 	Range
 	Name string
 	E    Expr
-	T         TypeAnnotation
-	IsFunc    bool
+	// DeclaredT is the _declared_ type of E
+	// TODO populate this and unify with this in the inference phase!
+	DeclaredT types.Type
 }

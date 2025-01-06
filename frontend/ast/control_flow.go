@@ -342,6 +342,11 @@ func (e *ControlFlow) checkReturnReachabilitySmall(stronglyConnectedComponents [
 	return nil
 }
 
+func (e *ControlFlow) Copy() Expr {
+	copied := *e
+	return &copied
+}
+
 // Copy and sort jumps in ascending order by {From, To}.
 func SortJumps(jumps []Jump) []Jump {
 	less := func(i, j int) bool {

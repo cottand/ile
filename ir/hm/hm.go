@@ -197,7 +197,7 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 		infer.cs = append(infer.cs, defCs...)
 
 	default:
-		return errors.Errorf("Expression of %T is unhandled", expr)
+		return errors.Errorf("Expression of %DeclaredT is unhandled", expr)
 	}
 
 	return nil
@@ -207,9 +207,9 @@ func (infer *inferer) consGen(expr Expression) (err error) {
 //
 // If ...
 //
-//	  Γ ⊢ e: T1  T1 ⊑ T
+//	  Γ ⊢ e: T1  T1 ⊑ DeclaredT
 //	----------------------
-//	       Γ ⊢ e: T
+//	       Γ ⊢ e: DeclaredT
 func Instantiate(f Fresher, s *Scheme) Type {
 	l := len(s.tvs)
 	tvs := make(TypeVarSet, l)
@@ -281,11 +281,11 @@ ret:
 //
 // # Var
 //
-// If x is of type T, in a collection of statements Γ, then we can infer that x has type T when we come to a new instance of x
+// If x is of type DeclaredT, in a collection of statements Γ, then we can infer that x has type DeclaredT when we come to a new instance of x
 //
-//	 x: T ∈ Γ
+//	 x: DeclaredT ∈ Γ
 //	-----------
-//	 Γ ⊢ x: T
+//	 Γ ⊢ x: DeclaredT
 //
 // # Apply
 //
@@ -360,11 +360,11 @@ func Infer(env Env, expr Expression) (*Scheme, error) {
 //
 // # Default Unification
 //
-// if type variable 'a' is not in 'T', then unification is simple: replace all instances of 'a' with 'T'
+// if type variable 'a' is not in 'DeclaredT', then unification is simple: replace all instances of 'a' with 'DeclaredT'
 //
-//	     a ∉ T
+//	     a ∉ DeclaredT
 //	---------------
-//	 a ~ T : [a/T]
+//	 a ~ DeclaredT : [a/DeclaredT]
 func Unify(a, b Type) (sub Subs, err error) {
 	logf("%v ~ %v", a, b)
 	enterLoggingContext()

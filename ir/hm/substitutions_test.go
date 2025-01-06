@@ -61,7 +61,7 @@ func testSubs(t *testing.T, sub Subs) {
 			}
 		}
 		if !found {
-			t.Errorf("Testing of %T: cannot find %v in Range", sub, s)
+			t.Errorf("Testing of %DeclaredT: cannot find %v in Range", sub, s)
 		}
 	}
 

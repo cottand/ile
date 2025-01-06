@@ -43,6 +43,9 @@ package ast
 
 import (
 	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/util"
+	"go/ast"
+	"go/token"
 )
 
 var (
@@ -94,6 +97,17 @@ type Expr interface {
 	ExprName() string
 	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
 	Type() types.Type
+
+	util.Copyable[Expr]
+}
+
+// TypeDeclarable can apply to an Expr if its type can be directly annotated in the source
+// this should only be used in the frontend, not in the backend
+//
+// If the Expr is a TypeDeclarable that did not have a declared type, it
+// may return nil
+type TypeDeclarable[T types.Type] interface {
+	DeclaredType() T
 }
 
 // PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.
@@ -117,7 +131,12 @@ type Literal struct {
 	// types derived from variables which are already in scope (retrieved from the type-environment).
 	Construct func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
 	inferred  types.Type
-	Range
+
+	// Kind indicates what literal this is originally
+	// this is useful for the transpiling phase, and is not used during type inference
+	Kind token.Token
+
+	ast.Node
 }
 
 // Returns the syntax of e.
@@ -128,6 +147,11 @@ func (e *Literal) Type() types.Type { return types.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *Literal) SetType(t types.Type) { e.inferred = t }
+
+func (e *Literal) Copy() Expr {
+	copied := *e
+	return &copied
+}
 
 // Variable
 type Var struct {
@@ -152,6 +176,11 @@ func (e *Var) SetType(t types.Type) { e.inferred = t }
 // Assign a binding scope for e. Scope assignments should occur indirectly, during inference.
 func (e *Var) SetScope(scope *Scope) { e.scope = scope }
 
+func (e *Var) Copy() Expr {
+	copied := *e
+	return &copied
+}
+
 // Dereference: `*x`
 type Deref struct {
 	Ref      Expr
@@ -167,6 +196,11 @@ func (e *Deref) Type() types.Type { return types.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *Deref) SetType(t types.Type) { e.inferred = t }
+
+func (e *Deref) Copy() Expr {
+	copied := *e
+	return &copied
+}
 
 // Dereference and assign: `*x = y`
 type DerefAssign struct {
@@ -184,6 +218,11 @@ func (e *DerefAssign) Type() types.Type { return types.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *DerefAssign) SetType(t types.Type) { e.inferred = t }
+
+func (e *DerefAssign) Copy() Expr {
+	copied := *e
+	return &copied
+}
 
 // Application: `f(x)`
 type Call struct {
@@ -209,12 +248,23 @@ func (e *Call) FuncType() *types.Arrow { return e.inferredFunc }
 // Assign the function/method called in e. Type assignments should occur indirectly, during inference.
 func (e *Call) SetFuncType(t *types.Arrow) { e.inferredFunc = t }
 
+func (e *Call) Copy() Expr {
+	copied := *e
+	copied.Args = make([]Expr, len(e.Args))
+	for i, arg := range e.Args {
+		copied.Args[i] = arg.Copy()
+	}
+	copied.Func = e.Func.Copy()
+	return &copied
+}
+
 // Function abstraction: `fn (x, y) -> x`
 type Func struct {
-	ArgNames []string
-	Body     Expr
-	inferred *types.Arrow
-	Range    // of the declaration including parameters but not the body
+	ArgNames  []string
+	Body      Expr
+	inferred  *types.Arrow
+	Range     // of the declaration including parameters but not the body
+	Annotated *types.Arrow
 }
 
 // "Func"
@@ -232,13 +282,20 @@ func (e *Func) ArgType(index int) types.Type { return types.RealType(e.inferred.
 // Get the inferred (or assigned) return type of e.
 func (e *Func) RetType() types.Type { return types.RealType(e.inferred.Return) }
 
+func (e *Func) Copy() Expr {
+	copied := *e
+	copied.Body = e.Body.Copy()
+	return &copied
+}
+
 // Assign is an expression that sets a Var to an Expr for the rest of the body
-// in ile. It is a let expression in other languages,
-// except syntactically we omit both `let` and `in`
+// in ile. It is equivalent to a let expression in other languages,
+// we just syntactically omit both `let` and `in`
 type Assign struct {
-	Var   string
-	Value Expr
-	Body  Expr
+	Var        string
+	Value      Expr
+	Body       Expr
+	AnnotatedT TypeAnnotationFn
 	Range
 }
 
@@ -246,6 +303,11 @@ func (e *Assign) ExprName() string { return "Assign" }
 
 // Get the inferred (or assigned) type of e.
 func (e *Assign) Type() types.Type { return e.Body.Type() }
+
+func (e *Assign) Copy() Expr {
+	copied := *e
+	return &copied
+}
 
 // Unused is like Assign, except it does not store the Value in a Var
 // it is useful for calling expressions with side effects
@@ -258,6 +320,12 @@ type Unused struct {
 func (e *Unused) ExprName() string { return "Unused" }
 func (e *Unused) Type() types.Type { return e.Body.Type() }
 
+func (e *Unused) Copy() Expr {
+	copied := *e
+	copied.Body = e.Body.Copy()
+	copied.Value = e.Value.Copy()
+	return &copied
+}
 
 // Grouped let-bindings: `let a = 1 and b = 2 in e`
 type LetGroup struct {
@@ -286,6 +354,16 @@ func (e *LetGroup) StronglyConnectedComponents() [][]LetBinding { return e.sccs 
 // Each component should be a variable bound by e.
 func (e *LetGroup) SetStronglyConnectedComponents(sccs [][]LetBinding) { e.sccs = sccs }
 
+func (e *LetGroup) Copy() Expr {
+	copied := *e
+	copied.Vars = make([]LetBinding, len(e.Vars))
+	for i, b := range e.Vars {
+		copied.Vars[i] = b.Copy()
+	}
+	copied.Body = e.Body.Copy()
+	return &copied
+}
+
 // Paired identifier and value
 type LetBinding struct {
 	Var   string
@@ -294,6 +372,11 @@ type LetBinding struct {
 
 // Get the inferred (or assigned) type of e.
 func (e *LetBinding) Type() types.Type { return e.Value.Type() }
+func (e *LetBinding) Copy() LetBinding {
+	copied := *e
+	copied.Value = e.Value.Copy()
+	return copied
+}
 
 // Selecting (scoped) value of label: `r.a`
 type RecordSelect struct {
@@ -312,6 +395,12 @@ func (e *RecordSelect) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordSelect) SetType(t types.Type) { e.inferred = t }
 
+func (e *RecordSelect) Copy() Expr {
+	copied := *e
+	copied.Record = e.Record.Copy()
+	return &copied
+}
+
 // Extending record: `{a = 1, b = 2 | r}`
 type RecordExtend struct {
 	Record   Expr
@@ -329,6 +418,23 @@ func (e *RecordExtend) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordExtend) SetType(rt *types.Record) { e.inferred = rt }
 
+func (e *RecordExtend) Copy() Expr {
+	copied := *e
+	labels := make([]LabelValue, len(e.Labels))
+	for i, v := range e.Labels {
+		labels[i] = LabelValue{v.Label, CopyExpr(v.Value)}
+	}
+	record := e.Record
+	if record == nil {
+		record = &RecordEmpty{}
+	} else {
+		record = record.Copy()
+	}
+	copied.Labels = labels
+	copied.Record = record
+	return &copied
+}
+
 // Paired label and value
 type LabelValue struct {
 	Label string
@@ -337,6 +443,10 @@ type LabelValue struct {
 
 // Get the inferred (or assigned) type of e.
 func (e *LabelValue) Type() types.Type { return e.Value.Type() }
+func (e *LabelValue) Copy() *LabelValue {
+	copied := *e
+	return &copied
+}
 
 // Deleting (scoped) label: `{r - a}`
 type RecordRestrict struct {
@@ -355,6 +465,12 @@ func (e *RecordRestrict) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordRestrict) SetType(rt *types.Record) { e.inferred = rt }
 
+func (e *RecordRestrict) Copy() Expr {
+	copied := *e
+	e.Record = e.Record.Copy()
+	return &copied
+}
+
 // Empty record: `{}`
 type RecordEmpty struct {
 	inferred *types.Record
@@ -370,6 +486,11 @@ func (e *RecordEmpty) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordEmpty) SetType(rt *types.Record) { e.inferred = rt }
 
+func (e *RecordEmpty) Copy() Expr {
+	copied := *e
+	return &copied
+}
+
 // Tagged (ad-hoc) variant: `:X a`
 type Variant struct {
 	Label string
@@ -382,6 +503,12 @@ func (e *Variant) ExprName() string { return "Variant" }
 
 // Get the inferred (or assigned) type of e.
 func (e *Variant) Type() types.Type { return e.Value.Type() }
+
+func (e *Variant) Copy() Expr {
+	copied := *e
+	e.Value = e.Value.Copy()
+	return &copied
+}
 
 // Variant-matching switch:
 //
@@ -408,6 +535,24 @@ func (e *Match) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *Match) SetType(t types.Type) { e.inferred = t }
 
+func (e *Match) Copy() Expr {
+	copied := *e
+	cases := make([]MatchCase, len(e.Cases))
+	for i, v := range e.Cases {
+		copiedMatchCase := v.Copy()
+		copiedMatchCase.Value = v.Value.Copy()
+		cases[i] = *copiedMatchCase
+	}
+	defaultCase := e.Default
+	if defaultCase != nil {
+		defaultCase = defaultCase.Copy()
+	}
+	copied.Value = e.Value.Copy()
+	copied.Cases = cases
+	copied.Default = defaultCase
+	return &copied
+}
+
 // Case expression within Match: `:X a -> expr1`
 type MatchCase struct {
 	Label   string
@@ -424,6 +569,12 @@ func (e *MatchCase) VariantType() types.Type { return types.RealType(e.varType) 
 
 // Assign a variant-type to e. Type assignments should occur indirectly, during inference.
 func (e *MatchCase) SetVariantType(t types.Type) { e.varType = t }
+
+func (e *MatchCase) Copy() *MatchCase {
+	copied := *e
+	copied.Value = e.Value.Copy()
+	return &copied
+}
 
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 type Pipe struct {
@@ -443,6 +594,16 @@ func (e *Pipe) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *Pipe) SetType(t types.Type) { e.inferred = t }
 
+func (e *Pipe) Copy() Expr {
+	copied := *e
+	copied.Sequence = make([]Expr, len(e.Sequence))
+	for i, expr := range e.Sequence {
+		copied.Sequence[i] = expr.Copy()
+	}
+	copied.Source = e.Source.Copy()
+	return &copied
+}
+
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be
 type ErrorExpr struct {
 	Range
@@ -451,3 +612,7 @@ type ErrorExpr struct {
 
 func (e *ErrorExpr) Type() types.Type { return types.NewUnit() }
 func (e *ErrorExpr) ExprName() string { return "Error" }
+func (e *ErrorExpr) Copy() Expr {
+	copied := *e
+	return &copied
+}
