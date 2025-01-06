@@ -100,13 +100,13 @@ type Expr interface {
 	util.Copyable[Expr]
 }
 
-// TypeDeclarable can apply to an Expr if its type can be directly annotated in the source
+// TAnnotated can apply to an Expr if its type can be directly annotated in the source
 // this should only be used in the frontend, not in the backend
 //
-// If the Expr is a TypeDeclarable that did not have a declared type, it
+// If the Expr is a TAnnotated that did not have a declared type, it
 // may return nil
-type TypeDeclarable interface {
-	DeclaredType() TypeAnnotationFn
+type TAnnotated interface {
+	GetTAnnotation() TypeAnnotation
 }
 
 // PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.
@@ -259,10 +259,10 @@ func (e *Call) Copy() Expr {
 
 // Function abstraction: `fn (x, y) -> x`
 type Func struct {
-	ArgNames  []string
-	Body      Expr
-	inferred  *types.Arrow
-	Range     // of the declaration including parameters but not the body
+	ArgNames    []string
+	Body        Expr
+	inferred    *types.Arrow
+	Range       // of the declaration including parameters but not the body
 	TAnnotation TypeAnnotation
 }
 
@@ -287,14 +287,16 @@ func (e *Func) Copy() Expr {
 	return &copied
 }
 
+func (e *Func) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
+
 // Assign is an expression that sets a Var to an Expr for the rest of the body
 // in ile. It is equivalent to a let expression in other languages,
 // we just syntactically omit both `let` and `in`
 type Assign struct {
-	Var        string
-	Value      Expr
-	Body       Expr
-	AnnotatedT TypeAnnotationFn
+	Var         string
+	Value       Expr
+	Body        Expr
+	TAnnotation TypeAnnotation
 	Range
 }
 
@@ -307,6 +309,7 @@ func (e *Assign) Copy() Expr {
 	copied := *e
 	return &copied
 }
+func (e *Assign) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
 
 // Unused is like Assign, except it does not store the Value in a Var
 // it is useful for calling expressions with side effects

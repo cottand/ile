@@ -34,6 +34,19 @@ func (ti *InferenceContext) infer(env *TypeEnv, level uint, e ast.Expr) (ret typ
 	current := env.common.CurrentExpr
 	env.common.CurrentExpr = e
 	ret, err = ti.inferCurrentExpr(env, level)
+	annotated, ok := e.(ast.TAnnotated)
+	if ok && annotated.GetTAnnotation() != nil {
+		constructed, err := annotated.GetTAnnotation().ConstructType(env, level, nil)
+		if err != nil {
+			return nil, err
+		}
+		if constructed != nil {
+			err := env.common.TryUnify(constructed, ret)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	env.common.CurrentExpr = current
 	return
 }
