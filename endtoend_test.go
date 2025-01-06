@@ -62,15 +62,15 @@ func TestAllEndToEnd(t *testing.T) {
 			}()
 
 			prog, err := i.CompileAST(goAst)
+			_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
 			if err != nil {
-				_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
 				t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
 			}
 			_, err = i.Execute(prog)
 			assert.NoError(t, err)
 
 			resActual, err := i.Eval(eval)
-			assert.NoError(t, err)
+			assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
 
 			iClean := interp.New(interp.Options{})
 			resExpected, err := iClean.Eval(expected)

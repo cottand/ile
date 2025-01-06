@@ -44,7 +44,6 @@ package ast
 import (
 	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/util"
-	"go/ast"
 	"go/token"
 )
 
@@ -136,7 +135,7 @@ type Literal struct {
 	// this is useful for the transpiling phase, and is not used during type inference
 	Kind token.Token
 
-	ast.Node
+	Positioner
 }
 
 // Returns the syntax of e.
@@ -264,7 +263,7 @@ type Func struct {
 	Body      Expr
 	inferred  *types.Arrow
 	Range     // of the declaration including parameters but not the body
-	Annotated *types.Arrow
+	TAnnotation TypeAnnotation
 }
 
 // "Func"

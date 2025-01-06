@@ -3,6 +3,6 @@ package main
 
 SomeVal = 32
 
-fn SomFn() {
+fn SomeFn() {
     SomeVal + 1
 }

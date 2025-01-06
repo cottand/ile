@@ -10,7 +10,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 	switch t {
 	case token.ADD, token.SUB, token.MUL, token.QUO, token.REM:
 		return &Literal{
-			Node: in,
+			Positioner: in,
 			Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 				tVar := env.NewVar(level)
 				return &types.Arrow{
@@ -28,7 +28,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 		// restrict to comparables only?
 	case token.GEQ, token.LEQ, token.GTR, token.LSS:
 		return &Literal{
-			Node: in,
+			Positioner: in,
 			Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 				tVar := env.NewVar(level)
 				return &types.Arrow{
@@ -45,7 +45,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 	case token.EQL, token.NEQ:
 		return &Literal{
-			Node: in,
+			Positioner: in,
 			Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 				tVar := env.NewVar(level)
 				return &types.Arrow{
@@ -62,7 +62,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 	case token.LAND, token.LOR:
 		return &Literal{
-			Node: in,
+			Positioner: in,
 			Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 				boolT := &types.Const{Name: "Bool"}
 				return &types.Arrow{
@@ -83,7 +83,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 func StringLiteral(value string, in ast.Node) *Literal {
 	return &Literal{
-		Node: in,
+		Positioner: in,
 		Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 			return &types.Const{Name: "String"}, nil
 		},
@@ -94,7 +94,7 @@ func StringLiteral(value string, in ast.Node) *Literal {
 
 func IntLiteral(value string, in ast.Node) *Literal {
 	return &Literal{
-		Node: in,
+		Positioner: in,
 		Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
 			return &types.Const{Name: "Int"}, nil
 		},

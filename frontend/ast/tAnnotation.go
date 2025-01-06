@@ -7,7 +7,7 @@ import (
 )
 
 // TypeAnnotation specifies what the program specifies in the source AST, and is
-// a schema that is compared to inference.
+// a schema that is compared against inference results.
 //
 // It is not to be confused with a types.Type (produced via inference), although it
 // is also capable of producing a types.Type from TypeDeclarable which is used during inference
@@ -24,17 +24,18 @@ var (
 )
 
 type TConst struct {
-	Const types.Const
+	Name    string
+	Package string
 	Range
 }
 
 func (t TConst) DeclaredType() TypeAnnotationFn {
 	return func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
-		return &t.Const, nil
+		return &types.Const{Name: t.Name}, nil
 	}
 }
 
-func (t TConst) TypeString() string { return t.Const.Name }
+func (t TConst) TypeString() string { return t.Name }
 
 type TArrow struct {
 	Args   []TypeAnnotation

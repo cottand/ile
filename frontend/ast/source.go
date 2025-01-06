@@ -54,11 +54,10 @@ func (f File) AsGroupedLet(in Expr) *LetGroup {
 }
 
 // Declaration is a top-level declaration in a File
+//
+// The declared type of Declaration is in E when applicable
 type Declaration struct {
 	Range
 	Name string
 	E    Expr
-	// DeclaredT is the _declared_ type of E
-	// TODO populate this and unify with this in the inference phase!
-	DeclaredT types.Type
 }

@@ -27,11 +27,16 @@ type listener struct {
 	expressionStack util.Stack[ast.Expr]
 
 	blockExprStack          util.Stack[ast.Expr]
-	paramDeclStack          util.Stack[string]
-	functionReturnTypeStack util.Stack[string]
-	typeStack               util.Stack[string]
+	paramDeclStack          util.Stack[stringTypePair]
+	functionReturnTypeStack util.Stack[ast.TypeAnnotation]
+	typeStack               util.Stack[ast.TypeAnnotation]
 
 	pendingScopedExprStack util.Stack[pendingScoped]
+}
+
+type stringTypePair struct {
+	str string
+	typ ast.TypeAnnotation
 }
 
 type pendingScoped interface {
@@ -45,35 +50,6 @@ func (p pendingAssign) assignBody(expr ast.Expr) ast.Expr {
 	assign := ast.Assign(p)
 	return &assign
 }
-
-//func (l *listener) popAllParamDecl() []ast.ParamDecl {
-//	defer func() {
-//		l.paramDeclStack = make([]ast.ParamDecl, 0)
-//	}()
-//	return l.paramDeclStack
-//}
-//
-//func (l *listener) popFunctionReturnType() (ast.Type, error) {
-//	if len(l.functionReturnTypeStack) <= 0 {
-//		return nil, errors.New("expected to have successfully parsed a functionReturnType, but none were found")
-//	}
-//	lastIndex := len(l.functionReturnTypeStack) - 1
-//	defer func() {
-//		l.functionReturnTypeStack = l.functionReturnTypeStack[:lastIndex]
-//	}()
-//	return l.functionReturnTypeStack[len(l.functionReturnTypeStack)-1], nil
-//}
-//
-//func (l *listener) popType() (ast.Type, error) {
-//	if len(l.typeStack) <= 0 {
-//		return nil, errors.New("expected to have successfully parsed a type, but none were found")
-//	}
-//	lastIndex := len(l.typeStack) - 1
-//	defer func() {
-//		l.typeStack = l.typeStack[:lastIndex]
-//	}()
-//	return l.typeStack[lastIndex], nil
-//}
 
 func (l *listener) Result() (ast.File, []*ast.CompileError) {
 	return l.file, l.errors
@@ -269,15 +245,44 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 //
 
 func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
+	pos := intervalTo2Pos(ctx.GetSourceInterval())
+
+	params := l.paramDeclStack.PopAll()
+	parsedParams := ctx.Signature().Parameters().AllParameterDecl()
+	if len(params) != len(parsedParams) {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("for function %v, expected %d parameters, got %d", ctx.IDENTIFIER(), len(parsedParams), len(params)))
+		return
+	}
+
+	var paramNames = make([]string, len(params))
+	var tAnnotations = make([]ast.TypeAnnotation, len(params))
+	for i, param := range params {
+		paramNames[i] = param.str
+		tAnnotations[i] = param.typ
+	}
+	var retT ast.TypeAnnotation = nil
+	if ctx.Signature().Result() != nil {
+		var ok bool
+		retT, ok = l.functionReturnTypeStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("function %v: expected return type but got none", ctx.IDENTIFIER()))
+			return
+		}
+	}
 	fn := &ast.Func{
-		ArgNames: l.paramDeclStack.PopAll(),
+		ArgNames: paramNames,
 		Body:     nil,
-		Range:    intervalTo2Pos(ctx.GetSourceInterval()),
+		Range:    pos,
+		TAnnotation: &ast.TArrow{
+			Args:   tAnnotations,
+			Return: retT,
+			Range:  pos,
+		},
 	}
 	decl := ast.Declaration{
-		Range:  intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
-		Name:   ctx.IDENTIFIER().GetText(),
-		E:      fn,
+		Range: intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
+		Name:  ctx.IDENTIFIER().GetText(),
+		E:     fn,
 	}
 	defer func() {
 		l.file.Declarations = append(l.file.Declarations, decl)
@@ -289,23 +294,19 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 		return
 	}
 	fn.Body = expr
-	if ctx.Signature().Result() != nil {
-		_, ok := l.functionReturnTypeStack.Pop()
-		if !ok {
-			l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse a function return_type but none found in function %v", decl.Name))
-			return
-		}
-		//decl.Result = retT TODO type annotations for functions!
-	}
 }
 
 func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
-	_, ok := l.typeStack.Pop()
-	if !ok {
-		l.visitErrors = append(l.visitErrors, fmt.Errorf("type stack is empty"))
-		return
+	var typ ast.TypeAnnotation = nil
+	if ctx.Type_() != nil {
+		var ok bool
+		typ, ok = l.typeStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse a parameter type for %v but none found", ctx.Type_()))
+		}
 	}
-	l.paramDeclStack.Push(ctx.IDENTIFIER().GetText())
+	argName := ctx.IDENTIFIER().GetText()
+	l.paramDeclStack.Push(stringTypePair{str: argName, typ: typ})
 	// TODO function type annotations!
 	//l.paramDeclStack = append(l.paramDeclStack, ast.ParamDecl{
 	//	Range: intervalTo2Pos(ctx.GetSourceInterval()),
@@ -332,21 +333,22 @@ func (l *listener) ExitResult(ctx *parser.ResultContext) {
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	typeName := ctx.TypeName()
-	l.typeStack.Push(typeName.GetText())
+	if typeName != nil {
+		typeLit := &ast.TConst{
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		}
+		if typeName.QualifiedIdent() != nil {
+			typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
+			typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
+		} else {
+			typeLit.Name = typeName.GetText()
+		}
+
+		l.typeStack.Push(typeLit)
+		return
+	}
+	panic(fmt.Sprintf("more complicated types not implemented: '%v'", ctx.TypeName()))
 	// TODO type annotations
-	//if typeName != nil {
-	//	typeLit := ast.TypeLit{
-	//		Range: intervalTo2Pos(ctx.GetSourceInterval()),
-	//	}
-	//	if typeName.QualifiedIdent() != nil {
-	//		typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
-	//		typeLit.NameLit = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
-	//	} else {
-	//		typeLit.NameLit = typeName.GetText()
-	//	}
-	//
-	//	l.typeStack = append(l.typeStack, typeLit)
-	//}
 	// TODO composite types!
 }
 
@@ -360,7 +362,4 @@ func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {
-	//l.errors = append(l.errors, &ast.CompileError{
-	//	Message: "terminal at: " + node.GetText(),
-	//})
 }

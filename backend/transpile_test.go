@@ -97,7 +97,7 @@ func TestFunctionDecl(t *testing.T) {
 		ArgNames:  []string{"a"},
 		Body:      ast.IntLiteral("32", nil),
 		Range:     ast.Range{},
-		Annotated: nil,
+		//TAnnotation: ,
 	}
 	f := ast.File{
 		PkgName: "main",
