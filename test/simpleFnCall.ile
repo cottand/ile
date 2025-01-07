@@ -1,0 +1,10 @@
+//ile:compilerTest main.CallOther() | int64(2)
+package main
+
+fn AddOne(a Int) Int {
+    a + 1
+}
+
+fn CallOther() Int {
+    AddOne(1)
+}

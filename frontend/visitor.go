@@ -135,6 +135,9 @@ func (l *listener) ExitBlockExpr(ctx *parser.BlockExprContext) {
 }
 
 func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
+
+}
+func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 	if ctx.PrimaryExpr() != nil {
 		// we will deal with in ExitPrimaryExpr
 		return
@@ -176,13 +179,6 @@ func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 	})
 }
 
-func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
-	if ctx.Operand() != nil {
-		// we will deal with in ExitPrimaryExpr
-		return
-	}
-}
-
 func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 	if ctx.BlockExpr() != nil {
 		// then the latest expression on the stack is this one, do nothing
@@ -202,6 +198,41 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 		})
 		return
 	}
+}
+
+func (l *listener) ExitFnCall(ctx *parser.FnCallContext) {
+	var identifier *ast.Var
+	if ctx.OperandName() != nil {
+		identifier = &ast.Var{
+			Name:  ctx.OperandName().GetText(),
+			Range: intervalTo2Pos(ctx.OperandName().GetSourceInterval()),
+		}
+	}
+	if ctx.QualifiedIdent() != nil {
+		identifier = &ast.Var{
+			Name:  ctx.QualifiedIdent().GetText(),
+			Range: intervalTo2Pos(ctx.QualifiedIdent().GetSourceInterval()),
+		}
+	}
+	if identifier == nil {
+		panic("expected only 2 types of fn call but got neither")
+	}
+
+	parsedArgs := ctx.AllExpression()
+	args := make([]ast.Expr, len(parsedArgs))
+	for i, _ := range parsedArgs {
+		var ok bool
+		args[i], ok = l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("fn args: expression stack is empty"))
+			return
+		}
+	}
+	l.expressionStack.Push(&ast.Call{
+		Func:  identifier,
+		Args:  args,
+		Range: intervalTo2Pos(ctx.GetSourceInterval()),
+	})
 }
 
 func intervalTo2Pos(i antlr.Interval) ast.Range {

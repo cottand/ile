@@ -83,7 +83,7 @@ functionType
     : FN signature // fn (Int, String) Int
     ;
 
-signature // (Int, String) Int
+signature // (a Int, b String) Int
     : parameters result?
     ;
 
@@ -92,47 +92,65 @@ result
     : type_ // Int
     ;
 
-parameters // (Int, String)
+// (a Int, b String)
+parameters
     : L_PAREN (parameterDecl (COMMA parameterDecl)* COMMA?)? R_PAREN
     ;
 
 parameterDecl
-    : IDENTIFIER type_
+    : IDENTIFIER type_?
 //    : identifierList? ELLIPSIS? type_
     ;
 
-// a normal expression, except it cannot appear on the RHS of assignment
+// an expression already parenthesised or in a function block { }
+// this is the expression entrypoint for functions
 expressionInBlock
     : varDecl
-    | expression
+    | fnLit
+    | arithmeticExpr
     ;
+//    | fnLit
+//    | expression
+//    ;
 
-
+// restricted expr that does not include symbols we do not wish to be available
+// when not parenthesised (such as on the RHS of an assignment or function literal)
+//
+// this is the expression entrypoint for assigment and var declarations
 expression
+    : fnLit
+    | arithmeticExpr
+    ;
+//    : fnLit
+//    | primaryExpr
+
+arithmeticExpr
     : primaryExpr
-    | unary_op = (PLUS | MINUS | EXCLAMATION | CARET | STAR | AMPERSAND | RECEIVE) expression
-    | expression mul_op = (STAR | DIV | MOD | LSHIFT | RSHIFT | AMPERSAND | BIT_CLEAR) expression
-    | expression add_op = (PLUS | MINUS | OR | CARET) expression
-    | expression rel_op = (
+    | unary_op = (PLUS | MINUS | EXCLAMATION | CARET | STAR | AMPERSAND | RECEIVE) arithmeticExpr
+    | arithmeticExpr mul_op = (STAR | DIV | MOD | LSHIFT | RSHIFT | AMPERSAND | BIT_CLEAR) arithmeticExpr
+    | arithmeticExpr add_op = (PLUS | MINUS | OR | CARET) arithmeticExpr
+    | arithmeticExpr rel_op = (
         EQUALS
         | NOT_EQUALS
         | LESS
         | LESS_OR_EQUALS
         | GREATER
         | GREATER_OR_EQUALS
-    ) expression
-    | expression LOGICAL_AND expression
-    | expression LOGICAL_OR expression
+    ) arithmeticExpr
+    | arithmeticExpr LOGICAL_AND arithmeticExpr
+    | arithmeticExpr LOGICAL_OR arithmeticExpr
+//    | fnLit
     ;
 
 primaryExpr
     : operand
+    | fnCall
     ;
 
 operand
     : literal
     | operandName // typeArgs?
-
+    | qualifiedIdent
     | L_PAREN blockExpr R_PAREN
     ;
 
@@ -140,15 +158,23 @@ operandName
     : IDENTIFIER
     ;
 
+fnCall
+    // calls must oeprate on identifiers, not literals
+    : operandName L_PAREN (expression (COMMA expression)* COMMA?)? R_PAREN
+    | qualifiedIdent L_PAREN (expression (COMMA expression)* COMMA?)? R_PAREN
+    ;
+
 literal
     : integer
     | string_
-    | functionLit
+//    | fnLit
     ;
 
-functionLit
-    : FN typeParameters? signature block
+fnLit
+    : (parameterDecl (COMMA parameterDecl)* COMMA?)? ARROW expression
     ;
+
+
 
 integer
     : DECIMAL_LIT

@@ -156,12 +156,15 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 		return goast.NewIdent(e.Name), nil
 
 	case *ast.Call:
-		if literal, ok := e.Func.(*ast.Literal); ok {
+
+		switch fn := e.Func.(type) {
+		// here, e is an operator call, not a normal function call
+		case *ast.Literal:
 			switch len(e.Args) {
 			case 0:
-				panic("TODO")
+				panic("TODO nullary operators")
 			case 1:
-				panic("TODO")
+				panic("TODO unary operators")
 			case 2:
 				lhs, err1 := tp.transpileExpr(e.Args[0])
 				rhs, err2 := tp.transpileExpr(e.Args[1])
@@ -171,14 +174,30 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 				return &goast.BinaryExpr{
 					X:  lhs,
 					Y:  rhs,
-					Op: literal.Kind,
+					Op: fn.Kind,
 				}, nil
 			default:
 				return nil, fmt.Errorf("for call expr, less than 3 arguments, got %d", len(e.Args))
 			}
-		}
-		panic("TODO")
 
+		default:
+			goFn, err := tp.transpileExpr(fn)
+			if err != nil {
+				return nil, fmt.Errorf("for call expr function, unexpected error: %v", err)
+			}
+			args := make([]goast.Expr, len(e.Args))
+			for i, arg := range e.Args {
+				var err error
+				args[i], err = tp.transpileExpr(arg)
+				if err != nil {
+					return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
+				}
+			}
+			return &goast.CallExpr{
+				Fun:  goFn,
+				Args: args,
+			}, nil
+		}
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}

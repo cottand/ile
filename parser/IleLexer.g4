@@ -70,6 +70,8 @@ STAR      : '*';
 AMPERSAND : '&';
 RECEIVE   : '<-';
 
+ARROW     : '->';
+
 // Number literals
 
 DECIMAL_LIT : ('0' | [1-9] ('_'? [0-9])*)   -> mode(NLSEMI);
