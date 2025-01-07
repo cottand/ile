@@ -10,9 +10,6 @@ github.com/davecgh/go-spew/spew
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
-# github.com/pkg/errors v0.9.1
-## explicit
-github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
@@ -31,17 +28,6 @@ github.com/stretchr/testify/assert/yaml
 github.com/traefik/yaegi/internal/unsafe2
 github.com/traefik/yaegi/interp
 github.com/traefik/yaegi/stdlib/generic
-# github.com/wdamron/poly v0.0.0-20191209074905-9296a29ae8ae
-## explicit; go 1.12
-github.com/wdamron/poly
-github.com/wdamron/poly/ast
-github.com/wdamron/poly/internal/astutil
-github.com/wdamron/poly/internal/typeutil
-github.com/wdamron/poly/internal/util
-github.com/wdamron/poly/types
-# github.com/xtgo/set v1.0.0
-## explicit
-github.com/xtgo/set
 # golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 ## explicit; go 1.20
 golang.org/x/exp/constraints

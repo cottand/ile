@@ -43,7 +43,6 @@ package ast
 
 import (
 	"github.com/cottand/ile/frontend/types"
-	"github.com/cottand/ile/util"
 	"go/token"
 )
 
@@ -64,7 +63,6 @@ var (
 	_ Expr = (*RecordEmpty)(nil)
 	_ Expr = (*Variant)(nil)
 	_ Expr = (*Match)(nil)
-
 	_ Expr = (*Unused)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
@@ -97,7 +95,7 @@ type Expr interface {
 	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
 	Type() types.Type
 
-	util.Copyable[Expr]
+	Copy() Expr
 }
 
 // TAnnotated can apply to an Expr if its type can be directly annotated in the source
