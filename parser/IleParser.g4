@@ -143,8 +143,32 @@ arithmeticExpr
     ;
 
 primaryExpr
-    : operand
+    : whenBlock
+    | match_ // TODO
+    | operand
     | fnCall
+    ;
+
+whenBlock
+    : WHEN L_CURLY (whenCase EOS)+ R_CURLY
+    ;
+
+whenCase
+    : arithmeticExpr ARROW arithmeticExpr
+    ;
+
+
+match_
+    : WHEN arithmeticExpr L_CURLY (matchCase EOS)+ R_CURLY
+    ;
+
+matchCase
+    :   matchPattern ARROW arithmeticExpr
+    ;
+
+matchPattern
+    :  literal
+    | operandName
     ;
 
 operand
@@ -167,6 +191,7 @@ fnCall
 literal
     : integer
     | string_
+    | NIL_LIT
 //    | fnLit
     ;
 

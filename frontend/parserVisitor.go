@@ -8,6 +8,7 @@ import (
 	"github.com/cottand/ile/parser"
 	"github.com/cottand/ile/util"
 	"go/token"
+	"slices"
 	"strings"
 )
 
@@ -20,7 +21,7 @@ type listener struct {
 	*parser.BaseIleParserListener
 
 	file   ast.File
-	errors []*ast.CompileError
+	errors []ast.CompileError
 
 	visitErrors []error
 
@@ -51,7 +52,7 @@ func (p pendingAssign) assignBody(expr ast.Expr) ast.Expr {
 	return &assign
 }
 
-func (l *listener) Result() (ast.File, []*ast.CompileError) {
+func (l *listener) Result() (ast.File, []ast.CompileError) {
 	return l.file, l.errors
 }
 
@@ -242,6 +243,14 @@ func intervalTo2Pos(i antlr.Interval) ast.Range {
 	}
 }
 
+func getPos(i antlr.SyntaxTree) ast.Range {
+	interval := i.GetSourceInterval()
+	return ast.Range{
+		PosStart: token.Pos(interval.Start),
+		PosEnd:   token.Pos(interval.Stop),
+	}
+}
+
 func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	if s := ctx.String_(); s != nil {
 		if strLit := s.RAW_STRING_LIT(); strLit != nil {
@@ -362,6 +371,43 @@ func (l *listener) ExitResult(ctx *parser.ResultContext) {
 	}
 }
 
+func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
+	cases := ctx.AllWhenCase()
+	if len(cases) < 1 {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
+		return
+	}
+	lastCase := cases[len(cases)-1]
+	allLastCaseExprs := lastCase.AllArithmeticExpr()
+	if len(allLastCaseExprs) != 2 {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected exactly two expressions  enforced by grammar but got %d", len(allLastCaseExprs)))
+	}
+	lastCasePred := allLastCaseExprs[0]
+	if lastCasePred.GetText() != "_" {
+		l.errors = append(l.errors, ast.CompileError{
+			At:      intervalTo2Pos(lastCasePred.GetSourceInterval()),
+			Message: fmt.Sprintf("the final case of a when must be the discard pattern, '_'"),
+		})
+	}
+	astCases := make([]ast.WhenCase, len(cases))
+	for i, c := range slices.Backward(cases) {
+		valueExpr, okVal := l.expressionStack.Pop()
+		predicateExpr, okPred := l.expressionStack.Pop()
+		if !okVal || !okPred {
+			l.visitErrors = append(l.visitErrors, errors.New("expected expressions in when case"))
+		}
+		astCases[i] = ast.WhenCase{
+			Predicate:  predicateExpr,
+			Value:      valueExpr,
+			Positioner: intervalTo2Pos(c.GetSourceInterval()),
+		}
+	}
+	l.expressionStack.Push(&ast.When{
+		Cases:      astCases,
+		Positioner: getPos(ctx.WHEN()),
+	})
+}
+
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	typeName := ctx.TypeName()
 	if typeName != nil {
@@ -388,7 +434,7 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, &ast.CompileError{
+	l.errors = append(l.errors, ast.CompileError{
 		Message: "error at: " + node.GetText(),
 	})
 }

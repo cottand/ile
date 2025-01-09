@@ -12,6 +12,8 @@ CONST       : 'const';
 FALLTHROUGH : 'fallthrough' -> mode(NLSEMI);
 TYPE        : 'type';
 IMPORT      : 'import';
+WHEN       : 'when';
+
 
 NIL_LIT: 'Nil' -> mode(NLSEMI);
 IDENTIFIER: LETTER (LETTER | UNICODE_DIGIT)* -> mode(NLSEMI);

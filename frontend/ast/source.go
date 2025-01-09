@@ -29,6 +29,9 @@ func GetRange(e Expr) Range {
 	return Range{e.Pos(), e.End()}
 }
 
+var _ Positioner = (*File)(nil)
+var _ Positioner = (*Declaration)(nil)
+
 type File struct {
 	Range
 	PkgName      string

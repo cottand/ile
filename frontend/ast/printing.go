@@ -205,7 +205,7 @@ func exprString(sb *strings.Builder, simple bool, e Expr) {
 			sb.WriteByte(')')
 		}
 
-	case *Match:
+	case *MatchSubject:
 		sb.WriteString("match ")
 		exprString(sb, false, e.Value)
 		sb.WriteString(" {")

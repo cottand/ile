@@ -20,14 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package frontend_test
+package infer_test
 
 import (
+	. "github.com/cottand/ile/frontend/infer"
 	"reflect"
 	"strings"
 	"testing"
 
-	. "github.com/cottand/ile/frontend"
 	. "github.com/cottand/ile/frontend/construct"
 
 	"github.com/cottand/ile/frontend/ast"

@@ -62,7 +62,7 @@ func write(goAst *goast.File, at string) error {
 	return nil
 }
 
-func irFromFile(at string) (*ast.File, []*ast.CompileError, error) {
+func irFromFile(at string) (*ast.File, []ast.CompileError, error) {
 	p := path.Clean(at)
 	f, err := os.Open(p)
 	if err != nil {

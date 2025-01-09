@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package frontend
+package infer
 
 import (
 	"errors"
@@ -234,7 +234,7 @@ func (e *TypeEnv) DeclareTypeClass(name string, bind func(*types.Var) types.Meth
 //
 // A union type-class represents a named/closed set of types, whereas tagged (ad-hoc) variant-types are anonymous/open sets of types.
 // Functions may be parameterized over a union type-class; only tagged (ad-hoc) variant-types may be used in (tag-based) match expressions.
-// Match expressions may offer less flexibility compared to (unification-driven) function overloading with instance constraints.
+// MatchSubject expressions may offer less flexibility compared to (unification-driven) function overloading with instance constraints.
 //
 // Each super-class which the type-class implements will be modified to add a sub-class entry; changes will be visible across all uses
 // of the super-classes, and changes must not be made to type-classes concurrently.

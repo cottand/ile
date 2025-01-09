@@ -235,11 +235,11 @@ func Variant(label string, value ast.Expr) *ast.Variant {
 //	  |  ...
 //	  | z -> default_expr (optional)
 //	}
-func Match(value ast.Expr, cases []ast.MatchCase, defaultCase *ast.MatchCase) *ast.Match {
-	return &ast.Match{Value: value, Cases: cases, Default: defaultCase}
+func Match(value ast.Expr, cases []ast.MatchCase, defaultCase *ast.MatchCase) *ast.MatchSubject {
+	return &ast.MatchSubject{Value: value, Cases: cases, Default: defaultCase}
 }
 
-// Case expression within Match: `:X a -> expr1`
+// Predicate expression within Match: `:X a -> expr1`
 func MatchCase(label string, varName string, value ast.Expr) ast.MatchCase {
 	return ast.MatchCase{Label: label, Var: varName, Value: value}
 }

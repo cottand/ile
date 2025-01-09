@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package frontend
+package infer
 
 import (
 	"errors"
@@ -221,7 +221,9 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		// desugared to an Assign which does not use its value
 	case *ast.Unused:
 		var t types.Type
-		_, err := ti.infer(env, level+1, e.Value)
+		// TODO this was level+1 but I IIUC this does not make a difference as long
+		//   as I do not add vars to the scope
+		_, err := ti.infer(env, level, e.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -371,7 +373,24 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		vt := &types.Variant{Row: &types.RowExtend{Row: rowType, Labels: labels}}
 		return vt, nil
 
-	case *ast.Match:
+		// Inline equivalent to inferring a record-select on a record constructed from the cases,
+		// where each case is represented as a labeled function from none to the
+		// shared return type for the match expression
+	case *ast.When:
+		retType := env.common.VarTracker.New(level)
+
+		env.common.EnterScope(e)
+		err := ti.inferWhenCases(env, level, retType, e, e.Cases)
+		env.common.LeaveScope()
+		if err != nil {
+			return nil, err
+		}
+		if ti.annotate {
+			e.SetType(retType)
+		}
+		return retType, nil
+
+	case *ast.MatchSubject:
 		// Inline equivalent to inferring a record-select on a record constructed from the cases,
 		// where each case is represented as a labeled function from the case's variant-type to the
 		// shared return type for the match expression:
@@ -486,6 +505,22 @@ func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t types.Type) 
 	return nil, errors.New("Unexpected type " + t.TypeName() + " for applied function")
 }
 
+func (ti *InferenceContext) inferWhenCases(env *TypeEnv, level uint, retType types.Type, _ *ast.When, cases []ast.WhenCase) error {
+	for i := len(cases) - 1; i >= 0; i-- {
+		c := cases[i]
+		// Infer the return expression for the case
+		t, err := ti.infer(env, level, c.Value)
+		if err != nil {
+			return err
+		}
+		// Ensure all cases have matching return types:
+		if err := env.common.Unify(retType, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // https://github.com/tomprimozic/type-systems/blob/master/extensible_rows2/infer.ml#L287
 //
 // infer_cases env level return_ty rest_row_ty cases = match cases with
@@ -496,7 +531,7 @@ func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t types.Type) 
 //			unify return_ty (infer (Env.extend env var_name variant_ty) level expr) ;
 //			let other_cases_row = infer_cases env level return_ty rest_row_ty other_cases in
 //			TRowExtend(LabelMap.singleton label [variant_ty], other_cases_row)
-func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType types.Type, e *ast.Match, cases []ast.MatchCase) (types.Type, error) {
+func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType types.Type, e *ast.MatchSubject, cases []ast.MatchCase) (types.Type, error) {
 	// Each case extends an existing record formed from all subsequent cases.
 	// Visit cases in reverse order, accumulating labels and value types into the record as row-extensions.
 	extensions := make([]types.RowExtend, len(cases))

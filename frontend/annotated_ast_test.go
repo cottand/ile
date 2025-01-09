@@ -2,9 +2,9 @@ package frontend_test
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/construct"
+	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
 	"github.com/stretchr/testify/assert"
 	"go/token"
@@ -31,8 +31,8 @@ func TestAnnotatedFunc(t *testing.T) {
 
 	expr.SetType(construct.TArrow1(&types.Const{Name: "Int"}, &types.Const{Name: "Int"}))
 
-	env := frontend.NewTypeEnv(nil)
-	ctx := frontend.NewContext()
+	env := infer.NewTypeEnv(nil)
+	ctx := infer.NewContext()
 	expr2, err := ctx.Annotate(expr, env)
 	assert.NoError(t, err)
 	fmt.Println(types.TypeString(expr2.Type()))

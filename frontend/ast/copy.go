@@ -46,6 +46,6 @@ func CopyExpr(e Expr) Expr {
 		copy(next.Jumps, e.Jumps)
 		return next
 	default:
-		return e.Copy()
+		return e.Transform(func(e Expr) Expr { return e })
 	}
 }

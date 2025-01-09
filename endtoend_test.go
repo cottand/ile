@@ -9,6 +9,7 @@ import (
 	"github.com/traefik/yaegi/interp"
 	"go/format"
 	"go/token"
+	"io/fs"
 	"path"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 // embeds the test folder
 //
-//go:embed test/*.ile
+//go:embed test
 var testSet embed.FS
 
 // format is as follows:
@@ -32,51 +33,70 @@ func extractTestComment(t *testing.T, str string) (eval, expected string) {
 	return elems[0], elems[1]
 }
 
-func TestAllEndToEnd(t *testing.T) {
+func TestRootEndToEnd(t *testing.T) {
 	files, err := testSet.ReadDir("test")
 	assert.NoError(t, err)
 	for _, f := range files {
-		t.Run(f.Name(), func(t *testing.T) {
-			content, err := testSet.ReadFile(path.Join("test", f.Name()))
-			assert.NoError(t, err)
-
-			eval, expected := extractTestComment(t, string(content))
-			i := interp.New(interp.Options{})
-			assert.NoError(t, err)
-
-			transpiled, _, err := frontend.ParseToIR(bytes.NewBuffer(content))
-			assert.NoError(t, err)
-
-			tp := backend.Transpiler{}
-			goAst, err := tp.TranspileFile(transpiled)
-			assert.NoError(t, err)
-
-			sourceBuf := bytes.NewBuffer(nil)
-			defer func() {
-				err := recover()
-				if err != nil {
-					// Print the generated Go code
-					t.Errorf("could not compile AST: %v\n%v", err, goAst)
-					panic(err)
-				}
-			}()
-
-			prog, err := i.CompileAST(goAst)
-			_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
-			if err != nil {
-				t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
-			}
-			_, err = i.Execute(prog)
-			assert.NoError(t, err)
-
-			resActual, err := i.Eval(eval)
-			assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
-
-			iClean := interp.New(interp.Options{})
-			resExpected, err := iClean.Eval(expected)
-			assert.NoError(t, err)
-
-			assert.True(t, resExpected.Equal(resActual), "not equal: expected=%v actual=%v ", resExpected, resActual)
-		})
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
+			continue
+		}
+		testFile(t, "", f)
 	}
+}
+
+func TestExpressionsEndToEnd(t *testing.T) {
+	files, err := testSet.ReadDir("test/expressions")
+	assert.NoError(t, err)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
+			continue
+		}
+		testFile(t, "expressions", f)
+	}
+}
+
+func testFile(t *testing.T, at string, f fs.DirEntry) bool {
+	return t.Run(f.Name(), func(t *testing.T) {
+		content, err := testSet.ReadFile(path.Join("test", at, f.Name()))
+		assert.NoError(t, err)
+
+		eval, expected := extractTestComment(t, string(content))
+		i := interp.New(interp.Options{})
+		assert.NoError(t, err)
+
+		transpiled, cErrs, err := frontend.ParseToIR(bytes.NewBuffer(content))
+		assert.Empty(t, cErrs, "compile errors: %v", cErrs)
+		assert.NoError(t, err)
+
+		tp := backend.Transpiler{}
+		goAst, err := tp.TranspileFile(transpiled)
+		assert.NoError(t, err)
+
+		sourceBuf := bytes.NewBuffer(nil)
+		defer func() {
+			err := recover()
+			if err != nil {
+				// Print the generated Go code
+				t.Errorf("could not compile AST: %v\n-----\n%v", err, goAst)
+				panic(err)
+			}
+		}()
+
+		prog, err := i.CompileAST(goAst)
+		_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
+		if err != nil {
+			t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
+		}
+		_, err = i.Execute(prog)
+		assert.NoError(t, err)
+
+		resActual, err := i.Eval(eval)
+		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
+
+		iClean := interp.New(interp.Options{})
+		resExpected, err := iClean.Eval(expected)
+		assert.NoError(t, err)
+
+		assert.True(t, resExpected.Equal(resActual), "not equal: expected=%v actual=%v ", resExpected, resActual)
+	})
 }

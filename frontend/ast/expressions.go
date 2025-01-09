@@ -38,7 +38,7 @@
 //	RecordRestrict:  deleting (scoped) label
 //	RecordEmpty:     empty record
 //	Variant:         tagged (ad-hoc) variant
-//	Match:           variant-matching switch
+//	MatchSubject:           variant-matching switch
 package ast
 
 import (
@@ -62,7 +62,8 @@ var (
 	_ Expr = (*RecordRestrict)(nil)
 	_ Expr = (*RecordEmpty)(nil)
 	_ Expr = (*Variant)(nil)
-	_ Expr = (*Match)(nil)
+	_ Expr = (*When)(nil)
+	_ Expr = (*MatchSubject)(nil)
 	_ Expr = (*Unused)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
@@ -87,7 +88,7 @@ var (
 //	RecordRestrict:  deleting (scoped) label
 //	RecordEmpty:     empty record
 //	Variant:         tagged (ad-hoc) variant
-//	Match:           variant-matching switch
+//	MatchSubject:           variant-matching switch
 type Expr interface {
 	Positioner
 	// ExprName is the name of the syntax-type of the expression.
@@ -95,7 +96,13 @@ type Expr interface {
 	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
 	Type() types.Type
 
-	Copy() Expr
+	// Transform should, in order:
+	//  - copy the expression
+	//  - call Transform(f) on any child expressions (thus copying them too)
+	//  - call f on this Expr
+	// In practice this means first copying the entire tree, applying f to each component bottom-up,
+	// and returning the result
+	Transform(f func(Expr) Expr) Expr
 }
 
 // TAnnotated can apply to an Expr if its type can be directly annotated in the source
@@ -150,6 +157,11 @@ func (e *Literal) Copy() Expr {
 	return &copied
 }
 
+func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	return f(&copied)
+}
+
 // Variable
 type Var struct {
 	Name     string
@@ -177,6 +189,10 @@ func (e *Var) Copy() Expr {
 	copied := *e
 	return &copied
 }
+func (e *Var) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	return f(&copied)
+}
 
 // Dereference: `*x`
 type Deref struct {
@@ -197,6 +213,10 @@ func (e *Deref) SetType(t types.Type) { e.inferred = t }
 func (e *Deref) Copy() Expr {
 	copied := *e
 	return &copied
+}
+func (e *Deref) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	return f(&copied)
 }
 
 // Dereference and assign: `*x = y`
@@ -219,6 +239,10 @@ func (e *DerefAssign) SetType(t types.Type) { e.inferred = t }
 func (e *DerefAssign) Copy() Expr {
 	copied := *e
 	return &copied
+}
+func (e *DerefAssign) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	return f(&copied)
 }
 
 // Application: `f(x)`
@@ -245,14 +269,14 @@ func (e *Call) FuncType() *types.Arrow { return e.inferredFunc }
 // Assign the function/method called in e. Type assignments should occur indirectly, during inference.
 func (e *Call) SetFuncType(t *types.Arrow) { e.inferredFunc = t }
 
-func (e *Call) Copy() Expr {
+func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Args = make([]Expr, len(e.Args))
 	for i, arg := range e.Args {
-		copied.Args[i] = arg.Copy()
+		copied.Args[i] = arg.Transform(f)
 	}
-	copied.Func = e.Func.Copy()
-	return &copied
+	copied.Func = e.Func.Transform(f)
+	return f(&copied)
 }
 
 // Function abstraction: `fn (x, y) -> x`
@@ -279,10 +303,10 @@ func (e *Func) ArgType(index int) types.Type { return types.RealType(e.inferred.
 // Get the inferred (or assigned) return type of e.
 func (e *Func) RetType() types.Type { return types.RealType(e.inferred.Return) }
 
-func (e *Func) Copy() Expr {
+func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	copied.Body = e.Body.Copy()
-	return &copied
+	copied.Body = e.Body.Transform(f)
+	return f(&copied)
 }
 
 func (e *Func) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
@@ -303,11 +327,14 @@ func (e *Assign) ExprName() string { return "Assign" }
 // Get the inferred (or assigned) type of e.
 func (e *Assign) Type() types.Type { return e.Body.Type() }
 
-func (e *Assign) Copy() Expr {
-	copied := *e
-	return &copied
-}
 func (e *Assign) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
+
+func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	copied.Body = copied.Body.Transform(f)
+	copied.Value = copied.Value.Transform(f)
+	return f(&copied)
+}
 
 // Unused is like Assign, except it does not store the Value in a Var
 // it is useful for calling expressions with side effects
@@ -320,11 +347,11 @@ type Unused struct {
 func (e *Unused) ExprName() string { return "Unused" }
 func (e *Unused) Type() types.Type { return e.Body.Type() }
 
-func (e *Unused) Copy() Expr {
+func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	copied.Body = e.Body.Copy()
-	copied.Value = e.Value.Copy()
-	return &copied
+	copied.Body = e.Body.Transform(f)
+	copied.Value = e.Value.Transform(f)
+	return f(&copied)
 }
 
 // Grouped let-bindings: `let a = 1 and b = 2 in e`
@@ -354,14 +381,18 @@ func (e *LetGroup) StronglyConnectedComponents() [][]LetBinding { return e.sccs 
 // Each component should be a variable bound by e.
 func (e *LetGroup) SetStronglyConnectedComponents(sccs [][]LetBinding) { e.sccs = sccs }
 
-func (e *LetGroup) Copy() Expr {
+func (e *LetGroup) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Vars = make([]LetBinding, len(e.Vars))
 	for i, b := range e.Vars {
-		copied.Vars[i] = b.Copy()
+		// b is not a pointer so this will copy it
+		copied.Vars[i] = LetBinding{
+			Var:   b.Var,
+			Value: b.Value.Transform(f),
+		}
 	}
-	copied.Body = e.Body.Copy()
-	return &copied
+	copied.Body = e.Body.Transform(f)
+	return f(&copied)
 }
 
 // Paired identifier and value
@@ -372,11 +403,6 @@ type LetBinding struct {
 
 // Get the inferred (or assigned) type of e.
 func (e *LetBinding) Type() types.Type { return e.Value.Type() }
-func (e *LetBinding) Copy() LetBinding {
-	copied := *e
-	copied.Value = e.Value.Copy()
-	return copied
-}
 
 // Selecting (scoped) value of label: `r.a`
 type RecordSelect struct {
@@ -395,10 +421,10 @@ func (e *RecordSelect) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordSelect) SetType(t types.Type) { e.inferred = t }
 
-func (e *RecordSelect) Copy() Expr {
+func (e *RecordSelect) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	copied.Record = e.Record.Copy()
-	return &copied
+	copied.Record = e.Record.Transform(f)
+	return f(&copied)
 }
 
 // Extending record: `{a = 1, b = 2 | r}`
@@ -418,21 +444,21 @@ func (e *RecordExtend) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordExtend) SetType(rt *types.Record) { e.inferred = rt }
 
-func (e *RecordExtend) Copy() Expr {
+func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied := *e
 	labels := make([]LabelValue, len(e.Labels))
 	for i, v := range e.Labels {
-		labels[i] = LabelValue{v.Label, CopyExpr(v.Value)}
+		labels[i] = LabelValue{v.Label, v.Value.Transform(f)}
 	}
 	record := e.Record
 	if record == nil {
-		record = &RecordEmpty{}
+		record = f(&RecordEmpty{})
 	} else {
-		record = record.Copy()
+		record = record.Transform(f)
 	}
 	copied.Labels = labels
 	copied.Record = record
-	return &copied
+	return f(&copied)
 }
 
 // Paired label and value
@@ -465,10 +491,10 @@ func (e *RecordRestrict) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordRestrict) SetType(rt *types.Record) { e.inferred = rt }
 
-func (e *RecordRestrict) Copy() Expr {
+func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	e.Record = e.Record.Copy()
-	return &copied
+	e.Record = e.Record.Transform(f)
+	return f(&copied)
 }
 
 // Empty record: `{}`
@@ -486,9 +512,9 @@ func (e *RecordEmpty) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *RecordEmpty) SetType(rt *types.Record) { e.inferred = rt }
 
-func (e *RecordEmpty) Copy() Expr {
+func (e *RecordEmpty) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	return &copied
+	return f(&copied)
 }
 
 // Tagged (ad-hoc) variant: `:X a`
@@ -504,13 +530,49 @@ func (e *Variant) ExprName() string { return "Variant" }
 // Get the inferred (or assigned) type of e.
 func (e *Variant) Type() types.Type { return e.Value.Type() }
 
-func (e *Variant) Copy() Expr {
+func (e *Variant) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	e.Value = e.Value.Copy()
-	return &copied
+	e.Value = e.Value.Transform(f)
+	return f(&copied)
 }
 
-// Variant-matching switch:
+// When is a Bool-matching switch:
+//
+//	when {
+//	  boolExpr1 -> expr1
+//	  boolExpr2 -> expr2
+//	  _ -> expr2
+//	}
+type When struct {
+	Cases      []WhenCase
+	inferred   types.Type
+	Positioner // of the 'when' operator (not the clauses)
+}
+
+func (e *When) ExprName() string { return "when" }
+func (e *When) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	newCases := make([]WhenCase, len(e.Cases))
+	for i, c := range e.Cases {
+		newCases[i] = c
+		newCases[i].Predicate = c.Predicate.Transform(f)
+		newCases[i].Value = c.Value.Transform(f)
+	}
+	copied.Cases = newCases
+	return f(&copied)
+}
+func (e *When) SetType(t types.Type) { e.inferred = t }
+func (e *When) Type() types.Type     { return types.RealType(e.inferred) }
+
+type WhenCase struct {
+	Predicate Expr
+	Value     Expr
+	Positioner
+}
+
+// Assign a type to e. Type assignments should occur indirectly, during inference.
+
+// MatchSubject is a Variant-matching switch:
 //
 //	match e {
 //	    :X a -> expr1
@@ -518,7 +580,7 @@ func (e *Variant) Copy() Expr {
 //	  |  ...
 //	  | z -> default_expr (optional)
 //	}
-type Match struct {
+type MatchSubject struct {
 	Value    Expr
 	Cases    []MatchCase
 	Default  *MatchCase
@@ -526,34 +588,58 @@ type Match struct {
 	Range    // of the match operator and the matched first expression (not the clauses)
 }
 
-// "Match"
-func (e *Match) ExprName() string { return "Match" }
+// "MatchSubject"
+func (e *MatchSubject) ExprName() string { return "MatchSubject" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Match) Type() types.Type { return types.RealType(e.inferred) }
+func (e *MatchSubject) Type() types.Type { return types.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Match) SetType(t types.Type) { e.inferred = t }
+func (e *MatchSubject) SetType(t types.Type) { e.inferred = t }
 
-func (e *Match) Copy() Expr {
+func (e *MatchSubject) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	cases := make([]MatchCase, len(e.Cases))
 	for i, v := range e.Cases {
-		copiedMatchCase := v.Copy()
-		copiedMatchCase.Value = v.Value.Copy()
-		cases[i] = *copiedMatchCase
+		copiedMatchCase := v
+		copiedMatchCase.Value = v.Value.Transform(f)
+		cases[i] = copiedMatchCase
 	}
 	defaultCase := e.Default
 	if defaultCase != nil {
-		defaultCase = defaultCase.Copy()
+		copiedDefault := *defaultCase
+		defaultCase = &copiedDefault
+		defaultCase.Value = copiedDefault.Value.Transform(f)
 	}
-	copied.Value = e.Value.Copy()
+	copied.Value = e.Value.Transform(f)
 	copied.Cases = cases
 	copied.Default = defaultCase
+	return f(&copied)
+}
+
+// MatchPattern describes a types.Type or an Expr that we would like to match against
+type MatchPattern interface {
+	matchPattern() // marker
+
+	TransformChildExprs(f func(expr Expr) Expr) MatchPattern
+	Positioner
+}
+
+// ValueLiteralPattern represents matching a value.
+// Value can be any Expr but the language may have restrictions on what Value can be (eg, literals only)
+type ValueLiteralPattern struct {
+	Value Expr
+	Positioner
+}
+
+func (e *ValueLiteralPattern) matchPattern() {}
+func (e *ValueLiteralPattern) TransformChildExprs(f func(expr Expr) Expr) MatchPattern {
+	copied := *e
+	copied.Value = e.Value.Transform(f)
 	return &copied
 }
 
-// Case expression within Match: `:X a -> expr1`
+// Predicate expression within MatchSubject: `:X a -> expr1`
 type MatchCase struct {
 	Label   string
 	Var     string
@@ -569,12 +655,6 @@ func (e *MatchCase) VariantType() types.Type { return types.RealType(e.varType) 
 
 // Assign a variant-type to e. Type assignments should occur indirectly, during inference.
 func (e *MatchCase) SetVariantType(t types.Type) { e.varType = t }
-
-func (e *MatchCase) Copy() *MatchCase {
-	copied := *e
-	copied.Value = e.Value.Copy()
-	return &copied
-}
 
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 type Pipe struct {
@@ -594,14 +674,14 @@ func (e *Pipe) Type() types.Type { return types.RealType(e.inferred) }
 // Assign a type to e. Type assignments should occur indirectly, during inference.
 func (e *Pipe) SetType(t types.Type) { e.inferred = t }
 
-func (e *Pipe) Copy() Expr {
+func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Sequence = make([]Expr, len(e.Sequence))
 	for i, expr := range e.Sequence {
-		copied.Sequence[i] = expr.Copy()
+		copied.Sequence[i] = expr.Transform(f)
 	}
-	copied.Source = e.Source.Copy()
-	return &copied
+	copied.Source = e.Source.Transform(f)
+	return f(&copied)
 }
 
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be
@@ -612,7 +692,7 @@ type ErrorExpr struct {
 
 func (e *ErrorExpr) Type() types.Type { return types.NewUnit() }
 func (e *ErrorExpr) ExprName() string { return "Error" }
-func (e *ErrorExpr) Copy() Expr {
+func (e *ErrorExpr) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	return &copied
+	return f(&copied)
 }

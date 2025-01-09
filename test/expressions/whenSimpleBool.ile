@@ -1,0 +1,7 @@
+//ile:compilerTest main.Match | "yay"
+package main
+
+Match = when {
+    2 == 2 -> "yay"
+    _ -> "false"
+}

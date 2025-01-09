@@ -347,7 +347,7 @@ func (a *Analysis) analyzeExpr(expr ast.Expr) error {
 			return err
 		}
 
-	case *ast.Match:
+	case *ast.MatchSubject:
 		if err := a.analyzeExpr(expr.Value); err != nil {
 			return err
 		}
@@ -369,6 +369,16 @@ func (a *Analysis) analyzeExpr(expr ast.Expr) error {
 			}
 			delete(a.Scopes, c.Var)
 			a.unstash(stashed)
+		}
+
+	case *ast.When:
+		for _, c := range expr.Cases {
+			if err := a.analyzeExpr(c.Value); err != nil {
+				return err
+			}
+			if err := a.analyzeExpr(c.Predicate); err != nil {
+				return err
+			}
 		}
 
 	case nil:

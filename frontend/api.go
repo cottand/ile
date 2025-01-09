@@ -27,7 +27,7 @@ func FilesetFrom(file string) (*token.FileSet, *token.File, error) {
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
 // See ParseToIR
-func ParseToAST(input io.Reader) (ast.File, []*ast.CompileError, error) {
+func ParseToAST(input io.Reader) (ast.File, []ast.CompileError, error) {
 	iStream := antlr.NewIoStream(input)
 	lexer := parser.NewIleLexer(iStream)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
@@ -49,36 +49,15 @@ func ParseToAST(input io.Reader) (ast.File, []*ast.CompileError, error) {
 
 // ParseToIR is like ParseToAST but does any additional processing needed
 // to produce valid and correct Go code
-func ParseToIR(reader io.Reader) (ast.File, []*ast.CompileError, error) {
+func ParseToIR(reader io.Reader) (ast.File, []ast.CompileError, error) {
 	file, compileErrors, err := ParseToAST(reader)
 	if err != nil {
 		return ast.File{}, compileErrors, err
 	}
-	withInference, moreCompileErrors := InferencePhase(file)
-	moreCompileErrors = append(compileErrors, moreCompileErrors...)
-	return withInference, moreCompileErrors, nil
-}
+	withDesugar, errorsDesugar := desugarPhase(file)
+	compileErrors = append(compileErrors, errorsDesugar...)
 
-func InferencePhase(file ast.File) (ast.File, []*ast.CompileError) {
-	var errs []*ast.CompileError
-	newDecls := make([]ast.Declaration, len(file.Declarations))
-	for i, decl := range file.Declarations {
-		ctx := NewContext()
-		env := NewTypeEnv(nil)
-		inferred, err := ctx.Annotate(file.AsGroupedLet(&ast.Var{Name: decl.Name}), env)
-		if err != nil {
-			errs = append(errs, &ast.CompileError{
-				Message: fmt.Sprintf("could not infer %s: %v", decl.Name, err),
-				At:      decl,
-			})
-		}
-		// should not fail as this was the original type of expr
-		inferredAsGroupedLet := inferred.(*ast.LetGroup)
-		// currentDecl should now be annotated with a type!
-		currentDecl := inferredAsGroupedLet.Vars[i]
-		decl.E = currentDecl.Value
-		newDecls[i] = decl
-	}
-	file.Declarations = newDecls
-	return file, errs
+	withInference, errorsInference := inferencePhase(withDesugar)
+	compileErrors = append(compileErrors, errorsInference...)
+	return withInference, compileErrors, nil
 }

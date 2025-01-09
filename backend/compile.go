@@ -3,12 +3,13 @@ package backend
 import (
 	"errors"
 	"fmt"
-	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
 	goast "go/ast"
 	"go/token"
 	"reflect"
+	"strconv"
 )
 
 const goVersion = "1.23.3"
@@ -21,7 +22,7 @@ var ileToGoTypes = map[string]string{
 }
 
 type Transpiler struct {
-	types frontend.TypeEnv
+	types infer.TypeEnv
 }
 
 func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {
@@ -155,6 +156,31 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 	case *ast.Var:
 		return goast.NewIdent(e.Name), nil
 
+		// Go does not have ternary operators or anything that lets us inline logic into an expression,
+		// so we inline a function call
+	case *ast.When:
+		whenResultT, err := tp.transpileType(e.Type())
+		if err != nil {
+			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
+		}
+		whenBlock, err := tp.transpileExpressionToStatements(e, "return")
+		if err != nil {
+			return nil, fmt.Errorf("for when, failed to transpile: %v", err)
+		}
+		fLiteral := &goast.FuncLit{
+			Type: &goast.FuncType{
+				TypeParams: &goast.FieldList{List: []*goast.Field{}},
+				Params:     &goast.FieldList{List: []*goast.Field{}},
+				Results:    &goast.FieldList{List: []*goast.Field{{Type: whenResultT}}},
+			},
+			Body: &goast.BlockStmt{List: whenBlock},
+		}
+
+		return &goast.CallExpr{
+			Fun:  fLiteral,
+			Args: []goast.Expr{},
+		}, nil
+
 	case *ast.Call:
 
 		switch fn := e.Func.(type) {
@@ -229,7 +255,7 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 	if t == nil {
 		return nil, nil
 	}
-	switch e := t.(type) {
+	switch e := types.RealType(t).(type) {
 	case *types.Arrow:
 		if e == nil {
 			panic("nil type for arrow function")
@@ -260,6 +286,7 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 
 		// generic type!
 	case *types.Var:
+
 		panic(fmt.Errorf("generics are not implemented yet, but got %v", types.TypeString(t)))
 
 	default:
@@ -312,6 +339,48 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 
 		return append(final, remainder...), nil
 
+		// a when without clauses is equivalent to a Go switch without a subject
+	case *ast.When:
+		whenResultT, err := tp.transpileType(e.Type())
+		if err != nil {
+			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
+		}
+		switchResultIdent := goast.NewIdent(mangledStringFor(e))
+		statements = append(statements, &goast.DeclStmt{Decl: &goast.GenDecl{
+			Tok: token.VAR,
+			Specs: []goast.Spec{&goast.ValueSpec{
+				Names: []*goast.Ident{switchResultIdent},
+				Type:  whenResultT,
+			}},
+		}})
+		assignToResult := func(expr goast.Expr) *goast.AssignStmt {
+			return &goast.AssignStmt{
+				Tok: token.ASSIGN,
+				Lhs: []goast.Expr{switchResultIdent},
+				Rhs: []goast.Expr{expr},
+			}
+		}
+		var caseClauses []goast.Stmt
+		for _, case_ := range e.Cases {
+			goPredicate, err := tp.transpileExpr(case_.Predicate)
+			if err != nil {
+				return nil, fmt.Errorf("failed to transpile when case predicate expression: %v", err)
+			}
+			goValue, err := tp.transpileExpr(case_.Value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to transpile when case value expression: %v", err)
+			}
+			caseClauses = append(caseClauses, &goast.CaseClause{
+				List: []goast.Expr{goPredicate},
+				Body: []goast.Stmt{assignToResult(goValue)},
+			})
+		}
+		statements = append(statements,
+			&goast.SwitchStmt{
+				Body: &goast.BlockStmt{List: caseClauses},
+			})
+		finalExpr = switchResultIdent
+
 	// we do like in Go, and add a statement that should evaluate the expression,
 	// but we do not actually do anything with it
 	case *ast.Unused:
@@ -354,4 +423,11 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 
 	return statements, nil
 
+}
+
+func mangledStringFor(node ast.Expr) string {
+	expr := node.ExprName()
+	start := strconv.Itoa(int(node.Pos()))
+	end := strconv.Itoa(int(node.End()))
+	return fmt.Sprintf("ile_%v_at_%v_%v", expr, start, end)
 }

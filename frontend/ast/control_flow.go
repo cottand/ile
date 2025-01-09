@@ -342,9 +342,9 @@ func (e *ControlFlow) checkReturnReachabilitySmall(stronglyConnectedComponents [
 	return nil
 }
 
-func (e *ControlFlow) Copy() Expr {
+func (e *ControlFlow) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
-	return &copied
+	return f(&copied)
 }
 
 // Copy and sort jumps in ascending order by {From, To}.

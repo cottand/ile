@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func testAntlrParse(t *testing.T, input string) (ast.File, []*ast.CompileError) {
+func testAntlrParse(t *testing.T, input string) (ast.File, []ast.CompileError) {
 	f, cErrs, errs := frontend.ParseToAST(bytes.NewBufferString(input))
 	assert.NoError(t, errs)
 	return f, cErrs

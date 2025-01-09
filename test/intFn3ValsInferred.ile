@@ -1,7 +1,7 @@
 //ile:compilerTest main.MakeInt(1, 2, 3) | int64(60)
 package main
 
-fn MakeInt(a Int, b Int, c Int) {
+fn MakeInt(a Int, b Int, c Int) Int {
   x = a + b + c
   y = x
   10 * x
