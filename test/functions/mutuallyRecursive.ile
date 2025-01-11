@@ -1,0 +1,19 @@
+//ile:compilerTest main.DecrementOne(10) | int64(10)
+
+package main
+
+fn DecrementOne(n Int) Int {
+  when {
+    n == 0 -> 0
+    n == 1 -> 1 + DecrementOne(n - 1)
+    _ -> 1 + DecrementTwo(n - 1)
+  }
+}
+
+
+fn DecrementTwo(n Int) Int {
+  when {
+    n == 0 -> 0
+    _ -> 2 + DecrementOne(n - 2)
+  }
+}

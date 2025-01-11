@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/failed"
 	"github.com/cottand/ile/parser"
 	"github.com/cottand/ile/util"
 	"go/token"
@@ -21,7 +22,7 @@ type listener struct {
 	*parser.BaseIleParserListener
 
 	file   ast.File
-	errors []ast.CompileError
+	errors []failed.IleError
 
 	visitErrors []error
 
@@ -52,8 +53,12 @@ func (p pendingAssign) assignBody(expr ast.Expr) ast.Expr {
 	return &assign
 }
 
-func (l *listener) Result() (ast.File, []ast.CompileError) {
-	return l.file, l.errors
+func (l *listener) result() (ast.File, *failed.CompileResult) {
+	result := failed.CompileResult{}
+	if len(l.errors) > 0 {
+		return l.file, result.With(l.errors...)
+	}
+	return l.file, &result
 }
 
 func (l *listener) VisitErrors() error {
@@ -359,7 +364,7 @@ func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
 }
 
 // ExitResult as in function signature result
-// we can expect an ast.Type to be present if a Result return type is present in the function
+// we can expect an ast.Type to be present if a result return type is present in the function
 func (l *listener) ExitResult(ctx *parser.ResultContext) {
 	if ctx.Type_() != nil {
 		parsedT, ok := l.typeStack.Pop()
@@ -384,9 +389,8 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	}
 	lastCasePred := allLastCaseExprs[0]
 	if lastCasePred.GetText() != "_" {
-		l.errors = append(l.errors, ast.CompileError{
-			At:      intervalTo2Pos(lastCasePred.GetSourceInterval()),
-			Message: fmt.Sprintf("the final case of a when must be the discard pattern, '_'"),
+		l.errors = append(l.errors, failed.ToDiscardInWhen{
+			Positioner:     getPos(ctx.WHEN()),
 		})
 	}
 	astCases := make([]ast.WhenCase, len(cases))
@@ -434,8 +438,9 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, ast.CompileError{
-		Message: "error at: " + node.GetText(),
+	l.errors = append(l.errors, failed.ToParse{
+		ParserMessage: "error at: " + node.GetText(),
+		Positioner: getPos(node),
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {

@@ -54,6 +54,16 @@ func TestExpressionsEndToEnd(t *testing.T) {
 		testFile(t, "expressions", f)
 	}
 }
+func TestFunctionsEndToEnd(t *testing.T) {
+	files, err := testSet.ReadDir("test/functions")
+	assert.NoError(t, err)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
+			continue
+		}
+		testFile(t, "functions", f)
+	}
+}
 
 func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 	return t.Run(f.Name(), func(t *testing.T) {

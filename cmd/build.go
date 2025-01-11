@@ -5,6 +5,7 @@ import (
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/failed"
 	"github.com/spf13/cobra"
 	goast "go/ast"
 	"go/format"
@@ -31,13 +32,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(cErrs) > 0 {
-		log.Printf("%d errors occurred during build\n", len(cErrs))
-		for _, cErr := range cErrs {
+	if cErrs.HasError() {
+		for _, cErr := range cErrs.Errors() {
 			log.Println("at " + fs.Position(cErr.At.Pos()).String())
 			log.Println(cErr.Message)
 		}
-		return fmt.Errorf("%d errors occurred during build", len(cErrs))
+		return fmt.Errorf("%d errors occurred during build", len(cErrs.Errors()))
 	}
 
 	tp := backend.Transpiler{}
@@ -62,7 +62,7 @@ func write(goAst *goast.File, at string) error {
 	return nil
 }
 
-func irFromFile(at string) (*ast.File, []ast.CompileError, error) {
+func irFromFile(at string) (*ast.File, *failed.CompileResult, error) {
 	p := path.Clean(at)
 	f, err := os.Open(p)
 	if err != nil {

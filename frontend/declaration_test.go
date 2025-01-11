@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/failed"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-func testAntlrParse(t *testing.T, input string) (ast.File, []ast.CompileError) {
+func testAntlrParse(t *testing.T, input string) (ast.File, *failed.CompileResult) {
 	f, cErrs, errs := frontend.ParseToAST(bytes.NewBufferString(input))
 	assert.NoError(t, errs)
 	return f, cErrs
@@ -23,7 +24,7 @@ a = 1`
 
 	_, errs := testAntlrParse(t, file)
 
-	assert.NotEmpty(t, errs)
+	assert.NotEmpty(t, errs.Errors())
 }
 
 func TestPackageDirective(t *testing.T) {

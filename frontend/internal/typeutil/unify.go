@@ -24,6 +24,7 @@ package typeutil
 
 import (
 	"errors"
+	"github.com/cottand/ile/frontend/failed"
 
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/types"
@@ -370,7 +371,7 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			if a.Name == b.Name {
 				return nil
 			}
-			return errors.New("Failed to unify " + a.Name + " with " + b.Name)
+			return failed.ToUnifyConst{Positioner: ctx.CurrentExpr, First: a, Second: b}
 		}
 
 	case types.Size:

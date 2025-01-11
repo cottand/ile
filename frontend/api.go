@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/failed"
 	"github.com/cottand/ile/parser"
 	"go/token"
 	"io"
@@ -27,7 +28,7 @@ func FilesetFrom(file string) (*token.FileSet, *token.File, error) {
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
 // See ParseToIR
-func ParseToAST(input io.Reader) (ast.File, []ast.CompileError, error) {
+func ParseToAST(input io.Reader) (ast.File, *failed.CompileResult, error) {
 	iStream := antlr.NewIoStream(input)
 	lexer := parser.NewIleLexer(iStream)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
@@ -43,21 +44,21 @@ func ParseToAST(input io.Reader) (ast.File, []ast.CompileError, error) {
 		return ast.File{}, nil, errors.Join(l.visitErrors...)
 	}
 
-	f, compileErrors := l.Result()
+	f, compileErrors := l.result()
 	return f, compileErrors, nil
 }
 
 // ParseToIR is like ParseToAST but does any additional processing needed
 // to produce valid and correct Go code
-func ParseToIR(reader io.Reader) (ast.File, []ast.CompileError, error) {
+func ParseToIR(reader io.Reader) (ast.File, *failed.CompileResult, error) {
 	file, compileErrors, err := ParseToAST(reader)
 	if err != nil {
 		return ast.File{}, compileErrors, err
 	}
 	withDesugar, errorsDesugar := desugarPhase(file)
-	compileErrors = append(compileErrors, errorsDesugar...)
+	compileErrors = compileErrors.Merge(errorsDesugar)
 
 	withInference, errorsInference := inferencePhase(withDesugar)
-	compileErrors = append(compileErrors, errorsInference...)
+	compileErrors = compileErrors.Merge(errorsInference)
 	return withInference, compileErrors, nil
 }
