@@ -13,16 +13,66 @@ import (
 	"path"
 )
 
-func FilesetFrom(file string) (*token.FileSet, *token.File, error) {
-	file = path.Clean(file)
-	open, err := os.Stat(file)
+type CompilationCandidate struct {
+	fileset  *token.FileSet
+	astFiles []*ast.File
+}
+
+// FromFilesystem creates a token.FileSet out of a file path
+//
+// - if file is a single file, then token.FileSet is a 1-file fileset
+//
+// - if file is a directory, then FromFilesystem creates a Fileset out of the .ile files
+// present in file
+func FromFilesystem(filePath string) (fs *token.FileSet, astFiles []ast.File, res *failed.CompileResult, err error) {
+	fs = token.NewFileSet()
+	file := path.Clean(filePath)
+	res = &failed.CompileResult{}
+	stat, err := os.Stat(file)
 	if err != nil {
-		return nil, nil, fmt.Errorf("could not stat %s: %v", file, err)
+		return nil, nil, nil, fmt.Errorf("could not stat %s: %s", file, err)
 	}
 
-	fs := token.NewFileSet()
-	fsFile := fs.AddFile(path.Base(file), -1, int(open.Size()))
-	return fs, fsFile, nil
+	if !stat.IsDir() {
+		if path.Ext(stat.Name()) != ".ile" {
+			return nil, nil, nil, fmt.Errorf("%s is not a .ile", file)
+		}
+		_ = fs.AddFile(path.Base(file), -1, int(stat.Size()))
+		open, err := os.Open(file)
+		defer open.Close()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("could not open %s: %s", file, err)
+		}
+		var astFile ast.File
+		astFile, res, err = ParseToAST(open)
+		astFiles = append(astFiles, astFile)
+		return fs, astFiles, res, err
+	}
+
+	open, err := os.ReadDir(file)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not read files in %s: %v", file, err)
+	}
+
+	for _, f := range open {
+		info, err := f.Info()
+		if err != nil || !info.IsDir() || path.Ext(f.Name()) != ".ile" {
+			continue
+		}
+		_ = fs.AddFile(path.Base(file), -1, int(info.Size()))
+
+		open, err := os.Open(path.Join(file, f.Name()))
+
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("could not open %s: %s", file, err)
+		}
+		var astFile ast.File
+		astFile, thisRes, err := ParseToAST(open)
+		res = res.Merge(thisRes)
+		_ = open.Close()
+		astFiles = append(astFiles, astFile)
+	}
+	return fs, astFiles, res, err
 }
 
 // ParseToAST returns an ir.File without any additional processing,
@@ -48,17 +98,29 @@ func ParseToAST(input io.Reader) (ast.File, *failed.CompileResult, error) {
 	return f, compileErrors, nil
 }
 
-// ParseToIR is like ParseToAST but does any additional processing needed
-// to produce valid and correct Go code
-func ParseToIR(reader io.Reader) (ast.File, *failed.CompileResult, error) {
+// ParseReaderToPackage does all frontend passes end-to-end for a single file, meant for testing
+func ParseReaderToPackage(reader io.Reader, withoutBuiltins bool) (*Package, *failed.CompileResult, error) {
 	file, compileErrors, err := ParseToAST(reader)
 	if err != nil {
-		return ast.File{}, compileErrors, err
+		return nil, compileErrors, err
 	}
 	withDesugar, errorsDesugar := desugarPhase(file)
 	compileErrors = compileErrors.Merge(errorsDesugar)
 
-	withInference, errorsInference := inferencePhase(withDesugar)
-	compileErrors = compileErrors.Merge(errorsInference)
-	return withInference, compileErrors, nil
+	pkg, res := NewPackage("", "main", func(yield func(ast.File) bool) {
+		yield(withDesugar)
+	})
+
+	if !withoutBuiltins {
+		pkg.Import(Builtins())
+	}
+
+	compileErrors = compileErrors.Merge(res)
+
+	withInference, errorsInference := inferencePhase(pkg)
+	compileErrors = compileErrors.Merge(withInference)
+	if errorsInference != nil {
+		return nil, compileErrors, errorsInference
+	}
+	return pkg, compileErrors, nil
 }

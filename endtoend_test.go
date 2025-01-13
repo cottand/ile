@@ -74,12 +74,12 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		i := interp.New(interp.Options{})
 		assert.NoError(t, err)
 
-		transpiled, cErrs, err := frontend.ParseToIR(bytes.NewBuffer(content))
-		assert.Empty(t, cErrs, "compile errors: %v", cErrs)
+		transpiled, cErrs, err := frontend.ParseReaderToPackage(bytes.NewBuffer(content), false)
+		assert.Empty(t, cErrs, "compile errors: %v", cErrs.Errors())
 		assert.NoError(t, err)
 
 		tp := backend.Transpiler{}
-		goAst, err := tp.TranspileFile(transpiled)
+		goAst, err := tp.TranspilePackage(transpiled)
 		assert.NoError(t, err)
 
 		sourceBuf := bytes.NewBuffer(nil)

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/types"
 	"go/token"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Positioner allows finding the location in the original source file.
@@ -42,25 +44,20 @@ func (f File) String() string {
 	return fmt.Sprint(f.PkgName, "\n", f.Declarations)
 }
 
-func (f File) AsGroupedLet(in Expr) *LetGroup {
-	bindings := make([]LetBinding, len(f.Declarations))
-	for i, decl := range f.Declarations {
-		bindings[i] = LetBinding{
-			Var:   decl.Name,
-			Value: decl.E,
-		}
-	}
-	return &LetGroup{
-		Vars: bindings,
-		Body: in,
-	}
-}
-
 // Declaration is a top-level declaration in a File
 //
 // The declared type of Declaration is in E when applicable
 type Declaration struct {
-	Range
-	Name string
-	E    Expr
+	Range // of the LHS including '='
+	Name  string
+	E     Expr
+	// TODO TAnnotation has to go here as otherwise I need to annotate the entire AST not just funcs
+}
+
+func (d Declaration) IsPublic() bool {
+	if len(d.Name) == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(d.Name)
+	return r != utf8.RuneError && unicode.IsUpper(r)
 }

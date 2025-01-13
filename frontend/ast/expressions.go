@@ -103,15 +103,38 @@ type Expr interface {
 	// In practice this means first copying the entire tree, applying f to each component bottom-up,
 	// and returning the result
 	Transform(f func(Expr) Expr) Expr
+
+	TAnnotated
 }
 
-// TAnnotated can apply to an Expr if its type can be directly annotated in the source
-// this should only be used in the frontend, not in the backend
+// TAnnotated can apply to an Expr if its type can be directly annotated in the source.
+// This should only be used in the frontend, not in the backend (where we rely on the inferred
+// types.Type
 //
 // If the Expr is a TAnnotated that did not have a declared type, it
 // may return nil
 type TAnnotated interface {
 	GetTAnnotation() TypeAnnotation
+	SetTAnnotation(TypeAnnotation)
+}
+
+// tAnnotationContainer can be embedded into a node so
+// that it becomes TAnnotated
+type tAnnotationContainer struct {
+	annotation TypeAnnotation
+}
+
+func (t *tAnnotationContainer) GetTAnnotation() TypeAnnotation {
+	return t.annotation
+}
+
+// SetTAnnotation can be called on an existing TAnnotated in order
+// to give it an annotation after generating it.
+//
+// This is useful when building the AST as when we make an expression we do not know its
+// parent node, so we won't know if it is annotated or not!
+func (t *tAnnotationContainer) SetTAnnotation(a TypeAnnotation) {
+	t.annotation = a
 }
 
 // PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.
@@ -141,6 +164,7 @@ type Literal struct {
 	Kind token.Token
 
 	Positioner
+	tAnnotationContainer
 }
 
 // Returns the syntax of e.
@@ -168,6 +192,7 @@ type Var struct {
 	inferred types.Type
 	scope    *Scope
 	Range
+	tAnnotationContainer
 }
 
 // "Var"
@@ -199,6 +224,7 @@ type Deref struct {
 	Ref      Expr
 	inferred types.Type
 	Range
+	tAnnotationContainer
 }
 
 // "Deref"
@@ -225,6 +251,7 @@ type DerefAssign struct {
 	Value    Expr
 	inferred types.Type
 	Range
+	tAnnotationContainer
 }
 
 // "DerefAssign"
@@ -252,6 +279,7 @@ type Call struct {
 	inferred     types.Type
 	inferredFunc *types.Arrow
 	Range        // of the entire expression
+	tAnnotationContainer
 }
 
 // "Call"
@@ -281,11 +309,11 @@ func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 
 // Function abstraction: `fn (x, y) -> x`
 type Func struct {
-	ArgNames    []string
-	Body        Expr
-	inferred    *types.Arrow
-	Range       // of the declaration including parameters but not the body
-	TAnnotation TypeAnnotation
+	ArgNames []string
+	Body     Expr
+	inferred *types.Arrow
+	Range    // of the declaration including parameters but not the body
+	tAnnotationContainer
 }
 
 // "Func"
@@ -309,8 +337,6 @@ func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-func (e *Func) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
-
 // Assign is an expression that sets a Var to an Expr for the rest of the body
 // in ile. It is equivalent to a let expression in other languages,
 // we just syntactically omit both `let` and `in`
@@ -318,16 +344,14 @@ type Assign struct {
 	Var         string
 	Value       Expr
 	Body        Expr
-	TAnnotation TypeAnnotation
 	Range
+	tAnnotationContainer
 }
 
 func (e *Assign) ExprName() string { return "Assign" }
 
 // Get the inferred (or assigned) type of e.
 func (e *Assign) Type() types.Type { return e.Body.Type() }
-
-func (e *Assign) GetTAnnotation() TypeAnnotation { return e.TAnnotation }
 
 func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -342,6 +366,7 @@ type Unused struct {
 	Value Expr
 	Body  Expr
 	Range
+	tAnnotationContainer
 }
 
 func (e *Unused) ExprName() string { return "Unused" }
@@ -360,6 +385,7 @@ type LetGroup struct {
 	Body Expr
 	sccs [][]LetBinding
 	Range
+	tAnnotationContainer
 }
 
 // "LetGroup"
@@ -410,6 +436,7 @@ type RecordSelect struct {
 	Label    string
 	inferred types.Type
 	Range
+	tAnnotationContainer
 }
 
 // "RecordSelect"
@@ -433,6 +460,7 @@ type RecordExtend struct {
 	Labels   []LabelValue
 	inferred *types.Record
 	Range
+	tAnnotationContainer
 }
 
 // "RecordExtend"
@@ -480,6 +508,7 @@ type RecordRestrict struct {
 	Label    string
 	inferred *types.Record
 	Range
+	tAnnotationContainer
 }
 
 // "RecordRestrict"
@@ -501,6 +530,7 @@ func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 type RecordEmpty struct {
 	inferred *types.Record
 	Range
+	tAnnotationContainer
 }
 
 // "RecordEmpty"
@@ -522,6 +552,7 @@ type Variant struct {
 	Label string
 	Value Expr
 	Range
+	tAnnotationContainer
 }
 
 // "Variant"
@@ -547,6 +578,7 @@ type When struct {
 	Cases      []WhenCase
 	inferred   types.Type
 	Positioner // of the 'when' operator (not the clauses)
+	tAnnotationContainer
 }
 
 func (e *When) ExprName() string { return "when" }
@@ -586,6 +618,7 @@ type MatchSubject struct {
 	Default  *MatchCase
 	inferred types.Type
 	Range    // of the match operator and the matched first expression (not the clauses)
+	tAnnotationContainer
 }
 
 // "MatchSubject"
@@ -663,6 +696,7 @@ type Pipe struct {
 	Sequence []Expr
 	inferred types.Type
 	Range    // of the first pipe operator?
+	tAnnotationContainer
 }
 
 // "Pipe"
@@ -688,6 +722,7 @@ func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
 type ErrorExpr struct {
 	Range
 	Syntax string
+	tAnnotationContainer
 }
 
 func (e *ErrorExpr) Type() types.Type { return types.NewUnit() }

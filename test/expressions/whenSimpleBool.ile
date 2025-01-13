@@ -1,7 +1,7 @@
-//ile:compilerTest main.Match | "yay"
+//ile:compilerTest main.match | "yay"
 package main
 
-Match = when {
+match = when {
     2 == 2 -> "yay"
     _ -> "false"
 }

@@ -69,6 +69,11 @@ func (l *listener) ExitSourceFile(ctx *parser.SourceFileContext) {
 	l.file.Range = intervalTo2Pos(ctx.GetSourceInterval())
 }
 
+var restrictedIdentNames = map[string]bool{
+	"True":  true,
+	"False": true,
+}
+
 //
 // Expressions
 //
@@ -78,6 +83,16 @@ func (l *listener) EnterPackageClause(ctx *parser.PackageClauseContext) {
 }
 
 func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
+	identNameText := ctx.IDENTIFIER().GetText()
+	declPos := getPosInclusiveBetween(ctx.IDENTIFIER(), ctx.ASSIGN())
+
+	if restrictedIdentNames[identNameText] {
+		l.errors = append(l.errors, failed.NewRestrictedIdentName{
+			Positioner: declPos,
+			Name:       identNameText,
+		})
+	}
+
 	// declaration is at file source
 	if _, ok := ctx.GetParent().GetParent().(*parser.SourceFileContext); ok {
 		expr, ok := l.expressionStack.Pop()
@@ -85,11 +100,25 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 			return // TODO append an errorDecl node here?
 		}
-		l.file.Declarations = append(l.file.Declarations, ast.Declaration{
-			Range: intervalTo2Pos(ctx.GetSourceInterval()),
-			Name:  ctx.IDENTIFIER().GetText(),
+		if ctx.Type_() != nil {
+			tAnnotation, ok := l.typeStack.Pop()
+			if !ok {
+				l.visitErrors = append(l.visitErrors, fmt.Errorf("type stack is empty"))
+			}
+			expr.SetTAnnotation(tAnnotation)
+		}
+		declaration := ast.Declaration{
+			Range: declPos,
+			Name:  identNameText,
 			E:     expr,
-		})
+		}
+		if declaration.IsPublic() && ctx.Type_() == nil {
+			l.errors = append(l.errors, failed.NewMissingTypeAnnotationInPublicDeclaration{
+				Positioner: declaration,
+				DeclName:   identNameText,
+			})
+		}
+		l.file.Declarations = append(l.file.Declarations, declaration)
 		return
 	}
 
@@ -101,8 +130,8 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 
 	// declaration is inside some other expression, so it's an assignment
 	l.pendingScopedExprStack.Push(pendingAssign(ast.Assign{
-		Range: ast.Range{},
-		Var:   ctx.IDENTIFIER().GetText(),
+		Range: declPos,
+		Var:   identNameText,
 		Value: rem,
 		Body:  nil,
 	}))
@@ -208,6 +237,7 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 
 func (l *listener) ExitFnCall(ctx *parser.FnCallContext) {
 	var identifier *ast.Var
+	// TODO qualified identifiers!
 	if ctx.OperandName() != nil {
 		identifier = &ast.Var{
 			Name:  ctx.OperandName().GetText(),
@@ -253,6 +283,13 @@ func getPos(i antlr.SyntaxTree) ast.Range {
 	return ast.Range{
 		PosStart: token.Pos(interval.Start),
 		PosEnd:   token.Pos(interval.Stop),
+	}
+}
+
+func getPosInclusiveBetween(left antlr.SyntaxTree, right antlr.SyntaxTree) ast.Range {
+	return ast.Range{
+		PosStart: token.Pos(left.GetSourceInterval().Start),
+		PosEnd:   token.Pos(right.GetSourceInterval().Stop),
 	}
 }
 
@@ -318,12 +355,12 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 		ArgNames: paramNames,
 		Body:     nil,
 		Range:    pos,
-		TAnnotation: &ast.TArrow{
-			Args:   tAnnotations,
-			Return: retT,
-			Range:  pos,
-		},
 	}
+	fn.SetTAnnotation(&ast.TArrow{
+		Args:   tAnnotations,
+		Return: retT,
+		Range:  pos,
+	})
 	decl := ast.Declaration{
 		Range: intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
 		Name:  ctx.IDENTIFIER().GetText(),
@@ -389,8 +426,8 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	}
 	lastCasePred := allLastCaseExprs[0]
 	if lastCasePred.GetText() != "_" {
-		l.errors = append(l.errors, failed.ToDiscardInWhen{
-			Positioner:     getPos(ctx.WHEN()),
+		l.errors = append(l.errors, failed.NewMissingDiscardInWhen{
+			Positioner: getPos(ctx.WHEN()),
 		})
 	}
 	astCases := make([]ast.WhenCase, len(cases))
@@ -438,9 +475,9 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, failed.ToParse{
+	l.errors = append(l.errors, failed.NewParse{
 		ParserMessage: "error at: " + node.GetText(),
-		Positioner: getPos(node),
+		Positioner:    getPos(node),
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {

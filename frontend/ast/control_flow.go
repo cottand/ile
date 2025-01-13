@@ -84,6 +84,7 @@ type ControlFlow struct {
 	Jumps    []Jump
 	sccs     [][]Block
 	inferred types.Type
+	tAnnotationContainer
 }
 
 // Create a new control flow expression.

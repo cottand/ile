@@ -371,7 +371,7 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			if a.Name == b.Name {
 				return nil
 			}
-			return failed.ToUnifyConst{Positioner: ctx.CurrentExpr, First: a, Second: b}
+			return failed.NewTypeUnificationConst{Positioner: ctx.CurrentExpr, First: a, Second: b}
 		}
 
 	case types.Size:

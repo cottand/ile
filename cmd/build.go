@@ -2,15 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cottand/ile/backend"
-	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/failed"
 	"github.com/spf13/cobra"
 	goast "go/ast"
 	"go/format"
 	"go/token"
-	"log"
 	"os"
 	"path"
 )
@@ -24,28 +21,29 @@ var BuildCmd = &cobra.Command{
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	fs, _, err := frontend.FilesetFrom(args[0])
-	if err != nil {
-		return err
-	}
-	f, cErrs, err := irFromFile(args[0])
-	if err != nil {
-		return err
-	}
-	if cErrs.HasError() {
-		for _, cErr := range cErrs.Errors() {
-			log.Println("at " + fs.Position(cErr.At.Pos()).String())
-			log.Println(cErr.Message)
-		}
-		return fmt.Errorf("%d errors occurred during build", len(cErrs.Errors()))
-	}
-
-	tp := backend.Transpiler{}
-	transpiled, err := tp.TranspileFile(*f)
-	if err != nil {
-		return err
-	}
-	return write(transpiled, args[0])
+	panic("implement me")
+	//fs, _, err := frontend. NewFileset(args[0])
+	//if err != nil {
+	//	return err
+	//}
+	//f, cErrs, err := irFromFile(args[0])
+	//if err != nil {
+	//	return err
+	//}
+	//if cErrs.HasError() {
+	//	for _, cErr := range cErrs.Errors() {
+	//		log.Println("at " + fs.Position(cErr.At.Pos()).String())
+	//		log.Println(cErr.Message)
+	//	}
+	//	return fmt.Errorf("%d errors occurred during build", len(cErrs.Errors()))
+	//}
+	//
+	//tp := backend.Transpiler{}
+	//transpiled, err := tp.TranspileFile(*f)
+	//if err != nil {
+	//	return err
+	//}
+	//return write(transpiled, args[0])
 }
 
 func write(goAst *goast.File, at string) error {
@@ -63,14 +61,5 @@ func write(goAst *goast.File, at string) error {
 }
 
 func irFromFile(at string) (*ast.File, *failed.CompileResult, error) {
-	p := path.Clean(at)
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not read file %s: %w", p, err)
-	}
-	node, cErrs, err := frontend.ParseToIR(f)
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not compile file %s: %w", p, err)
-	}
-	return &node, cErrs, nil
+	panic("implement me")
 }

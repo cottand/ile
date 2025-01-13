@@ -3,6 +3,7 @@ package backend
 import (
 	"errors"
 	"fmt"
+	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
@@ -21,8 +22,43 @@ var ileToGoTypes = map[string]string{
 	"Bool":   "bool",
 }
 
+var ileToGoVars = map[string]string{
+	"True":  "true",
+	"False": "false",
+}
+
 type Transpiler struct {
 	types infer.TypeEnv
+}
+
+func NewTranspiler() *Transpiler {
+	return &Transpiler{}
+}
+
+func (tp *Transpiler) TranspilePackage(pkg *frontend.Package) (*goast.File, error) {
+	var decls []goast.Decl
+	var declarations *goast.GenDecl
+	var err error
+
+	astDecls := pkg.Declarations()
+
+	if len(astDecls) > 0 {
+		declarations, err = tp.transpileDeclarations(astDecls)
+		if err != nil {
+			return nil, err
+		}
+		decls = append(decls, declarations)
+	}
+	functions, err := tp.transpileFunctionDecls(astDecls)
+	if err != nil {
+		return nil, err
+	}
+	decls = append(decls, functions...)
+	return &goast.File{
+		Name:      &goast.Ident{Name: pkg.Name()},
+		GoVersion: goVersion,
+		Decls:     decls,
+	}, nil
 }
 
 func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {
@@ -154,6 +190,9 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 		}
 
 	case *ast.Var:
+		if goVar := ileToGoVars[e.Name]; goVar != "" {
+			return &goast.Ident{Name: goVar}, nil
+		}
 		return goast.NewIdent(e.Name), nil
 
 		// Go does not have ternary operators or anything that lets us inline logic into an expression,

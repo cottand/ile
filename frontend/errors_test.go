@@ -10,11 +10,13 @@ import (
 	"testing"
 )
 
-func TestCompilerError(t *testing.T) {
+func TestCompileExprErrors(t *testing.T) {
 	exprCases := map[string][]string{
-		`1 + "a"`:        {"type mismatch", "Int", "String"},
-		`"a" + 1`:        {"type mismatch", "Int", "String"},
-		`a = 1; "a" + a`: {"type mismatch", "Int", "String"},
+		`1 + "a"`:             {"type mismatch", "Int", "String"},
+		`"a" + 1`:             {"type mismatch", "Int", "String"},
+		`a = 1; "a" + a`:      {"type mismatch", "Int", "String"},
+		`b + 1`:               {"variable", "b", "not defined"},
+		`True = 0 != 0; True`: {"True", "identifier", "not", "allowed"},
 	}
 
 	for expr, expected := range exprCases {
@@ -22,9 +24,9 @@ func TestCompilerError(t *testing.T) {
 			progTemplate := fmt.Sprintf(`
 package main
 
-ExprTest = (%v)
+exprTest = (%v)
 		`, expr)
-			_, errs, err := frontend.ParseToIR(bytes.NewBufferString(progTemplate))
+			_, errs, err := frontend.ParseReaderToPackage(bytes.NewBufferString(progTemplate), false)
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)
@@ -39,7 +41,7 @@ ExprTest = (%v)
 				found := slices.ContainsFunc(errsAsStrings, func(s string) bool {
 					return strings.Contains(s, expectedMessage)
 				})
-				assert.True(t, found, "expected to find message %s in %v", expectedMessage, errsAsStrings)
+				assert.True(t, found, "expected to find message '%s' in \n- %v", expectedMessage, strings.Join(errsAsStrings, "\n- "))
 			}
 		})
 	}

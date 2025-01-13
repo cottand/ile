@@ -7,6 +7,9 @@ type CompileResult struct {
 }
 
 func (r *CompileResult) With(err ...IleError) *CompileResult {
+	if r == nil {
+		return &CompileResult{errs: err}
+	}
 	for _, err := range err {
 		r.errs = append(r.errs, err)
 	}
@@ -14,7 +17,13 @@ func (r *CompileResult) With(err ...IleError) *CompileResult {
 }
 
 func (r *CompileResult) Merge(err *CompileResult) *CompileResult {
-	if err == nil || len(err.errs) == 0 {
+	if r == nil {
+		return err
+	}
+	if err == nil {
+		return r
+	}
+	if len(err.errs) == 0 {
 		return r
 	}
 	return r.With(err.errs...)

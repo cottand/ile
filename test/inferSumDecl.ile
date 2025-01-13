@@ -1,4 +1,4 @@
-//ile:compilerTest main.SomeVal | int64(45)
+//ile:compilerTest main.someVal | int64(45)
 package main
 
-SomeVal = 32 + 10 + 1 + 2
+someVal = 32 + 10 + 1 + 2
