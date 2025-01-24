@@ -19,6 +19,7 @@ import (
 // when an expect an expression in the latest node, just pop it from
 // the stack as it will already have been visited
 type listener struct {
+	commentStream *antlr.CommonTokenStream
 	*parser.BaseIleParserListener
 
 	file   ast.File

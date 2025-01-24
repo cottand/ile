@@ -26,7 +26,7 @@ package main
 
 exprTest = (%v)
 		`, expr)
-			_, errs, err := frontend.ParseReaderToPackage(bytes.NewBufferString(progTemplate), false)
+			_, errs, err := frontend.ParseReaderToPackage(bytes.NewBufferString(progTemplate), frontend.PkgCompileSettings{})
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)

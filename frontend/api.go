@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/antlr4-go/antlr/v4"
@@ -79,14 +80,23 @@ func FromFilesystem(filePath string) (fs *token.FileSet, astFiles []ast.File, re
 // like type inference
 // See ParseToIR
 func ParseToAST(input io.Reader) (ast.File, *failed.CompileResult, error) {
-	iStream := antlr.NewIoStream(input)
-	lexer := parser.NewIleLexer(iStream)
-	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+	copyComments := bytes.NewBuffer(nil)
+	_, _ = copyComments.ReadFrom(input)
+
+	iStream := antlr.NewIoStream(copyComments)
+	copyComments.Reset()
+	// TODO figure out getting comments on a stream to parse pragmas
+	//iStream2 := antlr.NewIoStream(copyComments)
+	//commentStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), 2)
+	//commentStream.Fill()
+	tStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), antlr.TokenDefaultChannel)
 	p := parser.NewIleParser(tStream)
 
 	walker := antlr.NewIterativeParseTreeWalker()
 
-	l := &listener{}
+	l := &listener{
+		//commentStream: commentStream,
+	}
 
 	walker.Walk(l, p.SourceFile())
 
@@ -98,8 +108,12 @@ func ParseToAST(input io.Reader) (ast.File, *failed.CompileResult, error) {
 	return f, compileErrors, nil
 }
 
+type PkgCompileSettings struct {
+	disableBuiltins bool
+}
+
 // ParseReaderToPackage does all frontend passes end-to-end for a single file, meant for testing
-func ParseReaderToPackage(reader io.Reader, withoutBuiltins bool) (*Package, *failed.CompileResult, error) {
+func ParseReaderToPackage(reader io.Reader, settings PkgCompileSettings) (*Package, *failed.CompileResult, error) {
 	file, compileErrors, err := ParseToAST(reader)
 	if err != nil {
 		return nil, compileErrors, err
@@ -111,7 +125,7 @@ func ParseReaderToPackage(reader io.Reader, withoutBuiltins bool) (*Package, *fa
 		yield(withDesugar)
 	})
 
-	if !withoutBuiltins {
+	if !settings.disableBuiltins {
 		pkg.Import(Builtins())
 	}
 

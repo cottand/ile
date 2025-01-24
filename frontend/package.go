@@ -105,12 +105,15 @@ func (p *Package) PublicDeclarations() iter.Seq2[int, ast.Declaration] {
 
 //go:embed builtins/builtins.ile
 var builtinsEmbed embed.FS
+
 func Builtins() *Package {
 	open, err := builtinsEmbed.Open("builtins/builtins.ile")
 	if err != nil {
 		panic(err)
 	}
-	pkg, _, _ := ParseReaderToPackage(open, true)
+	pkg, _, _ := ParseReaderToPackage(open, PkgCompileSettings{
+		disableBuiltins: true,
+	})
 	pkg.path = "ile/builtins"
 	pkg.name = "builtins"
 	return pkg

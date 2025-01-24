@@ -74,7 +74,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		i := interp.New(interp.Options{})
 		assert.NoError(t, err)
 
-		transpiled, cErrs, err := frontend.ParseReaderToPackage(bytes.NewBuffer(content), false)
+		transpiled, cErrs, err := frontend.ParseReaderToPackage(bytes.NewBuffer(content), frontend.PkgCompileSettings{})
 		assert.Empty(t, cErrs, "compile errors: %v", cErrs.Errors())
 		assert.NoError(t, err)
 

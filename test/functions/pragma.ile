@@ -1,0 +1,7 @@
+//ile:compilerTest main.DecrementOne(10) | int64(10)
+
+package main
+
+//ile:external
+fn DecrementOne(n Int) Int { _ }
+
