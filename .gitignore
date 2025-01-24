@@ -10,3 +10,5 @@ gen/
 result
 
 **/**.ile.go
+
+**/**.DS_Store
