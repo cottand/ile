@@ -23,29 +23,5 @@
 package ast
 
 func CopyExpr(e Expr) Expr {
-	switch e := e.(type) {
-	case *ControlFlow:
-		next := NewControlFlow(e.Name, e.Locals...)
-		blocks := make([]Block, len(e.Blocks))
-		for i, b := range e.Blocks {
-			blocks[i].Sequence = make([]Expr, len(b.Sequence))
-			for j, sub := range b.Sequence {
-				blocks[i].Sequence[j] = CopyExpr(sub)
-			}
-			blocks[i].Index = b.Index
-		}
-		next.Blocks = blocks
-		next.Entry.Sequence = make([]Expr, len(e.Entry.Sequence))
-		for i, sub := range e.Entry.Sequence {
-			next.Entry.Sequence[i] = CopyExpr(sub)
-		}
-		next.Return.Sequence = make([]Expr, len(e.Return.Sequence))
-		for i, sub := range e.Return.Sequence {
-			next.Return.Sequence[i] = CopyExpr(sub)
-		}
-		copy(next.Jumps, e.Jumps)
-		return next
-	default:
-		return e.Transform(func(e Expr) Expr { return e })
-	}
+	return e.Transform(func(e Expr) Expr { return e })
 }

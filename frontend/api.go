@@ -7,6 +7,7 @@ import (
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/failed"
+	"github.com/cottand/ile/internal/log"
 	"github.com/cottand/ile/parser"
 	"go/token"
 	"io"
@@ -18,6 +19,8 @@ type CompilationCandidate struct {
 	fileset  *token.FileSet
 	astFiles []*ast.File
 }
+
+var feLogger = log.DefaultLogger.With("section", "frontend")
 
 // FromFilesystem creates a token.FileSet out of a file path
 //
@@ -56,19 +59,27 @@ func FromFilesystem(filePath string) (fs *token.FileSet, astFiles []ast.File, re
 	}
 
 	for _, f := range open {
-		info, err := f.Info()
-		if err != nil || !info.IsDir() || path.Ext(f.Name()) != ".ile" {
+
+		if !f.IsDir() || path.Ext(f.Name()) != ".ile" {
 			continue
 		}
-		_ = fs.AddFile(path.Base(file), -1, int(info.Size()))
-
 		open, err := os.Open(path.Join(file, f.Name()))
-
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("could not open %s: %s", file, err)
 		}
+
+		inMem := bytes.NewBuffer(nil)
+		readBytes, err := inMem.ReadFrom(open)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("could not read %s: %s", file, err)
+		}
+		// TODO readBytes returns the size of the file in bytes, but AddFile here
+		//   might be expecting the file size in runes (which will be more when source contains
+		//   wide UTF-8 for example).
+		_ = fs.AddFile(path.Base(file), -1, int(readBytes))
+
 		var astFile ast.File
-		astFile, thisRes, err := ParseToAST(open)
+		astFile, thisRes, err := ParseToAST(inMem)
 		res = res.Merge(thisRes)
 		_ = open.Close()
 		astFiles = append(astFiles, astFile)
@@ -78,24 +89,20 @@ func FromFilesystem(filePath string) (fs *token.FileSet, astFiles []ast.File, re
 
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
-// See ParseToIR
-func ParseToAST(input io.Reader) (ast.File, *failed.CompileResult, error) {
-	copyComments := bytes.NewBuffer(nil)
-	_, _ = copyComments.ReadFrom(input)
+func ParseToAST(r io.Reader) (ast.File, *failed.CompileResult, error) {
+	iStream := antlr.NewIoStream(r)
+	commentStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), 2)
+	commentStream.Fill()
+	iStream.Seek(0)
 
-	iStream := antlr.NewIoStream(copyComments)
-	copyComments.Reset()
-	// TODO figure out getting comments on a stream to parse pragmas
-	//iStream2 := antlr.NewIoStream(copyComments)
-	//commentStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), 2)
-	//commentStream.Fill()
 	tStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), antlr.TokenDefaultChannel)
 	p := parser.NewIleParser(tStream)
 
 	walker := antlr.NewIterativeParseTreeWalker()
 
 	l := &listener{
-		//commentStream: commentStream,
+		commentStream: commentStream,
+		Logger:        feLogger.With("section", "antlrWalker"),
 	}
 
 	walker.Walk(l, p.SourceFile())

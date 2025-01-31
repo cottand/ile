@@ -175,14 +175,6 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		env.common.LeaveScope()
 		return t, err
 
-	case *ast.ControlFlow:
-		// Loops are detected through SCC analysis and inferred as recursive functions.
-		// Blocks are inferred in dependency order:
-		env.common.EnterScope(e)
-		t, err := ti.inferControlFlow(env, level, e)
-		env.common.LeaveScope()
-		return t, err
-
 	case *ast.Assign:
 		var t types.Type
 		env.common.EnterScope(e)
@@ -666,98 +658,4 @@ func (ti *InferenceContext) inferLetGroup(env *TypeEnv, level uint, e *ast.LetGr
 		e.SetStronglyConnectedComponents(sccBindings)
 	}
 	return t, err
-}
-
-// Loops are detected through SCC analysis and inferred as recursive functions. Blocks are inferred in dependency order.
-func (ti *InferenceContext) inferControlFlow(env *TypeEnv, level uint, e *ast.ControlFlow) (ret types.Type, err error) {
-	// Evaluate all sub-expressions in a new scope with local variables bound to mutable references:
-	stashed := 0
-	refs := make([]*types.App, len(e.Locals))
-	vars := env.common.VarTracker.NewList(level, len(e.Locals))
-	tv, tail := vars.Head(), vars.Tail()
-	for i, name := range e.Locals {
-		stashed += env.common.Stash(env, name)
-		tv.SetWeak()
-		ref := types.NewRef(tv)
-		env.Assign(name, ref)
-		env.common.PushVarScope(name)
-		refs[i] = ref
-		tv, tail = tail.Head(), tail.Tail()
-	}
-	// Loops are detected through SCC analysis and inferred as recursive functions. Ensure all blocks and
-	// cycles in the strongly connected components for e reach the return block, directly or transitively:
-	sccs, err := e.Validate(ti.annotate)
-	if err != nil {
-		ti.invalid, ti.err = e, err
-		return nil, err
-	}
-	var tmpRefs []*types.App
-	// Blocks will be inferred in dependency order:
-	for _, cycle := range sccs {
-		// A component with a single block which doesn't jump to itself is not a cycle or part of a cycle:
-		if len(cycle) == 1 && !e.HasJump(cycle[0], cycle[0]) {
-			block := cycle[0]
-			for i, sub := range block.Sequence {
-				t, err := ti.infer(env, level, sub)
-				if err != nil {
-					return nil, err
-				}
-				// The last expression within the return block determines the return type:
-				if block.IsReturn() && i == len(block.Sequence)-1 {
-					ret = t
-					if ti.annotate {
-						e.SetType(t)
-					}
-				}
-			}
-			continue
-		}
-		// A component with more than 1 block or a single block which jumps to itself is a cycle.
-		// Cycles (loops) are inferred similarly to recursive functions.
-		//
-		// Evaluate all sub-expressions in a new scope with local variables bound to mutable references:
-		if len(tmpRefs) == 0 {
-			tmpRefs = make([]*types.App, len(e.Locals))
-		}
-		vars := env.common.VarTracker.NewList(level, len(e.Locals))
-		tv, tail := vars.Head(), vars.Tail()
-		for i, name := range e.Locals {
-			tv.SetWeak()
-			ref := types.NewRef(tv)
-			env.Assign(name, ref)
-			tmpRefs[i] = ref
-			tv, tail = tail.Head(), tail.Tail()
-		}
-		for _, block := range cycle {
-			// The entry and return blocks are handled above (as non-cycles).
-			for _, sub := range block.Sequence {
-				if _, err := ti.infer(env, level, sub); err != nil {
-					return nil, err
-				}
-			}
-		}
-		// Check consistent usage of locals across loop iterations:
-		for i, ref := range refs {
-			if err := env.common.Unify(ref, tmpRefs[i]); err != nil {
-				ti.invalid, ti.err = e, err
-				return nil, err
-			}
-		}
-		// Restore the previous scope:
-		for i, name := range e.Locals {
-			env.Assign(name, refs[i])
-		}
-	}
-
-	// Restore the parent scope:
-	for _, name := range e.Locals {
-		env.Remove(name)
-		env.common.PopVarScope(name)
-	}
-	env.common.Unstash(env, stashed)
-	if ret == nil {
-		ti.invalid, ti.err = e, errors.New("Control flow must reach the return block and return a value")
-		return nil, ti.err
-	}
-	return ret, nil
 }

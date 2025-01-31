@@ -9,6 +9,7 @@ import (
 	"github.com/cottand/ile/parser"
 	"github.com/cottand/ile/util"
 	"go/token"
+	"log/slog"
 	"slices"
 	"strings"
 )
@@ -35,6 +36,8 @@ type listener struct {
 	typeStack               util.Stack[ast.TypeAnnotation]
 
 	pendingScopedExprStack util.Stack[pendingScoped]
+
+	*slog.Logger
 }
 
 type stringTypePair struct {
@@ -327,8 +330,37 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 // Functions
 //
 
+// findFunctionComment can be called when inside a function to find immediately adjacent comments.
+// Comments are usually at the index of FN - 2
+func (l *listener) findFunctionComment(ctx *parser.FunctionDeclContext) []string {
+	stream := ctx.GetParser().GetTokenStream()
+	currentToken := ctx.FN().GetSymbol()
+	prevToken := stream.Get(currentToken.GetTokenIndex() - 2)
+	var totalComment []string
+	for {
+		// previous line is a comment and is immediately before
+		if strings.HasPrefix(prevToken.GetText(), "//") && prevToken.GetLine() == currentToken.GetLine()-1 {
+			l.Debug("function comment line found", "line", prevToken.GetLine())
+
+			trimmed := strings.TrimPrefix(prevToken.GetText(), "//")
+			totalComment = append(totalComment, trimmed)
+
+			currentToken = prevToken
+			prevToken = stream.Get(currentToken.GetTokenIndex() - 2)
+		} else {
+			break
+		}
+	}
+
+	// we found comments by working our way upwards, so now we must put them in the right order
+	slices.Reverse(totalComment)
+	return totalComment
+}
+
 func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 	pos := intervalTo2Pos(ctx.GetSourceInterval())
+
+	_ = l.findFunctionComment(ctx)
 
 	params := l.paramDeclStack.PopAll()
 	parsedParams := ctx.Signature().Parameters().AllParameterDecl()

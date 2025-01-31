@@ -2,6 +2,14 @@
 
 package main
 
-//ile:external
-fn DecrementOne(n Int) Int { _ }
+//ile:external "fmt" Println
+fn Println(s String) { _ }
 
+// this is
+// a multi line
+// comment
+fn other() { }
+
+// a faraway comment
+//
+fn otherNoComment() { }

@@ -169,10 +169,6 @@ func Func3(arg1, arg2, arg3 string, body ast.Expr) *ast.Func {
 	return &ast.Func{ArgNames: []string{arg1, arg2, arg3}, Body: body}
 }
 
-// Control flow graph
-func ControlFlow(name string, locals ...string) *ast.ControlFlow {
-	return ast.NewControlFlow(name, locals...)
-}
 
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 func Pipe(as string, sequence ...ast.Expr) *ast.Pipe {

@@ -51,7 +51,6 @@ var (
 	_ Expr = (*Var)(nil)
 	_ Expr = (*Deref)(nil)
 	_ Expr = (*DerefAssign)(nil)
-	_ Expr = (*ControlFlow)(nil)
 	_ Expr = (*Pipe)(nil)
 	_ Expr = (*Call)(nil)
 	_ Expr = (*Func)(nil)

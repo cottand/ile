@@ -24,7 +24,6 @@ package ast
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -94,15 +93,6 @@ func exprString(sb *strings.Builder, simple bool, e Expr) {
 		}
 		sb.WriteString(" -> ")
 		exprString(sb, false, e.Body)
-		if simple {
-			sb.WriteByte(')')
-		}
-
-	case *ControlFlow:
-		if simple {
-			sb.WriteByte('(')
-		}
-		controlFlow(sb, e)
 		if simple {
 			sb.WriteByte(')')
 		}
@@ -255,105 +245,4 @@ func bindingString(sb *strings.Builder, label string, value Expr) {
 
 	sb.WriteString(" = ")
 	exprString(sb, false, fn.Body)
-}
-
-func printSeq(sb *strings.Builder, seq []Expr) {
-	if len(seq) == 0 {
-		sb.WriteString("{}")
-		return
-	}
-	if len(seq) == 1 {
-		exprString(sb, false, seq[0])
-		return
-	}
-	sb.WriteByte('{')
-	for i, sub := range seq {
-		if i > 0 {
-			sb.WriteString("; ")
-		}
-		exprString(sb, false, sub)
-	}
-	sb.WriteByte('}')
-}
-
-var _blockLabels [128]string
-
-func init() {
-	for i := range _blockLabels {
-		_blockLabels[i] = "L" + strconv.Itoa(i)
-	}
-}
-
-func printBlockLabel(sb *strings.Builder, index int) {
-	switch index {
-	case ControlFlowEntryIndex:
-		sb.WriteString("entry")
-	case ControlFlowReturnIndex:
-		sb.WriteString("return")
-	default:
-		if index < len(_blockLabels) {
-			sb.WriteString(_blockLabels[index])
-			return
-		}
-		sb.WriteByte('L')
-		sb.WriteString(strconv.Itoa(index))
-	}
-}
-
-func controlFlow(sb *strings.Builder, e *ControlFlow) {
-	sb.WriteString(e.Name)
-	sb.WriteByte('(')
-	for i, name := range e.Locals {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(name)
-	}
-	sb.WriteString(") {")
-	var blocks []Block
-	if len(e.Entry.Sequence) != 0 {
-		blocks = append(blocks, e.Entry)
-	}
-	if len(e.Return.Sequence) != 0 {
-		blocks = append(blocks, e.Return)
-	}
-	if len(e.Blocks) != 0 {
-		blocks = append(blocks, e.Blocks...)
-	}
-	if len(blocks) != 0 {
-		for i, block := range blocks {
-			if len(block.Sequence) == 0 {
-				continue
-			}
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			printBlockLabel(sb, block.Index)
-			sb.WriteString(" : ")
-			printSeq(sb, block.Sequence)
-		}
-	}
-	sb.WriteString("} in {")
-	if len(e.Jumps) != 0 {
-		jumps := SortJumps(e.Jumps)
-		lastFrom := ControlFlowEntryIndex - 1
-		for i, j := range jumps {
-			if j.From == lastFrom {
-				sb.WriteString(", ")
-				printBlockLabel(sb, j.To)
-			} else {
-				if i > 0 {
-					sb.WriteString("], ")
-				}
-				printBlockLabel(sb, j.From)
-				sb.WriteString(" -> [")
-				printBlockLabel(sb, j.To)
-			}
-			if i == len(jumps)-1 {
-				sb.WriteByte(']')
-			}
-			lastFrom = j.From
-		}
-	}
-	sb.WriteByte('}')
 }

@@ -185,34 +185,6 @@ func (a *Analysis) analyzeExpr(expr ast.Expr) error {
 		delete(a.Scopes, expr.As)
 		a.unstash(stashed)
 
-	case *ast.ControlFlow:
-		stashed := 0
-		for _, local := range expr.Locals {
-			stashed += a.stash(local)
-			a.Scopes[local] = -1
-		}
-		for _, sub := range expr.Entry.Sequence {
-			if err := a.analyzeExpr(sub); err != nil {
-				return err
-			}
-		}
-		for _, sub := range expr.Return.Sequence {
-			if err := a.analyzeExpr(sub); err != nil {
-				return err
-			}
-		}
-		for _, block := range expr.Blocks {
-			for _, sub := range block.Sequence {
-				if err := a.analyzeExpr(sub); err != nil {
-					return err
-				}
-			}
-		}
-		for _, local := range expr.Locals {
-			delete(a.Scopes, local)
-		}
-		a.unstash(stashed)
-
 	case *ast.Call:
 		if err := a.analyzeExpr(expr.Func); err != nil {
 			return err

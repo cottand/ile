@@ -75,8 +75,12 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		transpiled, cErrs, err := frontend.ParseReaderToPackage(bytes.NewBuffer(content), frontend.PkgCompileSettings{})
-		assert.Empty(t, cErrs, "compile errors: %v", cErrs.Errors())
 		assert.NoError(t, err)
+		if err != nil {
+			// don't try to keep going if the FE failed
+			t.Fatal(err)
+		}
+		assert.Empty(t, cErrs, "compile errors: %v", cErrs.Errors())
 
 		tp := backend.Transpiler{}
 		goAst, err := tp.TranspilePackage(transpiled)

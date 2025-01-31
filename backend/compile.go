@@ -325,7 +325,6 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 
 		// generic type!
 	case *types.Var:
-
 		panic(fmt.Errorf("generics are not implemented yet, but got %v", types.TypeString(t)))
 
 	default:
