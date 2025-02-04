@@ -35,7 +35,10 @@ func extractTestComment(t *testing.T, str string) (eval, expected string) {
 }
 
 var ignoreEndToEndTests = map[string]bool{
-	"whenFoolFib.ile": true,
+	// test uses when-without-subject which is not happening anymore,
+	// ignored until refactored
+	"expressions/whenBoolFib.ile":    true,
+	"expressions/whenSimpleBool.ile": true,
 }
 
 func TestExpressionsEndToEnd(t *testing.T) {
@@ -62,7 +65,11 @@ func TestFunctionsEndToEnd(t *testing.T) {
 
 func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 	return t.Run(f.Name(), func(t *testing.T) {
-		content, err := testSet.ReadFile(path.Join("test", at, f.Name()))
+		name := path.Join(at, f.Name())
+		if ignoreEndToEndTests[name] {
+			t.Skip("marked as ignored")
+		}
+		content, err := testSet.ReadFile(path.Join("test", name))
 		assert.NoError(t, err)
 
 		eval, expected := extractTestComment(t, string(content))
@@ -88,14 +95,14 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		sourceBuf := bytes.NewBuffer(nil)
-		defer func() {
-			err := recover()
-			if err != nil {
-				// Print the generated Go code
-				t.Errorf("could not compile AST: %v\n-----\n%v", err, goAst)
-				panic(err)
-			}
-		}()
+		//defer func() {
+		//	err := recover()
+		//	if err != nil {
+		//		// Print the generated Go code
+		//		t.Errorf("could not compile AST: %v\n-----\n%v", err, goAst)
+		//		panic(err)
+		//	}
+		//}()
 
 		prog, err := i.CompileAST(goAst)
 		_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
