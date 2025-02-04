@@ -1,15 +1,7 @@
-//ile:compilerTest main.DecrementOne(10) | int64(10)
+//ile:compilerTest main.goSprint("aa") | "aa"
 
 package main
 
 //ile:external "fmt" Println
-fn Println(s String) { _ }
+fn goSprint(s String) { _ }
 
-// this is
-// a multi line
-// comment
-fn other() { }
-
-// a faraway comment
-//
-fn otherNoComment() { }

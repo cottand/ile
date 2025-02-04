@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/failed"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/spf13/cobra"
 	goast "go/ast"
 	"go/format"
@@ -60,6 +60,6 @@ func write(goAst *goast.File, at string) error {
 	return nil
 }
 
-func irFromFile(at string) (*ast.File, *failed.CompileResult, error) {
+func irFromFile(at string) (*ast.File, *ilerr.Errors, error) {
 	panic("implement me")
 }

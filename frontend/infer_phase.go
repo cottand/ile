@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/failed"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
 )
 
 // inferencePhase mutates pkg to assign types from inference as well as existing ast.TypeAnnotation
-func inferencePhase(pkg *Package) (*failed.CompileResult, error) {
-	errs := &failed.CompileResult{}
+func inferencePhase(pkg *Package) (*ilerr.Errors, error) {
+	errs := &ilerr.Errors{}
 	newDecls := make([]ast.Declaration, len(pkg.declarations))
 
 	envWithImports := infer.NewTypeEnv(nil)
@@ -43,10 +43,10 @@ func inferencePhase(pkg *Package) (*failed.CompileResult, error) {
 
 		inferred, err := ctx.Annotate(pkg.AsGroupedLet(&ast.Var{Name: decl.Name}), env)
 		if err != nil {
-			var ileErr failed.IleError
+			var ileErr ilerr.IleError
 			ok := errors.As(err, &ileErr)
 			if !ok {
-				errs = errs.With(failed.Unclassified{
+				errs = errs.With(ilerr.Unclassified{
 					From:       err,
 					Positioner: decl,
 				})

@@ -3,15 +3,16 @@ package frontend
 import (
 	"errors"
 	"fmt"
-	"github.com/antlr4-go/antlr/v4"
-	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/failed"
-	"github.com/cottand/ile/parser"
-	"github.com/cottand/ile/util"
+	"github.com/cottand/ile/frontend/ilerr"
 	"go/token"
 	"log/slog"
 	"slices"
 	"strings"
+
+	"github.com/antlr4-go/antlr/v4"
+	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/parser"
+	"github.com/cottand/ile/util"
 )
 
 // listener traverses the parse tree
@@ -20,11 +21,10 @@ import (
 // when an expect an expression in the latest node, just pop it from
 // the stack as it will already have been visited
 type listener struct {
-	commentStream *antlr.CommonTokenStream
 	*parser.BaseIleParserListener
 
 	file   ast.File
-	errors []failed.IleError
+	errors []ilerr.IleError
 
 	visitErrors []error
 
@@ -57,8 +57,8 @@ func (p pendingAssign) assignBody(expr ast.Expr) ast.Expr {
 	return &assign
 }
 
-func (l *listener) result() (ast.File, *failed.CompileResult) {
-	result := failed.CompileResult{}
+func (l *listener) result() (ast.File, *ilerr.Errors) {
+	result := ilerr.Errors{}
 	if len(l.errors) > 0 {
 		return l.file, result.With(l.errors...)
 	}
@@ -86,15 +86,26 @@ func (l *listener) EnterPackageClause(ctx *parser.PackageClauseContext) {
 	l.file.PkgName = ctx.IDENTIFIER().GetText()
 }
 
+func (l *listener) ExitImportSpec(ctx *parser.ImportSpecContext) {
+	imp := ast.Import{
+		Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
+		// TODO allow empty aliases https://github.com/cottand/ile/issues/3
+		// TODO allow dot aliases https://github.com/cottand/ile/issues/4
+		Alias:      ctx.GetAlias().GetText(),
+		ImportPath: ctx.IDENTIFIER().GetText(),
+	}
+	l.file.Imports = append(l.file.Imports, imp)
+}
+
 func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 	identNameText := ctx.IDENTIFIER().GetText()
 	declPos := getPosInclusiveBetween(ctx.IDENTIFIER(), ctx.ASSIGN())
 
 	if restrictedIdentNames[identNameText] {
-		l.errors = append(l.errors, failed.NewRestrictedIdentName{
+		l.errors = append(l.errors, ilerr.New(ilerr.NewRestrictedIdentName{
 			Positioner: declPos,
 			Name:       identNameText,
-		})
+		}))
 	}
 
 	// declaration is at file source
@@ -112,12 +123,13 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			expr.SetTAnnotation(tAnnotation)
 		}
 		declaration := ast.Declaration{
-			Range: declPos,
-			Name:  identNameText,
-			E:     expr,
+			Range:    declPos,
+			Name:     identNameText,
+			E:        expr,
+			Comments: l.findCommentsPreceding(ctx.GetParser().GetTokenStream(), ctx.IDENTIFIER().GetSymbol()),
 		}
 		if declaration.IsPublic() && ctx.Type_() == nil {
-			l.errors = append(l.errors, failed.NewMissingTypeAnnotationInPublicDeclaration{
+			l.errors = append(l.errors, ilerr.NewMissingTypeAnnotationInPublicDeclaration{
 				Positioner: declaration,
 				DeclName:   identNameText,
 			})
@@ -330,17 +342,16 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 // Functions
 //
 
-// findFunctionComment can be called when inside a function to find immediately adjacent comments.
+// findCommentsPreceding can be called when inside a function to find immediately adjacent comments.
 // Comments are usually at the index of FN - 2
-func (l *listener) findFunctionComment(ctx *parser.FunctionDeclContext) []string {
-	stream := ctx.GetParser().GetTokenStream()
-	currentToken := ctx.FN().GetSymbol()
+func (l *listener) findCommentsPreceding(stream antlr.TokenStream, t antlr.Token) []string {
+	currentToken := t
 	prevToken := stream.Get(currentToken.GetTokenIndex() - 2)
 	var totalComment []string
 	for {
 		// previous line is a comment and is immediately before
 		if strings.HasPrefix(prevToken.GetText(), "//") && prevToken.GetLine() == currentToken.GetLine()-1 {
-			l.Debug("function comment line found", "line", prevToken.GetLine())
+			l.Debug("preceding comment line found", "line", prevToken.GetLine())
 
 			trimmed := strings.TrimPrefix(prevToken.GetText(), "//")
 			totalComment = append(totalComment, trimmed)
@@ -359,8 +370,6 @@ func (l *listener) findFunctionComment(ctx *parser.FunctionDeclContext) []string
 
 func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 	pos := intervalTo2Pos(ctx.GetSourceInterval())
-
-	_ = l.findFunctionComment(ctx)
 
 	params := l.paramDeclStack.PopAll()
 	parsedParams := ctx.Signature().Parameters().AllParameterDecl()
@@ -395,9 +404,10 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 		Range:  pos,
 	})
 	decl := ast.Declaration{
-		Range: intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
-		Name:  ctx.IDENTIFIER().GetText(),
-		E:     fn,
+		Range:    intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
+		Name:     ctx.IDENTIFIER().GetText(),
+		E:        fn,
+		Comments: l.findCommentsPreceding(ctx.GetParser().GetTokenStream(), ctx.FN().GetSymbol()),
 	}
 	defer func() {
 		l.file.Declarations = append(l.file.Declarations, decl)
@@ -459,7 +469,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	}
 	lastCasePred := allLastCaseExprs[0]
 	if lastCasePred.GetText() != "_" {
-		l.errors = append(l.errors, failed.NewMissingDiscardInWhen{
+		l.errors = append(l.errors, ilerr.NewMissingDiscardInWhen{
 			Positioner: getPos(ctx.WHEN()),
 		})
 	}
@@ -508,7 +518,7 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, failed.NewParse{
+	l.errors = append(l.errors, ilerr.NewParse{
 		ParserMessage: "error at: " + node.GetText(),
 		Positioner:    getPos(node),
 	})

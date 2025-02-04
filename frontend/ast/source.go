@@ -38,6 +38,7 @@ type File struct {
 	Range
 	PkgName      string
 	Declarations []Declaration
+	Imports      []Import
 }
 
 func (f File) String() string {
@@ -51,7 +52,11 @@ type Declaration struct {
 	Range // of the LHS including '='
 	Name  string
 	E     Expr
+	// Comments keeps a list of lines for comments immediately preceding a declaration.
+	// It may be nil if the declaration was not adjacent to any comments.
+	Comments []string
 	// TODO TAnnotation has to go here as otherwise I need to annotate the entire AST not just funcs
+	//  because any expression can be a Decl when declared as a var!
 }
 
 func (d Declaration) IsPublic() bool {
@@ -60,4 +65,11 @@ func (d Declaration) IsPublic() bool {
 	}
 	r, _ := utf8.DecodeRuneInString(d.Name)
 	return r != utf8.RuneError && unicode.IsUpper(r)
+}
+
+type Import struct {
+	Positioner
+	// if Alias is the empty string it means there was no alias
+	Alias string
+	ImportPath string
 }

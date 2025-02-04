@@ -5,6 +5,7 @@ import (
 	"embed"
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/interp"
 	"go/format"
@@ -74,13 +75,19 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		i := interp.New(interp.Options{})
 		assert.NoError(t, err)
 
-		transpiled, cErrs, err := frontend.ParseReaderToPackage(bytes.NewBuffer(content), frontend.PkgCompileSettings{})
+		transpiled, cErrs, err := frontend.NewPackageFromBytes(content)
 		assert.NoError(t, err)
 		if err != nil {
 			// don't try to keep going if the FE failed
 			t.Fatal(err)
 		}
-		assert.Empty(t, cErrs, "compile errors: %v", cErrs.Errors())
+		if cErrs.HasError() {
+			var errStrings []string
+			for _, e := range cErrs.Errors() {
+				errStrings = append(errStrings, ilerr.FormatWithCode(e))
+			}
+			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))
+		}
 
 		tp := backend.Transpiler{}
 		goAst, err := tp.TranspilePackage(transpiled)

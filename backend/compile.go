@@ -7,10 +7,10 @@ import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/util"
 	goast "go/ast"
 	"go/token"
 	"reflect"
-	"strconv"
 )
 
 const goVersion = "1.23.3"
@@ -383,7 +383,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 		if err != nil {
 			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
 		}
-		switchResultIdent := goast.NewIdent(mangledStringFor(e))
+		switchResultIdent := goast.NewIdent(util.MangledIdentFrom(e, e.ExprName()))
 		statements = append(statements, &goast.DeclStmt{Decl: &goast.GenDecl{
 			Tok: token.VAR,
 			Specs: []goast.Spec{&goast.ValueSpec{
@@ -461,11 +461,4 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 
 	return statements, nil
 
-}
-
-func mangledStringFor(node ast.Expr) string {
-	expr := node.ExprName()
-	start := strconv.Itoa(int(node.Pos()))
-	end := strconv.Itoa(int(node.End()))
-	return fmt.Sprintf("ile_%v_at_%v_%v", expr, start, end)
 }

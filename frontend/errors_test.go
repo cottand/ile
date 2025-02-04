@@ -1,7 +1,6 @@
 package frontend_test
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/cottand/ile/frontend"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +25,7 @@ package main
 
 exprTest = (%v)
 		`, expr)
-			_, errs, err := frontend.ParseReaderToPackage(bytes.NewBufferString(progTemplate), frontend.PkgCompileSettings{})
+			_, errs, err := frontend.NewPackageFromBytes([]byte(progTemplate))
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)

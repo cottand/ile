@@ -24,7 +24,7 @@ package infer
 
 import (
 	"errors"
-	"github.com/cottand/ile/frontend/failed"
+	"github.com/cottand/ile/frontend/ilerr"
 
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/internal/astutil"
@@ -62,10 +62,10 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			for i, name := range e.Using {
 				vt := env.Lookup(name)
 				if vt == nil {
-					return nil, failed.NewUndefinedVariable{
+					return nil, ilerr.New(ilerr.NewUndefinedVariable{
 						Positioner: e,
 						Name:       name,
-					}
+					})
 				}
 				using[i] = vt
 			}
@@ -91,10 +91,10 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			t = env.Lookup(e.Name)
 		}
 		if t == nil {
-			ti.invalid, ti.err = e, failed.NewUndefinedVariable{
+			ti.invalid, ti.err = e, ilerr.New(ilerr.NewUndefinedVariable{
 				Positioner: e,
 				Name:       e.Name,
-			}
+			})
 			return nil, ti.err
 		}
 		t = env.common.Instantiate(level, t)
