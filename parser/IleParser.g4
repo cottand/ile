@@ -76,6 +76,8 @@ functionDecl
     : FN IDENTIFIER typeParameters? signature block
     ;
 
+// qualifiedIdent should only be used for types - a record select or an imported name
+// (ie fmt.Print) are select expressions.
 qualifiedIdent
     : IDENTIFIER DOT IDENTIFIER
     ;
@@ -139,30 +141,24 @@ arithmeticExpr
     ) arithmeticExpr
     | arithmeticExpr LOGICAL_AND arithmeticExpr
     | arithmeticExpr LOGICAL_OR arithmeticExpr
+    | whenBlock // TODO
+    | L_PAREN blockExpr R_PAREN
 //    | fnLit
     ;
 
+// primaryExpr is what can go on the left-hand-side of `.` or `()`
 primaryExpr
-    : whenBlock
-    | match_ // TODO
-    | operand
-    | fnCall
+    : operand
+    | operandName fnCallArgs
+    | primaryExpr (DOT IDENTIFIER | fnCallArgs) // select ecxpression (a.b)
     ;
 
+
 whenBlock
-    : WHEN L_CURLY (whenCase EOS)+ R_CURLY
+    : WHEN arithmeticExpr L_CURLY (whenCase EOS)+ R_CURLY
     ;
 
 whenCase
-    : arithmeticExpr ARROW arithmeticExpr
-    ;
-
-
-match_
-    : WHEN arithmeticExpr L_CURLY (matchCase EOS)+ R_CURLY
-    ;
-
-matchCase
     :   matchPattern ARROW arithmeticExpr
     ;
 
@@ -174,18 +170,14 @@ matchPattern
 operand
     : literal
     | operandName // typeArgs?
-    | qualifiedIdent
-    | L_PAREN blockExpr R_PAREN
     ;
 
 operandName
     : IDENTIFIER
     ;
 
-fnCall
-    // calls must oeprate on identifiers, not literals
-    : operandName L_PAREN (expression (COMMA expression)* COMMA?)? R_PAREN
-    | qualifiedIdent L_PAREN (expression (COMMA expression)* COMMA?)? R_PAREN
+fnCallArgs
+    : L_PAREN (expression (COMMA expression)* COMMA?)? R_PAREN
     ;
 
 literal
@@ -196,7 +188,7 @@ literal
     ;
 
 fnLit
-    : (parameterDecl (COMMA parameterDecl)* COMMA?)? ARROW expression
+    : FN (parameterDecl (COMMA parameterDecl)* COMMA?)? ARROW expression
     ;
 
 

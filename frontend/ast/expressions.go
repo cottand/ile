@@ -185,7 +185,7 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// Variable
+// Variable (or identifier)
 type Var struct {
 	Name     string
 	inferred types.Type
@@ -217,6 +217,43 @@ func (e *Var) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
 }
+
+// We might not need QualifiedIdent after all if we represent packages as records!
+/*// QualifiedIdent is a Qualified variable or identifier
+type QualifiedIdent struct {
+	Qualifier string
+	Name      string
+	inferred  types.Type
+	scope     *Scope
+	Range
+	tAnnotationContainer
+}
+
+func (e *QualifiedIdent) ExprName() string { return "QualifiedIdent" }
+
+func (e *QualifiedIdent) Type() types.Type { return types.RealType(e.inferred) }
+
+func (e *QualifiedIdent) Scope() *Scope { return e.scope }
+
+func (e *QualifiedIdent) SetType(t types.Type) { e.inferred = t }
+
+func (e *QualifiedIdent) SetScope(scope *Scope) { e.scope = scope }
+
+func (e *QualifiedIdent) Copy() Expr {
+	copied := *e
+	return &copied
+}
+func (e *QualifiedIdent) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	return f(&copied)
+}
+
+// FormattedName is just Qualifier . Name
+// Qualifier may contain `.`, but not Name
+func (e *QualifiedIdent) FormattedName() string {
+	return e.Qualifier + "." + e.Name
+}
+*/
 
 // Dereference: `*x`
 type Deref struct {
@@ -340,9 +377,9 @@ func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 // in ile. It is equivalent to a let expression in other languages,
 // we just syntactically omit both `let` and `in`
 type Assign struct {
-	Var         string
-	Value       Expr
-	Body        Expr
+	Var   string
+	Value Expr
+	Body  Expr
 	Range
 	tAnnotationContainer
 }

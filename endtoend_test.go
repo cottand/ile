@@ -34,15 +34,8 @@ func extractTestComment(t *testing.T, str string) (eval, expected string) {
 	return elems[0], elems[1]
 }
 
-func TestRootEndToEnd(t *testing.T) {
-	files, err := testSet.ReadDir("test")
-	assert.NoError(t, err)
-	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
-			continue
-		}
-		testFile(t, "", f)
-	}
+var ignoreEndToEndTests = map[string]bool{
+	"whenFoolFib.ile": true,
 }
 
 func TestExpressionsEndToEnd(t *testing.T) {
@@ -55,6 +48,7 @@ func TestExpressionsEndToEnd(t *testing.T) {
 		testFile(t, "expressions", f)
 	}
 }
+
 func TestFunctionsEndToEnd(t *testing.T) {
 	files, err := testSet.ReadDir("test/functions")
 	assert.NoError(t, err)

@@ -87,9 +87,13 @@ func (l *listener) EnterPackageClause(ctx *parser.PackageClauseContext) {
 }
 
 func (l *listener) ExitImportSpec(ctx *parser.ImportSpecContext) {
+	if ctx.GetAlias() == nil {
+		// TODO allow empty aliases https://github.com/cottand/ile/issues/3
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("empty aliases are not supported"))
+		return
+	}
 	imp := ast.Import{
 		Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
-		// TODO allow empty aliases https://github.com/cottand/ile/issues/3
 		// TODO allow dot aliases https://github.com/cottand/ile/issues/4
 		Alias:      ctx.GetAlias().GetText(),
 		ImportPath: ctx.IDENTIFIER().GetText(),
@@ -189,6 +193,10 @@ func (l *listener) ExitExpression(ctx *parser.ExpressionContext) {
 
 }
 func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
+	if ctx.BlockExpr() != nil {
+		// then the latest expression on the stack is this one, do nothing
+		return
+	}
 	if ctx.PrimaryExpr() != nil {
 		// we will deal with in ExitPrimaryExpr
 		return
@@ -231,18 +239,12 @@ func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 }
 
 func (l *listener) ExitOperand(ctx *parser.OperandContext) {
-	if ctx.BlockExpr() != nil {
-		// then the latest expression on the stack is this one, do nothing
-		return
-	}
 	if ctx.Literal() != nil {
 		// we will deal with in ExitLiteral
 		return
 	}
 
-	// TODO qualified operands!
 	if ctx.OperandName() != nil {
-
 		l.expressionStack.Push(&ast.Var{
 			Name:  ctx.GetText(),
 			Range: intervalTo2Pos(ctx.GetSourceInterval()),
@@ -251,40 +253,57 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 	}
 }
 
-func (l *listener) ExitFnCall(ctx *parser.FnCallContext) {
-	var identifier *ast.Var
-	// TODO qualified identifiers!
-	if ctx.OperandName() != nil {
-		identifier = &ast.Var{
-			Name:  ctx.OperandName().GetText(),
-			Range: intervalTo2Pos(ctx.OperandName().GetSourceInterval()),
+func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
+	// function call case (a() or a.b())
+	primaryExpr := ctx.PrimaryExpr()
+	callArgs := ctx.FnCallArgs()
+	if callArgs != nil {
+		parsedArgs := callArgs.AllExpression()
+		args := make([]ast.Expr, len(parsedArgs))
+		for i, _ := range parsedArgs {
+			var ok bool
+			args[i], ok = l.expressionStack.Pop()
+			if !ok {
+				l.visitErrors = append(l.visitErrors, fmt.Errorf("fn args: expression stack is empty"))
+				return
+			}
 		}
-	}
-	if ctx.QualifiedIdent() != nil {
-		identifier = &ast.Var{
-			Name:  ctx.QualifiedIdent().GetText(),
-			Range: intervalTo2Pos(ctx.QualifiedIdent().GetSourceInterval()),
+		// callee must be popped after the arguments as it was parsed first
+		var callee ast.Expr
+		if name := ctx.OperandName(); name != nil {
+			callee = &ast.Var{
+				Name:  name.GetText(),
+				Range: intervalTo2Pos(name.GetSourceInterval()),
+			}
+		} else if primaryExpr != nil {
+			var ok bool
+			callee, ok = l.expressionStack.Pop()
+			if !ok {
+				l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
+			}
 		}
-	}
-	if identifier == nil {
-		panic("expected only 2 types of fn call but got neither")
+		l.expressionStack.Push(&ast.Call{
+			Func:  callee,
+			Args:  args,
+			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		})
+		return
 	}
 
-	parsedArgs := ctx.AllExpression()
-	args := make([]ast.Expr, len(parsedArgs))
-	for i, _ := range parsedArgs {
-		var ok bool
-		args[i], ok = l.expressionStack.Pop()
+	// simple qualifier case (a.b)
+	if primaryExpr != nil {
+		qualifier, ok := l.expressionStack.Pop()
 		if !ok {
-			l.visitErrors = append(l.visitErrors, fmt.Errorf("fn args: expression stack is empty"))
-			return
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 		}
+		l.expressionStack.Push(&ast.RecordSelect{
+			Record: qualifier,
+			Label:  ctx.IDENTIFIER().GetText(),
+			Range:  intervalTo2Pos(ctx.GetSourceInterval()),
+		})
+		return
 	}
-	l.expressionStack.Push(&ast.Call{
-		Func:  identifier,
-		Args:  args,
-		Range: intervalTo2Pos(ctx.GetSourceInterval()),
-	})
+
 }
 
 func intervalTo2Pos(i antlr.Interval) ast.Range {
@@ -462,34 +481,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
 		return
 	}
-	lastCase := cases[len(cases)-1]
-	allLastCaseExprs := lastCase.AllArithmeticExpr()
-	if len(allLastCaseExprs) != 2 {
-		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected exactly two expressions  enforced by grammar but got %d", len(allLastCaseExprs)))
-	}
-	lastCasePred := allLastCaseExprs[0]
-	if lastCasePred.GetText() != "_" {
-		l.errors = append(l.errors, ilerr.NewMissingDiscardInWhen{
-			Positioner: getPos(ctx.WHEN()),
-		})
-	}
-	astCases := make([]ast.WhenCase, len(cases))
-	for i, c := range slices.Backward(cases) {
-		valueExpr, okVal := l.expressionStack.Pop()
-		predicateExpr, okPred := l.expressionStack.Pop()
-		if !okVal || !okPred {
-			l.visitErrors = append(l.visitErrors, errors.New("expected expressions in when case"))
-		}
-		astCases[i] = ast.WhenCase{
-			Predicate:  predicateExpr,
-			Value:      valueExpr,
-			Positioner: intervalTo2Pos(c.GetSourceInterval()),
-		}
-	}
-	l.expressionStack.Push(&ast.When{
-		Cases:      astCases,
-		Positioner: getPos(ctx.WHEN()),
-	})
+	panic("implement me")
 }
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {

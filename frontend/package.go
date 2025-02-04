@@ -182,10 +182,10 @@ func NewPackageFromBytes(data []byte) (*Package, *ilerr.Errors, error) {
 		},
 	}
 	pkg, err := LoadPackage(filesystem, PkgCompileSettings{})
-	pkg.name = "main"
 	if err != nil {
 		return nil, nil, err
 	}
+	pkg.name = "main"
 
 	return pkg, pkg.errors, nil
 }

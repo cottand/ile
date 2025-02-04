@@ -152,6 +152,8 @@ func (e *TypeEnv) Assign(name string, t types.Type) { e.Types[name] = t }
 func (e *TypeEnv) Remove(name string) { delete(e.Types, name) }
 
 // Lookup the type for an identifier in the environment or its parent environment(s).
+//
+// When looking for a QualifiedVar, name is <Identifier>.<Name>
 func (e *TypeEnv) Lookup(name string) types.Type {
 	if t, ok := e.Types[name]; ok {
 		return t

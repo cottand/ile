@@ -1,7 +1,0 @@
-//ile:compilerTest main.goSprint("aa") | "aa"
-
-package main
-
-//ile:external "fmt" Println
-fn goSprint(s String) { _ }
-

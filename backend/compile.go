@@ -191,7 +191,7 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 
 	case *ast.Var:
 		if goVar := ileToGoVars[e.Name]; goVar != "" {
-			return &goast.Ident{Name: goVar}, nil
+			return goast.NewIdent(goVar), nil
 		}
 		return goast.NewIdent(e.Name), nil
 
