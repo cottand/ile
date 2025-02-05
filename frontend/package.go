@@ -10,9 +10,19 @@ import (
 	"golang.org/x/tools/go/packages"
 	"io/fs"
 	"iter"
+	"os"
 	"path"
+	"strings"
 	"testing/fstest"
 )
+
+const GoImportDirectivePrefix = "go:"
+
+func goLoadPkgsConfig() *packages.Config {
+	return &packages.Config{
+		Mode: packages.NeedName | packages.NeedImports | packages.NeedDeps | packages.NeedTypesInfo | packages.NeedTypes,
+	}
+}
 
 var packageLogger = log.DefaultLogger.With("section", "package")
 
@@ -37,6 +47,8 @@ type readFileDirFS interface {
 }
 
 // LoadPackage returns a Package, where dir is the root folder for that package
+//
+// Only single-file filesets are supported TODO https://github.com/cottand/ile/issues/10
 func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error) {
 	dirPath := config.Dir
 	if dirPath == "" {
@@ -48,7 +60,7 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 		return nil, err
 	}
 	if len(files) == 0 || files[0].IsDir() {
-		return nil, fmt.Errorf("no files found")
+		return nil, err
 	}
 	if len(files) > 1 {
 		packageLogger.Warn("multiple files found, but we do not support multi-astFile projects - using the first one")
@@ -59,19 +71,6 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 		return nil, err
 	}
 
-	fSet := token.NewFileSet()
-	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
-
-	// parse phase
-	astFile, compileErrors, err := ParseToAST(string(fileOpen))
-	if err != nil {
-		return nil, err
-	}
-
-	// desugar phase
-	astFile, errorsDesugar := DesugarPhase(astFile)
-	compileErrors = compileErrors.Merge(errorsDesugar)
-
 	pkg := &Package{
 		// TODO set path and name when we have modules
 		//  https://github.com/cottand/ile/issues/8
@@ -79,11 +78,53 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 		name:    "ilePackageNameless",
 		imports: make(map[string]*Package),
 	}
+	fSet := token.NewFileSet()
+	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
+
+	// parse phase
+	astFile, compileErrors, err := ParseToAST(string(fileOpen))
+	pkg.errors = pkg.errors.Merge(compileErrors)
+	if err != nil {
+		return nil, fmt.Errorf("parse to AST: %w", err)
+	}
+
+	// desugar phase
+	astFile, errorsDesugar := DesugarPhase(astFile)
+	pkg.errors = pkg.errors.Merge(errorsDesugar)
+
 	for _, decl := range astFile.Declarations {
 		pkg.declarations = append(pkg.declarations, decl)
 	}
-	pkg.errors = pkg.errors.Merge(compileErrors)
 
+	// packages resolution phase
+	goPkgsPendingImport := []string{}
+	for _, import_ := range astFile.Imports {
+		if strings.HasPrefix(import_.ImportPath, GoImportDirectivePrefix) {
+			actualPackage := strings.TrimPrefix(import_.ImportPath, GoImportDirectivePrefix)
+			goPkgsPendingImport = append(goPkgsPendingImport, actualPackage)
+		}
+	}
+	if len(goPkgsPendingImport) > 0 {
+		tmpGoDir, err := tmpGoCompileDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temporary go directory: %w", err)
+		}
+		if tmpGoDir != "" {
+			defer os.RemoveAll(tmpGoDir)
+		}
+		cfg := goLoadPkgsConfig()
+		//cfg.Dir = tmpGoDir
+		goPkgs, err := packages.Load(cfg, goPkgsPendingImport...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load Go packages: %w", err)
+		}
+		for _, goPkg := range goPkgs {
+			if goPkg.Errors != nil {
+				return nil, fmt.Errorf("errors when loading Go packages: %v", goPkg.Errors)
+			}
+			pkg.imports[goPkg.PkgPath] = pkg
+		}
+	}
 	if !config.disableBuiltins {
 		pkg.imports["builtins"] = BuiltinsPackage()
 	}
@@ -96,6 +137,29 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 	}
 
 	return pkg, nil
+}
+
+func tmpGoModTemplate() string {
+	return `
+module ileProject
+
+go 1.23.3
+`
+}
+
+func tmpGoCompileDir() (at string, err error) {
+	dir, err := os.MkdirTemp("", "ile-project-*")
+	if err != nil {
+		return "", err
+	}
+	packageLogger.Debug("created tmp dir", "path", dir)
+
+	f, err := os.Create(path.Join(dir, "go.mod"))
+	if err != nil {
+		return "", err
+	}
+	_, err = f.WriteString(tmpGoModTemplate())
+	return dir, err
 }
 
 func (p *Package) addImport(other *Package) *Package {

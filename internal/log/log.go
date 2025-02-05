@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"slices"
-	"strings"
 )
 
 var enabledSections = []string{
-	"frontend",
-	"desugar",
+	//"frontend",
+	//"desugar",
+	"package",
 }
 
 var LoggerOpts = &slog.HandlerOptions{
@@ -42,15 +42,9 @@ func (f filteringHandler) Handle(ctx context.Context, record slog.Record) error 
 		return f.underlying.Handle(ctx, record)
 	}
 	// first filter out records which do not match enabledSections
-	wantSection := false
-	record.Attrs(func(attr slog.Attr) bool {
-		wantSection = wantSection || attr.Key == "section" && slices.ContainsFunc(enabledSections, func(section string) bool {
-			return strings.HasPrefix(attr.Value.String(), section)
-		})
-		// iterate as long as we have not found our section
-		return !wantSection
-	})
-	if !wantSection {
+	if !slices.ContainsFunc(f.sections, func(s string) bool {
+		return slices.Contains(f.sections, s)
+	}) {
 		return nil
 	}
 	return f.underlying.Handle(ctx, record)

@@ -96,7 +96,7 @@ func (l *listener) ExitImportSpec(ctx *parser.ImportSpecContext) {
 		Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
 		// TODO allow dot aliases https://github.com/cottand/ile/issues/4
 		Alias:      ctx.GetAlias().GetText(),
-		ImportPath: ctx.IDENTIFIER().GetText(),
+		ImportPath: strings.Trim(ctx.ImportPath().GetText(), "\""),
 	}
 	l.file.Imports = append(l.file.Imports, imp)
 }

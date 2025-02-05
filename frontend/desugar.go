@@ -14,13 +14,8 @@ func DesugarPhase(file ast.File) (ast.File, *ilerr.Errors) {
 	var res *ilerr.Errors
 	newDecls := make([]ast.Declaration, len(file.Declarations))
 	for i, decl := range file.Declarations {
-		newDecl, newImport, err := desugarDeclPragmas(decl)
-		res = res.Merge(err)
-		if newImport != nil {
-			file.Imports = append(file.Imports, *newImport)
-		}
-		newDecls[i] = newDecl
-		newDecls[i].E = newDecl.E.Transform(func(expr ast.Expr) ast.Expr {
+		newDecls[i] = decl
+		newDecls[i].E = decl.E.Transform(func(expr ast.Expr) ast.Expr {
 			desugared, err := desugarExpr(expr)
 			res = res.Merge(err)
 			return desugared
