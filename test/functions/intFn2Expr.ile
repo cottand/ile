@@ -1,5 +1,5 @@
-//ile:compilerTest main.MakeInt(2) | int64(2)
-package main
+//ile:compilerTest test.MakeInt(2) | int64(2)
+package test
 
 fn MakeInt(a Int) Int {
   1

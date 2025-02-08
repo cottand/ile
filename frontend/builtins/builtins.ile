@@ -1,9 +1,5 @@
 package builtins
 
-fn One() Int {
-    1
-}
-
 True Bool = 0 == 0
 False Bool = 0 != 0
 

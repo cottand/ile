@@ -3,7 +3,6 @@ package backend
 import (
 	"errors"
 	"fmt"
-	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/infer"
 	"github.com/cottand/ile/frontend/types"
@@ -35,18 +34,18 @@ func NewTranspiler() *Transpiler {
 	return &Transpiler{}
 }
 
-func (tp *Transpiler) TranspilePackage(pkg *frontend.Package) (*goast.File, error) {
+func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.File, error) {
 	var decls []goast.Decl
 	var declarations *goast.GenDecl
 	var err error
 
 	//astDecls := pkg.Declarations()
 	// TODO multi-file https://github.com/cottand/ile/issues/10
-	if len(pkg.Syntax) < 1 {
+	if len(syntax) < 1 {
 		panic("empty package")
 		return nil, nil
 	}
-	currentFile := pkg.Syntax[0]
+	currentFile := syntax[0]
 	astDecls := currentFile.Declarations
 
 	goImports := goast.GenDecl{Tok: token.IMPORT}
@@ -71,11 +70,11 @@ func (tp *Transpiler) TranspilePackage(pkg *frontend.Package) (*goast.File, erro
 		return nil, err
 	}
 	decls = append(decls, functions...)
-	return &goast.File{
-		Name:      &goast.Ident{Name: pkg.Name()},
+	return []goast.File{{
+		Name:      &goast.Ident{Name: name},
 		GoVersion: goVersion,
 		Decls:     decls,
-	}, nil
+	}}, nil
 }
 
 func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {

@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"embed"
 	"github.com/cottand/ile/backend"
-	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
+	"github.com/traefik/yaegi/stdlib"
+
 	"github.com/traefik/yaegi/interp"
+	"go/build"
 	"go/format"
 	"go/token"
 	"io/fs"
-	"os"
 	"path"
 	"strings"
 	"testing"
@@ -74,10 +76,13 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		eval, expected := extractTestComment(t, string(content))
-		i := interp.New(interp.Options{})
+		i := interp.New(interp.Options{
+			GoPath: build.Default.GOPATH,
+		})
+		err = i.Use(stdlib.Symbols)
 		assert.NoError(t, err)
 
-		transpiled, cErrs, err := frontend.NewPackageFromBytes(content)
+		transpiled, cErrs, err := ile.NewPackageFromBytes(content)
 		assert.NoError(t, err)
 		if err != nil {
 			// don't try to keep going if the FE failed
@@ -92,30 +97,16 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		tp := backend.Transpiler{}
-		goAst, err := tp.TranspilePackage(transpiled)
+		goAst, err := tp.TranspilePackage(transpiled.Name(), transpiled.Syntax())
 		assert.NoError(t, err)
 
 		sourceBuf := bytes.NewBuffer(nil)
-		//defer func() {
-		//	err := recover()
-		//	if err != nil {
-		//		// Print the generated Go code
-		//		t.Errorf("could not compile AST: %v\n-----\n%v", err, goAst)
-		//		panic(err)
-		//	}
-		//}()
-
-		os.Setenv("GOPATH", ".")
-		prog, err := i.CompileAST(goAst)
-		fErr := format.Node(sourceBuf, token.NewFileSet(), goAst)
-		if err != nil {
-			t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
-		}
-		if fErr != nil {
-			t.Logf("go format error: %v", fErr)
-		}
-		_, err = i.Execute(prog)
+		firstGoFile := goAst[0]
+		err = format.Node(sourceBuf, &token.FileSet{}, &firstGoFile)
 		assert.NoError(t, err)
+
+		_, err = i.Eval(sourceBuf.String())
+		assert.NoError(t, err, "compilation errors: ----\n%s\n----", sourceBuf.String())
 
 		resActual, err := i.Eval(eval)
 		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())

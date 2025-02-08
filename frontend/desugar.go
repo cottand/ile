@@ -39,10 +39,11 @@ func DesugarPhase(file ast.File) (ast.File, *ilerr.Errors) {
 	file.Imports = newImports
 	file.GoImports = goImports
 
-
 	return file, res
 }
 
 func desguarImports() {
 
 }
+
+const GoImportDirectivePrefix = "go:"

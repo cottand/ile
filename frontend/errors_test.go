@@ -2,7 +2,7 @@ package frontend_test
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend"
+	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
 	"slices"
 	"strings"
@@ -25,7 +25,7 @@ package main
 
 exprTest = (%v)
 		`, expr)
-			_, errs, err := frontend.NewPackageFromBytes([]byte(progTemplate))
+			_, errs, err := ile.NewPackageFromBytes([]byte(progTemplate))
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)

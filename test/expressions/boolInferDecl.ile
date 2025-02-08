@@ -1,4 +1,4 @@
-//ile:compilerTest main.someVal | true
-package main
+//ile:compilerTest test.someVal | true
+package test
 
 someVal = 32 > (1 + 2)

@@ -29,6 +29,7 @@
         buildInputs = [
           pkgs.antlr
           pkgs.installShellFiles
+          pkgs.clang # required for testing via Go plugins, which requires CGO
         ];
 
         postInstall = ''

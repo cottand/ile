@@ -1,4 +1,4 @@
-//ile:compilerTest main.SomeVal | int64(42)
-package main
+//ile:compilerTest test.SomeVal | int64(42)
+package test
 
 SomeVal Int = 32 + 10

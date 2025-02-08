@@ -1,4 +1,4 @@
-//ile:compilerTest main.someVal | int64(32)
-package main
+//ile:compilerTest test.someVal | int64(32)
+package test
 
 someVal = 32

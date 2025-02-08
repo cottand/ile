@@ -1,0 +1,10 @@
+//ile:compilerTest test.External() |  int64(1<<63 - 1)
+
+package test
+
+import math "go:math"
+
+fn External() {
+	math.MaxInt64
+}
+

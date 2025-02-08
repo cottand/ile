@@ -1,6 +1,8 @@
 module github.com/cottand/ile
 
-go 1.23.3
+go 1.22
+
+toolchain go1.23.3
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1

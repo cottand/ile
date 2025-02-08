@@ -1,5 +1,5 @@
-//ile:compilerTest main.AnotherInt() | int64(42)
-package main
+//ile:compilerTest test.AnotherInt() | int64(42)
+package test
 
 fn OneInt() Int {
   42

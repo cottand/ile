@@ -1,5 +1,5 @@
-//ile:compilerTest main.Fib(10) | int64(55)
-package main
+//ile:compilerTest test.Fib(10) | int64(55)
+package test
 
 fn Fib(n Int) Int {
   when {

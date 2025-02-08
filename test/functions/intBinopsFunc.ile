@@ -1,5 +1,5 @@
-//ile:compilerTest main.SomeF() | int64(42)
-package main
+//ile:compilerTest test.SomeF() | int64(42)
+package test
 
 fn SomeF() Int {
     10 * 4 + 2

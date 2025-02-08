@@ -1,4 +1,4 @@
-//ile:compilerTest main.MyBool | true
-package main
+//ile:compilerTest test.MyBool | true
+package test
 
 MyBool Bool = True
