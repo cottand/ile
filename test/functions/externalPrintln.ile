@@ -4,7 +4,7 @@ package main
 
 import math "go:math"
 
-fn External() {
+fn External() Int {
 	math.MaxInt64
 }
 

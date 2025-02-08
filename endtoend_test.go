@@ -11,6 +11,7 @@ import (
 	"go/format"
 	"go/token"
 	"io/fs"
+	"os"
 	"path"
 	"strings"
 	"testing"
@@ -104,10 +105,14 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		//	}
 		//}()
 
+		os.Setenv("GOPATH", ".")
 		prog, err := i.CompileAST(goAst)
-		_ = format.Node(sourceBuf, token.NewFileSet(), goAst)
+		fErr := format.Node(sourceBuf, token.NewFileSet(), goAst)
 		if err != nil {
 			t.Fatalf("could not compile AST: %v\n%v\nfrom original IR:\n%v", err, sourceBuf.String(), transpiled)
+		}
+		if fErr != nil {
+			t.Logf("go format error: %v", fErr)
 		}
 		_, err = i.Execute(prog)
 		assert.NoError(t, err)

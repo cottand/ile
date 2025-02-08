@@ -43,9 +43,9 @@ func (r *Errors) HasError() bool {
 	return len(r.errs) > 0
 }
 
-func (e *Errors) LogValue() slog.Value {
+func (r *Errors) LogValue() slog.Value {
 	var vals []slog.Attr
-	for i, v := range e.errs {
+	for i, v := range r.errs {
 		vals = append(vals, slog.Attr{
 			Key: fmt.Sprint("e", i),
 			Value: slog.GroupValue(

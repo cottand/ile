@@ -23,6 +23,7 @@ const (
 	ManyPackageNamesInPackage
 	MissingTypeAnnotationInPublicDeclaration
 	RestrictedIdentName
+	UnsupportedGoType
 )
 
 type IleError interface {
@@ -179,6 +180,22 @@ func (e NewRestrictedIdentName) Error() string {
 func (e NewRestrictedIdentName) Code() ErrCode    { return RestrictedIdentName }
 func (e NewRestrictedIdentName) getStack() []byte { return e.stack }
 func (e NewRestrictedIdentName) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewUnsupportedGoType struct {
+	ast.Positioner
+	Name  string
+	stack []byte
+}
+
+func (e NewUnsupportedGoType) Code() ErrCode { return UnsupportedGoType }
+func (e NewUnsupportedGoType) Error() string {
+	return fmt.Sprintf("go type '%s' is not supported", e.Name)
+}
+func (e NewUnsupportedGoType) getStack() []byte { return e.stack }
+func (e NewUnsupportedGoType) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

@@ -40,7 +40,24 @@ func (tp *Transpiler) TranspilePackage(pkg *frontend.Package) (*goast.File, erro
 	var declarations *goast.GenDecl
 	var err error
 
-	astDecls := pkg.Declarations()
+	//astDecls := pkg.Declarations()
+	// TODO multi-file https://github.com/cottand/ile/issues/10
+	if len(pkg.Syntax) < 1 {
+		panic("empty package")
+		return nil, nil
+	}
+	currentFile := pkg.Syntax[0]
+	astDecls := currentFile.Declarations
+
+	goImports := goast.GenDecl{Tok: token.IMPORT}
+
+	for _, import_ := range currentFile.GoImports {
+		goImports.Specs = append(goImports.Specs, &goast.ImportSpec{
+			Name: goast.NewIdent(import_.Alias),
+			Path: &goast.BasicLit{Value: "\"" + import_.ImportPath + "\"", Kind: token.STRING},
+		})
+	}
+	decls = append(decls, &goImports)
 
 	if len(astDecls) > 0 {
 		declarations, err = tp.transpileDeclarations(astDecls)
@@ -219,7 +236,16 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 			Fun:  fLiteral,
 			Args: []goast.Expr{},
 		}, nil
+	case *ast.RecordSelect:
+		selected, err := tp.transpileExpr(e.Record)
+		if err != nil {
+			return nil, fmt.Errorf("for record, failed to transpile record: %v", err)
+		}
 
+		return &goast.SelectorExpr{
+			X:   selected,
+			Sel: goast.NewIdent(e.Label),
+		}, nil
 	case *ast.Call:
 
 		switch fn := e.Func.(type) {
@@ -345,7 +371,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 	// add non inlineable Exprs here!
 
 	// some ast.Expr we can inline directly to a Go expression and return that
-	case *ast.Literal, *ast.Call, *ast.Var:
+	case *ast.RecordSelect, *ast.Literal, *ast.Call, *ast.Var:
 		goExpr, err := tp.transpileExpr(e)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)

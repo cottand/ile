@@ -14,7 +14,7 @@ import (
 type TypeAnnotation interface {
 	Positioner
 
-	// TypeString as printed in the source
+	// TypeString as would appear in the source
 	TypeString() string
 
 	// ConstructType produces a types.Type for use in inference

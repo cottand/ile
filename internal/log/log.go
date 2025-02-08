@@ -15,7 +15,7 @@ var enabledSections = []string{
 
 var LoggerOpts = &slog.HandlerOptions{
 	AddSource: true,
-	Level:     slog.LevelDebug,
+	Level:     slog.LevelInfo,
 	ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == "time" {
 			return slog.Attr{}

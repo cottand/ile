@@ -22,18 +22,18 @@
 
 // The following types are supported:
 //
-//   Unit:           unit/empty type
-//   Var:            type-variable
-//   Const:          type constant
-//   Size:           size constant
-//   App:            type application
-//   Arrow:          function type
-//   Method:         type-class method type
-//   Record:         record type
-//   Variant:        tagged (ad-hoc) variant-type
-//   RowExtend:      row extension
-//   RowEmpty:       empty row
-//   RecursiveLink:  recursive link to a type
+//	Unit:           unit/empty type
+//	Var:            type-variable
+//	Const:          type constant
+//	Size:           size constant
+//	App:            type application
+//	Arrow:          function type
+//	Method:         type-class method type
+//	Record:         record type
+//	Variant:        tagged (ad-hoc) variant-type
+//	RowExtend:      row extension
+//	RowEmpty:       empty row
+//	RecursiveLink:  recursive link to a type
 package types
 
 import (
@@ -59,18 +59,18 @@ var (
 //
 // The following types are supported:
 //
-//   Unit:           unit/empty type
-//   Var:            type-variable
-//   Const:          type constant
-//   Size:           size constant
-//   App:            type application
-//   Arrow:          function type
-//   Method:         type-class method type
-//   Record:         record type
-//   Variant:        tagged (ad-hoc) variant-type
-//   RowExtend:      row extension
-//   RowEmpty:       empty row
-//   RecursiveLink:  recursive link to a type
+//	Unit:           unit/empty type
+//	Var:            type-variable
+//	Const:          type constant
+//	Size:           size constant
+//	App:            type application
+//	Arrow:          function type
+//	Method:         type-class method type
+//	Record:         record type
+//	Variant:        tagged (ad-hoc) variant-type
+//	RowExtend:      row extension
+//	RowEmpty:       empty row
+//	RecursiveLink:  recursive link to a type
 type Type interface {
 	TypeName() string
 	// Check if a type is a generic type-variable or contains generic type-variables.
@@ -79,7 +79,7 @@ type Type interface {
 	HasRefs() bool
 }
 
-// TypeEnv is a type-enviroment containing mappings from identifiers to declared types.
+// TypeEnv is a type-environment containing mappings from identifiers to declared types.
 type TypeEnv interface {
 	// Lookup the type for an identifier in the environment or its parent environment(s).
 	Lookup(name string) Type

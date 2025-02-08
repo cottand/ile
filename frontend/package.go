@@ -7,20 +7,19 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/internal/log"
 	"go/token"
-	"golang.org/x/tools/go/packages"
+	gotypes "go/types"
+	gopackages "golang.org/x/tools/go/packages"
 	"io/fs"
-	"iter"
 	"os"
 	"path"
-	"strings"
 	"testing/fstest"
 )
 
 const GoImportDirectivePrefix = "go:"
 
-func goLoadPkgsConfig() *packages.Config {
-	return &packages.Config{
-		Mode: packages.NeedName | packages.NeedImports | packages.NeedDeps | packages.NeedTypesInfo | packages.NeedTypes,
+func goLoadPkgsConfig() *gopackages.Config {
+	return &gopackages.Config{
+		Mode: gopackages.NeedName | gopackages.NeedImports | gopackages.NeedDeps | gopackages.NeedTypesInfo | gopackages.NeedTypes,
 	}
 }
 
@@ -32,10 +31,15 @@ var packageLogger = log.DefaultLogger.With("section", "package")
 type Package struct {
 	// TODO set path and name when we have modules
 	//  https://github.com/cottand/ile/issues/8
-	name, path   string
-	imports      map[string]*Package
-	goImports    map[string]*packages.Package
-	declarations []ast.Declaration
+	name, path string
+	imports    map[string]*Package
+	goImports  map[string]*gopackages.Package
+
+	// declarations contains the public top-level declarations of this Package.
+	// For a well-formed Package, you can expect them all to have a ast.TypeAnnotation,
+	// but incomplete packages may have type-less identifiers
+	declarations map[string]ast.TypeAnnotation
+	Syntax       []ast.File
 	fSet         *token.FileSet
 	errors       *ilerr.Errors
 	//typeInfo     *infer.TypeEnv
@@ -74,9 +78,11 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 	pkg := &Package{
 		// TODO set path and name when we have modules
 		//  https://github.com/cottand/ile/issues/8
-		path:    "ilePackageNameless",
-		name:    "ilePackageNameless",
-		imports: make(map[string]*Package),
+		path:         "ilePackageNameless",
+		name:         "ilePackageNameless",
+		imports:      make(map[string]*Package),
+		goImports:    make(map[string]*gopackages.Package),
+		declarations: make(map[string]ast.TypeAnnotation),
 	}
 	fSet := token.NewFileSet()
 	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
@@ -92,19 +98,16 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 	astFile, errorsDesugar := DesugarPhase(astFile)
 	pkg.errors = pkg.errors.Merge(errorsDesugar)
 
+	// add file to package
+	pkg.Syntax = append(pkg.Syntax, astFile)
 	for _, decl := range astFile.Declarations {
-		pkg.declarations = append(pkg.declarations, decl)
-	}
-
-	// packages resolution phase
-	goPkgsPendingImport := []string{}
-	for _, import_ := range astFile.Imports {
-		if strings.HasPrefix(import_.ImportPath, GoImportDirectivePrefix) {
-			actualPackage := strings.TrimPrefix(import_.ImportPath, GoImportDirectivePrefix)
-			goPkgsPendingImport = append(goPkgsPendingImport, actualPackage)
+		if decl.IsPublic() {
+			pkg.declarations[decl.Name] = decl.E.GetTAnnotation()
 		}
 	}
-	if len(goPkgsPendingImport) > 0 {
+
+	// gopackages resolution phase
+	if len(astFile.GoImports) > 0 {
 		tmpGoDir, err := tmpGoCompileDir()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temporary go directory: %w", err)
@@ -113,20 +116,21 @@ func LoadPackage(dir readFileDirFS, config PkgCompileSettings) (*Package, error)
 			defer os.RemoveAll(tmpGoDir)
 		}
 		cfg := goLoadPkgsConfig()
+		var goImportPaths []string
+		for _, goImport := range astFile.GoImports {
+			goImportPaths = append(goImportPaths, goImport.ImportPath)
+		}
 		//cfg.Dir = tmpGoDir
-		goPkgs, err := packages.Load(cfg, goPkgsPendingImport...)
+		goPkgs, err := gopackages.Load(cfg, goImportPaths...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load Go packages: %w", err)
+			return nil, fmt.Errorf("failed to load Go gopackages: %w", err)
 		}
 		for _, goPkg := range goPkgs {
 			if goPkg.Errors != nil {
-				return nil, fmt.Errorf("errors when loading Go packages: %v", goPkg.Errors)
+				return nil, fmt.Errorf("errors when loading Go gopackages: %v", goPkg.Errors)
 			}
-			pkg.imports[goPkg.PkgPath] = pkg
+			pkg.goImports[goPkg.PkgPath] = goPkg
 		}
-	}
-	if !config.disableBuiltins {
-		pkg.imports["builtins"] = BuiltinsPackage()
 	}
 
 	// inference phase
@@ -180,41 +184,96 @@ func (p *Package) Path() string {
 	return p.path
 }
 
-func (p *Package) AsGroupedLet(in ast.Expr) *ast.LetGroup {
-	bindings := make([]ast.LetBinding, len(p.declarations))
-	for i, decl := range p.declarations {
-		bindings[i] = ast.LetBinding{
-			Var:   decl.Name,
-			Value: decl.E,
+func (p *Package) AsRecord() *ast.RecordExtend {
+	var recordEntries []ast.LabelValue
+	for declName, type_ := range p.declarations {
+		// we could swap out the literal with the actual expression and that should work, but we only
+		// care about its type (and it is known, we do not need to infer it) so we just use an artificially
+		// annotated literal
+		exprValue := &ast.Literal{
+			// the string below can be changed safely as it has no meaning, it's for debugging
+			Syntax:    fmt.Sprint("< ", declName, "@", p.path, " >"),
+			Construct: type_.ConstructType,
+		}
+		recordEntries = append(recordEntries, ast.LabelValue{
+			Label: declName,
+			Value: exprValue,
+		})
+	}
+	return &ast.RecordExtend{
+		Record: &ast.RecordEmpty{},
+		Labels: recordEntries,
+	}
+}
+
+// AsGroupedLet allows defining an ad-hoc AST where expr can be evaluated or analysed
+// in the context of this Package, by putting the ast.Declaration it contains in scope
+func (p *Package) AsGroupedLet() (*ast.LetGroup, *ilerr.Errors) {
+	var declBindings []ast.LetBinding
+	errs := &ilerr.Errors{}
+	if len(p.Syntax) == 0 {
+		return nil, errs
+	}
+	for _, file := range p.Syntax {
+		var importBindings []ast.LetBinding
+		// accumulate imports for this file
+		for _, goImport := range file.GoImports {
+			goPkgImport, ok := p.goImports[goImport.ImportPath]
+			if !ok {
+				packageLogger.Warn("file import not found in package", "path", goImport.ImportPath)
+				continue
+			}
+			// TODO https://github.com/cottand/ile/issues/14
+			//   we ignore unsupported Go types until we plan to support them all
+			record, _ := goPkgAsRecord(goImport, goPkgImport)
+			if record == nil {
+				continue
+			}
+			importBindings = append(importBindings, ast.LetBinding{
+				Var: goImport.Alias,
+				// TODO this can be replaced with an ident that points to a single instance record
+				//   in the typeEnv, rather than calling this for every alias
+				Value: record,
+			})
+		}
+		for _, import_ := range file.Imports {
+			pkgImport, ok := p.imports[import_.ImportPath]
+			if !ok {
+				packageLogger.Warn("file import not found in package", "path", import_.ImportPath)
+				continue
+			}
+
+			importBindings = append(importBindings, ast.LetBinding{
+				Var: import_.Alias,
+				// TODO this can be replaced with an ident that points to a single instance record
+				//   in the typeEnv, rather than calling this for every alias
+				Value: pkgImport.AsRecord(),
+			})
+		}
+
+		// add this file's declarations to the letGroup
+		// for each declaration we add the imported packages with their aliases
+		// via a nested LetGroup
+		for _, decl := range file.Declarations {
+			declBindings = append(declBindings, ast.LetBinding{
+				Var: decl.Name,
+				Value: &ast.LetGroup{
+					Vars: importBindings,
+					Body: decl.E,
+				},
+			})
 		}
 	}
 	return &ast.LetGroup{
-		Vars: bindings,
-		Body: in,
-	}
-}
-
-func (p *Package) Declarations() []ast.Declaration {
-	return p.declarations
-}
-
-func (p *Package) PublicDeclarations() iter.Seq2[int, ast.Declaration] {
-	return func(yield func(int, ast.Declaration) bool) {
-		i := 0
-		for _, decl := range p.Declarations() {
-			if decl.IsPublic() {
-				if !yield(i, decl) {
-					return
-				}
-				i += 1
-			}
-		}
-	}
+		Vars: declBindings,
+		Body: nil,
+	}, errs
 }
 
 //go:embed builtins/builtins.ile
 var builtinsEmbed embed.FS
 
+// BuiltinsPackage is a meta Package that corresponds to things that will be included without imports
 func BuiltinsPackage() *Package {
 	pkg, err := LoadPackage(builtinsEmbed, PkgCompileSettings{
 		Dir:             "builtins",
@@ -252,4 +311,112 @@ func NewPackageFromBytes(data []byte) (*Package, *ilerr.Errors, error) {
 	pkg.name = "main"
 
 	return pkg, pkg.errors, nil
+}
+
+func goPkgAsRecord(at ast.Positioner, pkg *gopackages.Package) (_ *ast.RecordExtend, errs *ilerr.Errors) {
+	var labels []ast.LabelValue
+	for _, decl := range pkg.Types.Scope().Names() {
+		obj := pkg.Types.Scope().Lookup(decl)
+		if obj == nil {
+			packageLogger.Warn("could not find object", "name", decl, "goPkgPath", pkg.PkgPath)
+			continue
+		}
+		if !obj.Exported() {
+			continue
+		}
+
+		t := convertGoType(obj.Type())
+		if t == nil {
+			errs = errs.With(ilerr.New(ilerr.NewUnsupportedGoType{
+				Positioner: at,
+				Name:       obj.Type().String(),
+			}))
+			continue
+		}
+		labels = append(labels, ast.LabelValue{
+			Label: decl,
+			Value: &ast.Literal{
+				Syntax:    fmt.Sprint("< ", decl, "@", pkg.PkgPath, " >"),
+				Construct: t.ConstructType,
+			},
+		})
+
+	}
+	return &ast.RecordExtend{
+		Record: &ast.RecordEmpty{},
+		Labels: labels,
+	}, errs
+}
+
+func convertGoType(p gotypes.Type) ast.TypeAnnotation {
+	var ileType ast.TypeAnnotation
+	switch t := p.(type) {
+	case *gotypes.Basic:
+		switch t.Kind() {
+		case gotypes.Bool:
+			return ast.TConst{Name: "Bool"}
+		case gotypes.Invalid:
+		case gotypes.Int:
+		case gotypes.Int8:
+		case gotypes.Int16:
+		case gotypes.Int64:
+			return ast.TConst{Name: "Int"}
+		case gotypes.Uint:
+		case gotypes.Uint16:
+		case gotypes.Uint32:
+		case gotypes.Uint64:
+		case gotypes.Uintptr:
+		case gotypes.Float32:
+		case gotypes.Float64:
+			return ast.TConst{Name: "Float"}
+		case gotypes.Complex64:
+		case gotypes.Complex128:
+		case gotypes.String:
+			return ast.TConst{Name: "String"}
+			// TODO we do not have good support for untyped
+		case gotypes.UnsafePointer:
+		case gotypes.UntypedBool:
+		case gotypes.UntypedInt:
+		case gotypes.UntypedRune:
+		case gotypes.UntypedFloat:
+			packageLogger.Debug("converted untyped float", "type", t)
+			return ast.TConst{Name: "Float"}
+		case gotypes.UntypedComplex:
+		case gotypes.UntypedString:
+		case gotypes.UntypedNil:
+			return ast.TConst{Name: "Nil"}
+		//gotypes.Byte:
+		case gotypes.Uint8:
+		//gotypes.Rune
+		case gotypes.Int32:
+		}
+	case *gotypes.Signature:
+		var ret ast.TypeAnnotation
+		if t.Recv() == nil {
+			ret = ast.TArrow{
+				Return: ast.TConst{
+					Name: "Nil",
+				},
+			}
+		}
+		if t.Results().Len() > 1 {
+			return nil
+		}
+		if t.Results().Len() == 1 {
+			ret = convertGoType(t.Results().At(0).Type())
+		}
+		var params []ast.TypeAnnotation
+		if t.Params() == nil {
+			params = []ast.TypeAnnotation{}
+		}
+		for i := 0; i < t.Params().Len(); i++ {
+			param := t.Params().At(i)
+			params = append(params, convertGoType(param.Type()))
+		}
+		return ast.TArrow{
+			Args:   params,
+			Return: ret,
+		}
+	}
+	return ileType
 }

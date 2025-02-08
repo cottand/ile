@@ -39,6 +39,7 @@ type File struct {
 	PkgName      string
 	Declarations []Declaration
 	Imports      []Import
+	GoImports    []Import
 }
 
 func (f File) String() string {
