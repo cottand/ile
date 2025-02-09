@@ -19,6 +19,8 @@ import (
 	"testing"
 )
 
+const logGoAST = true
+
 // embeds the test folder
 //
 //go:embed test
@@ -40,7 +42,6 @@ func extractTestComment(t *testing.T, str string) (eval, expected string) {
 var ignoreEndToEndTests = map[string]bool{
 	// test uses when-without-subject which is not happening anymore,
 	// ignored until refactored
-	"expressions/whenBoolFib.ile":    true,
 	"expressions/whenSimpleBool.ile": true,
 }
 
@@ -66,19 +67,34 @@ func TestFunctionsEndToEnd(t *testing.T) {
 	}
 }
 
+func TestInteropEndToEnd(t *testing.T) {
+	files, err := testSet.ReadDir("test/interop")
+	assert.NoError(t, err)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
+			continue
+		}
+		testFile(t, "interop", f)
+	}
+}
+
 func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 	return t.Run(f.Name(), func(t *testing.T) {
 		name := path.Join(at, f.Name())
 		if ignoreEndToEndTests[name] {
-			t.Skip("marked as ignored")
+			t.Skip("marked as ignored: " + name)
 		}
+
+		defer func() {
+			//if recover() != nil {
+			//	t.Fatalf("test panicked: %v", recover())
+			//}
+		}()
 		content, err := testSet.ReadFile(path.Join("test", name))
 		assert.NoError(t, err)
 
 		eval, expected := extractTestComment(t, string(content))
-		i := interp.New(interp.Options{
-			GoPath: build.Default.GOPATH,
-		})
+		i := interp.New(interp.Options{GoPath: build.Default.GOPATH})
 		err = i.Use(stdlib.Symbols)
 		assert.NoError(t, err)
 
@@ -110,11 +126,14 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 
 		resActual, err := i.Eval(eval)
 		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
+		if logGoAST {
+			println("go AST:\n-------", sourceBuf.String(), "\n-------")
+		}
 
 		iClean := interp.New(interp.Options{})
 		resExpected, err := iClean.Eval(expected)
 		assert.NoError(t, err)
 
-		assert.True(t, resExpected.Equal(resActual), "not equal: expected=%v actual=%v ", resExpected, resActual)
+		assert.True(t, resExpected.Equal(resActual), "not equal: expected=(%v)%v actual=(%v)%v\nfor source:\n----\n%v\n----", resExpected.Type(), resExpected, resActual.Type(), resActual, sourceBuf.String())
 	})
 }

@@ -2,9 +2,9 @@
 package test
 
 fn Fib(n Int) Int {
-  when {
-    n == 0 -> 0
-    n == 1 -> 1
+  when n {
+    0 -> 0
+    1 -> 1
     _ -> Fib(n - 1) + Fib(n - 2)
   }
 }

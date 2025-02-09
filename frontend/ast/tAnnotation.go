@@ -32,11 +32,32 @@ type TConst struct {
 	Range
 }
 
-func (t TConst) ConstructType(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
+func (t TConst) ConstructType(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
 	return &types.Const{Name: t.Name}, nil
 }
 
 func (t TConst) TypeString() string { return t.Name }
+
+type TComptimeInt struct{
+	Range
+}
+
+func (t TComptimeInt) ConstructType(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
+	return &types.CompTimeConst{
+		Name: "<go untyped Int>",
+		MaybeUnify: func(other types.Const) error {
+			switch other.Name {
+			case "Int":
+				return nil
+			default:
+				return fmt.Errorf("a go untyped int cannot be used with type %s", other.Name)
+			}
+		},
+		DefaultType: &types.Const{Name: "Int"},
+	}, nil
+}
+
+func (t TComptimeInt) TypeString() string { return "<go untyped Int>" }
 
 type TArrow struct {
 	Args   []TypeAnnotation

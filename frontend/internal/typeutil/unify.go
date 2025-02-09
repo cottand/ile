@@ -24,11 +24,13 @@ package typeutil
 
 import (
 	"errors"
-	"github.com/cottand/ile/frontend/ilerr"
-
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/internal/log"
 )
+
+var logger = log.DefaultLogger.With("section", "unify")
 
 // See "Efficient Generalization with Levels" (Oleg Kiselyov)
 // http://okmij.org/ftp/ML/generalization.html#levels
@@ -308,6 +310,11 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			case bvar.IsRestrictedVar():
 				avar.Restrict(bvar.Level())
 			}
+		} else if bConst, isComptimeConst := b.(*types.CompTimeConst); isComptimeConst {
+			logger.Debug("trying to unify a comptime constant with a type var", "var", avar, "comptime", b)
+
+			avar.SetLink(bConst.DefaultType)
+			return nil
 		}
 		// prevent cyclical types:
 		if err := ctx.occursAdjustLevels(avar.Id(), avar.LevelNum(), b); err != nil {
@@ -371,7 +378,27 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			if a.Name == b.Name {
 				return nil
 			}
-			return ilerr.NewTypeUnificationConst{Positioner: ctx.CurrentExpr, First: a, Second: b}
+			return ilerr.New(ilerr.NewTypeUnificationConst{Positioner: ctx.CurrentExpr, First: a, Second: b})
+		}
+		if b, ok := b.(*types.CompTimeConst); ok {
+			err := b.MaybeUnify(*a)
+			if err == nil {
+				return nil
+			}
+			return ilerr.New(ilerr.NewTypeUnificationComptimeConst{Positioner: ctx.CurrentExpr, First: a, Second: b, Reason: err.Error()})
+		}
+	case *types.CompTimeConst:
+		if b, ok := b.(*types.CompTimeConst); ok {
+			if a.Name == b.Name {
+				return nil
+			}
+		}
+		if b, ok := b.(*types.Const); ok {
+			err := a.MaybeUnify(*b)
+			if err == nil {
+				return nil
+			}
+			return ilerr.New(ilerr.NewTypeUnificationComptimeConst{Positioner: ctx.CurrentExpr, First: b, Second: a, Reason: err.Error()})
 		}
 
 	case types.Size:

@@ -36,7 +36,6 @@ func NewTranspiler() *Transpiler {
 
 func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.File, error) {
 	var decls []goast.Decl
-	var declarations *goast.GenDecl
 	var err error
 
 	//astDecls := pkg.Declarations()
@@ -59,11 +58,13 @@ func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.
 	decls = append(decls, &goImports)
 
 	if len(astDecls) > 0 {
-		declarations, err = tp.transpileDeclarations(astDecls)
+		declarations, err := tp.transpileDeclarations(astDecls)
 		if err != nil {
 			return nil, err
 		}
-		decls = append(decls, declarations)
+		for _, decl := range declarations {
+			decls = append(decls, &decl)
+		}
 	}
 	functions, err := tp.transpileFunctionDecls(astDecls)
 	if err != nil {
@@ -79,16 +80,18 @@ func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.
 
 func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {
 	var decls []goast.Decl
-	var declarations *goast.GenDecl
 	var err error
 
 	if len(file.Declarations) > 0 {
-		declarations, err = tp.transpileDeclarations(file.Declarations)
+		declarations, err := tp.transpileDeclarations(file.Declarations)
 		if err != nil {
 			return nil, err
 		}
-		decls = append(decls, declarations)
+		for _, decl := range declarations {
+			decls = append(decls, &decl)
+		}
 	}
+
 	functions, err := tp.transpileFunctionDecls(file.Declarations)
 	if err != nil {
 		return nil, err
@@ -101,9 +104,10 @@ func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {
 	}, nil
 }
 
-// returns
-func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) (*goast.GenDecl, error) {
+// transpileDeclarations works at the top level of the file
+func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) ([]goast.GenDecl, error) {
 	goDecls := make([]goast.Spec, 0)
+	goConstDecls := make([]goast.Spec, 0)
 	errs := make([]error, 0)
 	for _, decl := range vars {
 		_, ok := decl.E.(*ast.Func)
@@ -111,6 +115,13 @@ func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) (*goast.GenD
 			value, err := tp.transpileExpr(decl.E)
 			if err != nil {
 				errs = append(errs, err)
+				continue
+			}
+			if _, isCompTime := decl.E.Type().(*types.CompTimeConst); isCompTime {
+				goConstDecls = append(goConstDecls, &goast.ValueSpec{
+					Names:  []*goast.Ident{goast.NewIdent(decl.Name)},
+					Values: []goast.Expr{value},
+				})
 				continue
 			}
 			var type_ goast.Expr
@@ -128,9 +139,15 @@ func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) (*goast.GenD
 		}
 	}
 	joined := errors.Join(errs...)
-	return &goast.GenDecl{
-		Specs: goDecls,
-		Tok:   token.VAR,
+	return []goast.GenDecl{
+		{
+			Specs: goDecls,
+			Tok:   token.VAR,
+		},
+		{
+			Specs: goConstDecls,
+			Tok:   token.CONST,
+		},
 	}, joined
 }
 
@@ -298,7 +315,7 @@ func (tp *Transpiler) transpileParameterDecls(decl ast.Declaration, fn *ast.Func
 	errs := make([]error, 0)
 	t, err := tp.transpileType(decl.E.Type())
 	if err != nil {
-		errs = append(errs, fmt.Errorf("for declaration %v, type: %v", decl.Name, err))
+		errs = append(errs, fmt.Errorf("for declaration %v, error when transpiling type: %v", decl.Name, err))
 	}
 	arrowT, ok := t.(*goast.FuncType)
 	if !ok {
@@ -350,7 +367,15 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 
 		// generic type!
 	case *types.Var:
-		panic(fmt.Errorf("generics are not implemented yet, but got %v", types.TypeString(t)))
+		return nil, fmt.Errorf("generics are not implemented yet, but got %v", types.TypeString(t))
+
+	case *types.CompTimeConst:
+		// FIXME https://github.com/cottand/ile/issues/14
+		//  it means we let a comptime type slip through
+		//  type inference
+		//  it can happen when functions return a literal directly for example
+		//
+		return tp.transpileType(e.DefaultType)
 
 	default:
 		return nil, fmt.Errorf("unexpected ast.Type type: %v", e)

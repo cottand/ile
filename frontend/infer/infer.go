@@ -25,11 +25,14 @@ package infer
 import (
 	"errors"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/internal/log"
 
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/internal/astutil"
 	"github.com/cottand/ile/frontend/types"
 )
+
+var logger = log.DefaultLogger.With("section", "inference-each")
 
 func (ti *InferenceContext) infer(env *TypeEnv, level uint, e ast.Expr) (ret types.Type, err error) {
 	current := env.common.CurrentExpr

@@ -24,6 +24,7 @@ const (
 	MissingTypeAnnotationInPublicDeclaration
 	RestrictedIdentName
 	UnsupportedGoType
+	TypeUnifyComptimeConst
 )
 
 type IleError interface {
@@ -196,6 +197,24 @@ func (e NewUnsupportedGoType) Error() string {
 }
 func (e NewUnsupportedGoType) getStack() []byte { return e.stack }
 func (e NewUnsupportedGoType) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewTypeUnificationComptimeConst struct {
+	ast.Positioner
+	First  types.Type
+	Second types.Type
+	Reason string
+	stack  []byte
+}
+
+func (e NewTypeUnificationComptimeConst) Error() string {
+	return fmt.Sprintf("type mismatch: type '%v', cannot accomodate '%v': %v", e.First.TypeName(), e.Second.TypeName(), e.Reason)
+}
+func (e NewTypeUnificationComptimeConst) Code() ErrCode    { return TypeUnifyComptimeConst }
+func (e NewTypeUnificationComptimeConst) getStack() []byte { return e.stack }
+func (e NewTypeUnificationComptimeConst) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"github.com/cottand/ile/frontend/types"
 	"go/ast"
 	"go/token"
@@ -92,11 +93,28 @@ func StringLiteral(value string, in ast.Node) *Literal {
 	}
 }
 
+// IntLiteral represents a compile time integer value
+//
+// # It is written as a literal so we do not know if it will be used as an Int, Int32, or IntPlat
+//
+// Semantics for later converting to the appropriate type must follow Go's (see https://go.dev/ref/spec#Constants)
 func IntLiteral(value string, in ast.Node) *Literal {
 	return &Literal{
 		Positioner: in,
 		Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
-			return &types.Const{Name: "Int"}, nil
+			return &types.CompTimeConst{
+				Name: "comptime Int",
+				MaybeUnify: func(other types.Const) error {
+					switch other.Name {
+					case "Int":
+						return nil
+
+					default:
+						return fmt.Errorf("an Int literal cannot be used with type %s", other.Name)
+					}
+				},
+				DefaultType: &types.Const{Name: "Int"},
+			}, nil
 		},
 		Syntax: value,
 		Kind:   token.INT,

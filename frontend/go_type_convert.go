@@ -18,6 +18,8 @@ func convertGoType(p gotypes.Type) ast.TypeAnnotation {
 		case gotypes.Int16:
 		case gotypes.Int64:
 			return ast.TConst{Name: "Int"}
+		case gotypes.UntypedInt:
+			return ast.TComptimeInt{}
 		case gotypes.Uint:
 		case gotypes.Uint16:
 		case gotypes.Uint32:
@@ -30,10 +32,8 @@ func convertGoType(p gotypes.Type) ast.TypeAnnotation {
 		case gotypes.Complex128:
 		case gotypes.String:
 			return ast.TConst{Name: "String"}
-			// TODO we do not have good support for untyped
 		case gotypes.UnsafePointer:
 		case gotypes.UntypedBool:
-		case gotypes.UntypedInt:
 		case gotypes.UntypedRune:
 		case gotypes.UntypedFloat:
 			return ast.TConst{Name: "Float"}
@@ -45,6 +45,8 @@ func convertGoType(p gotypes.Type) ast.TypeAnnotation {
 		case gotypes.Uint8:
 		//gotypes.Rune
 		case gotypes.Int32:
+		default:
+			panic("unreachable")
 		}
 	case *gotypes.Signature:
 		var ret ast.TypeAnnotation

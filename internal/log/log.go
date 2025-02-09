@@ -10,12 +10,15 @@ import (
 var enabledSections = []string{
 	//"frontend",
 	//"desugar",
-	"package",
+	//"package",
+	"inference",
+	//"inference-each",
+	"unify",
 }
 
 var LoggerOpts = &slog.HandlerOptions{
 	AddSource: true,
-	Level:     slog.LevelInfo,
+	Level:     slog.LevelDebug,
 	ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == "time" {
 			return slog.Attr{}

@@ -1,0 +1,7 @@
+//ile:compilerTest test.someInt |  int64(1<<63 - 1)
+
+package test
+
+import math "go:math"
+
+someInt Int = math.MaxInt64

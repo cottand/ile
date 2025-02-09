@@ -67,9 +67,11 @@ func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
 			asLetGroup := newExpr.(*ast.LetGroup)
 			for _, annotated := range asLetGroup.Vars {
 				if annotated.Var == decl.Name {
+					inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", types.TypeString(newExpr.Type()))
 					// skip over the Imports legGroup as Imports will be in scope in the compile phase
-					file.Declarations[j].E = annotated.Value.(*ast.LetGroup).Body
-					inferenceLogger.Debug("successfully annotated decl", "name", decl.Name)
+					body := annotated.Value.(*ast.LetGroup).Body
+					file.Declarations[j].E = body
+					inferenceLogger.Debug("successfully annotated decl", "name", decl.Name, "type", types.TypeString(body.Type()))
 				}
 			}
 		}
@@ -77,7 +79,6 @@ func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
 	}
 	return files, errs, nil
 }
-
 
 // asGroupedLet allows defining an ad-hoc AST where expr can be evaluated or analysed
 // in the context of this Package, by putting the ast.Declaration it contains in scope

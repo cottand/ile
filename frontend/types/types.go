@@ -38,6 +38,8 @@ package types
 
 import (
 	"errors"
+	"fmt"
+	"log/slog"
 )
 
 var (
@@ -97,11 +99,11 @@ type TypeFlags uint
 
 // Flags for composite types
 const (
-	// TypeFlags for a type which is a generic type-variable or contains generic type-variables
+	// ContainsGenericVars is the TypeFlags for a type which is a generic type-variable or contains generic type-variables
 	ContainsGenericVars TypeFlags = 1
-	// TypeFlags for a type which is a mutable reference-type or contains mutable reference-types
+	// ContainsRefs is the TypeFlags for a type which is a mutable reference-type or contains mutable reference-types
 	ContainsRefs TypeFlags = 2
-	// TypeFlags for a recursive type which is neither being generalized nor already generalized (to break cycles).
+	// NeedsGeneralization the TypeFlags for a recursive type which is neither being generalized nor already generalized (to break cycles).
 	NeedsGeneralization = 4
 )
 
@@ -267,6 +269,9 @@ func (t *Var) HasRefs() bool {
 	}
 	return r.HasRefs()
 }
+func (t *Var) LogValue() slog.Value {
+	return slog.StringValue(TypeString(t))
+}
 
 // Const is never generic.
 func (t *Const) IsGeneric() bool { return false }
@@ -374,4 +379,24 @@ func flattenRowType(labels TypeMapBuilder, t Type) (Type, error) {
 	default:
 		return t, errors.New("Not a row type")
 	}
+}
+
+// CompTimeConst represents a type like Const, but cannot be denominated
+// (ie, you cannot explicitly declare a CompTimeConst in a program)
+//
+// Unlike Const (which can only be unified with itself) CompTimeConst can unify with
+// some instances of Const (as well as itself)
+//
+// In practice, this means that a CompTimeConst can only appear as the Type of a ast.Literal.
+type CompTimeConst struct {
+	Name        string
+	MaybeUnify  func(other Const) error
+	DefaultType Type
+}
+
+func (c *CompTimeConst) TypeName() string { return "comptime:" + c.Name }
+func (c *CompTimeConst) IsGeneric() bool  { return false }
+func (c *CompTimeConst) HasRefs() bool    { return false }
+func (c *CompTimeConst) LogValue() slog.Value {
+	return slog.StringValue(fmt.Sprint("CompTimeConst(", c.Name, ")"))
 }

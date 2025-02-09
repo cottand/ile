@@ -159,7 +159,10 @@ type Literal struct {
 	inferred  types.Type
 
 	// Kind indicates what literal this is originally
-	// this is useful for the transpiling phase, and is not used during type inference
+	// this is useful for the transpiling phase, and is not used during type inference.
+	//
+	// Should be one of
+	// token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
 	Kind token.Token
 
 	Positioner

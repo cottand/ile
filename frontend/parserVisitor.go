@@ -103,6 +103,7 @@ func (l *listener) ExitImportSpec(ctx *parser.ImportSpecContext) {
 
 func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 	identNameText := ctx.IDENTIFIER().GetText()
+
 	declPos := getPosInclusiveBetween(ctx.IDENTIFIER(), ctx.ASSIGN())
 
 	if restrictedIdentNames[identNameText] {
@@ -481,7 +482,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
 		return
 	}
-	panic("implement me")
+	l.Logger.Error("not implemented ExitWhenBlock")
 }
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
