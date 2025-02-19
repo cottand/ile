@@ -93,7 +93,7 @@ type Expr interface {
 	// ExprName is the name of the syntax-type of the expression.
 	ExprName() string
 	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
-	Type() types.Type
+	Type() hmtypes.Type
 
 	// Transform should, in order:
 	//  - copy the expression
@@ -155,8 +155,8 @@ type Literal struct {
 	Using []string
 	// Construct should produce a type at the given binding-level. The constructed type may include
 	// types derived from variables which are already in scope (retrieved from the type-environment).
-	Construct func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
-	inferred  types.Type
+	Construct func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
+	inferred  hmtypes.Type
 
 	// Kind indicates what literal this is originally
 	// this is useful for the transpiling phase, and is not used during type inference.
@@ -173,10 +173,10 @@ type Literal struct {
 func (e *Literal) ExprName() string { return e.Syntax }
 
 // Get the inferred (or assigned) type of e.
-func (e *Literal) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Literal) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Literal) SetType(t types.Type) { e.inferred = t }
+func (e *Literal) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *Literal) Copy() Expr {
 	copied := *e
@@ -191,7 +191,7 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 // Variable (or identifier)
 type Var struct {
 	Name     string
-	inferred types.Type
+	inferred hmtypes.Type
 	scope    *Scope
 	Range
 	tAnnotationContainer
@@ -201,13 +201,13 @@ type Var struct {
 func (e *Var) ExprName() string { return "Var" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Var) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Var) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Get the inferred (or assigned) scope where e is defined.
 func (e *Var) Scope() *Scope { return e.scope }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Var) SetType(t types.Type) { e.inferred = t }
+func (e *Var) SetType(t hmtypes.Type) { e.inferred = t }
 
 // Assign a binding scope for e. Scope assignments should occur indirectly, during inference.
 func (e *Var) SetScope(scope *Scope) { e.scope = scope }
@@ -261,7 +261,7 @@ func (e *QualifiedIdent) FormattedName() string {
 // Dereference: `*x`
 type Deref struct {
 	Ref      Expr
-	inferred types.Type
+	inferred hmtypes.Type
 	Range
 	tAnnotationContainer
 }
@@ -270,10 +270,10 @@ type Deref struct {
 func (e *Deref) ExprName() string { return "Deref" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Deref) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Deref) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Deref) SetType(t types.Type) { e.inferred = t }
+func (e *Deref) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *Deref) Copy() Expr {
 	copied := *e
@@ -288,7 +288,7 @@ func (e *Deref) Transform(f func(expr Expr) Expr) Expr {
 type DerefAssign struct {
 	Ref      Expr
 	Value    Expr
-	inferred types.Type
+	inferred hmtypes.Type
 	Range
 	tAnnotationContainer
 }
@@ -297,10 +297,10 @@ type DerefAssign struct {
 func (e *DerefAssign) ExprName() string { return "DerefAssign" }
 
 // Get the inferred (or assigned) type of e.
-func (e *DerefAssign) Type() types.Type { return types.RealType(e.inferred) }
+func (e *DerefAssign) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *DerefAssign) SetType(t types.Type) { e.inferred = t }
+func (e *DerefAssign) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *DerefAssign) Copy() Expr {
 	copied := *e
@@ -315,8 +315,8 @@ func (e *DerefAssign) Transform(f func(expr Expr) Expr) Expr {
 type Call struct {
 	Func         Expr
 	Args         []Expr
-	inferred     types.Type
-	inferredFunc *types.Arrow
+	inferred     hmtypes.Type
+	inferredFunc *hmtypes.Arrow
 	Range        // of the entire expression
 	tAnnotationContainer
 }
@@ -325,16 +325,16 @@ type Call struct {
 func (e *Call) ExprName() string { return "Call" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Call) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Call) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetType(t types.Type) { e.inferred = t }
+func (e *Call) SetType(t hmtypes.Type) { e.inferred = t }
 
 // Get the inferred (or assigned) function/method called in e.
-func (e *Call) FuncType() *types.Arrow { return e.inferredFunc }
+func (e *Call) FuncType() *hmtypes.Arrow { return e.inferredFunc }
 
 // Assign the function/method called in e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetFuncType(t *types.Arrow) { e.inferredFunc = t }
+func (e *Call) SetFuncType(t *hmtypes.Arrow) { e.inferredFunc = t }
 
 func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -350,7 +350,7 @@ func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 type Func struct {
 	ArgNames []string
 	Body     Expr
-	inferred *types.Arrow
+	inferred *hmtypes.Arrow
 	Range    // of the declaration including parameters but not the body
 	tAnnotationContainer
 }
@@ -359,16 +359,16 @@ type Func struct {
 func (e *Func) ExprName() string { return "Func" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Func) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Func) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Func) SetType(ft *types.Arrow) { e.inferred = ft }
+func (e *Func) SetType(ft *hmtypes.Arrow) { e.inferred = ft }
 
 // Get the inferred (or assigned) type of an argument of e.
-func (e *Func) ArgType(index int) types.Type { return types.RealType(e.inferred.Args[index]) }
+func (e *Func) ArgType(index int) hmtypes.Type { return hmtypes.RealType(e.inferred.Args[index]) }
 
 // Get the inferred (or assigned) return type of e.
-func (e *Func) RetType() types.Type { return types.RealType(e.inferred.Return) }
+func (e *Func) RetType() hmtypes.Type { return hmtypes.RealType(e.inferred.Return) }
 
 func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -390,7 +390,7 @@ type Assign struct {
 func (e *Assign) ExprName() string { return "Assign" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Assign) Type() types.Type { return e.Body.Type() }
+func (e *Assign) Type() hmtypes.Type { return e.Body.Type() }
 
 func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -408,8 +408,8 @@ type Unused struct {
 	tAnnotationContainer
 }
 
-func (e *Unused) ExprName() string { return "Unused" }
-func (e *Unused) Type() types.Type { return e.Body.Type() }
+func (e *Unused) ExprName() string   { return "Unused" }
+func (e *Unused) Type() hmtypes.Type { return e.Body.Type() }
 
 func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -431,7 +431,7 @@ type LetGroup struct {
 func (e *LetGroup) ExprName() string { return "LetGroup" }
 
 // Get the inferred (or assigned) type of e.
-func (e *LetGroup) Type() types.Type { return e.Body.Type() }
+func (e *LetGroup) Type() hmtypes.Type { return e.Body.Type() }
 
 // Get the strongly connected components inferred for e, in dependency order.
 // The strongly connected components will be assigned if e is inferred with
@@ -467,13 +467,13 @@ type LetBinding struct {
 }
 
 // Get the inferred (or assigned) type of e.
-func (e *LetBinding) Type() types.Type { return e.Value.Type() }
+func (e *LetBinding) Type() hmtypes.Type { return e.Value.Type() }
 
 // Selecting (scoped) value of label: `r.a`
 type RecordSelect struct {
 	Record   Expr
 	Label    string
-	inferred types.Type
+	inferred hmtypes.Type
 	Range
 	tAnnotationContainer
 }
@@ -482,10 +482,10 @@ type RecordSelect struct {
 func (e *RecordSelect) ExprName() string { return "RecordSelect" }
 
 // Get the inferred (or assigned) type of e.
-func (e *RecordSelect) Type() types.Type { return types.RealType(e.inferred) }
+func (e *RecordSelect) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordSelect) SetType(t types.Type) { e.inferred = t }
+func (e *RecordSelect) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *RecordSelect) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -497,7 +497,7 @@ func (e *RecordSelect) Transform(f func(expr Expr) Expr) Expr {
 type RecordExtend struct {
 	Record   Expr
 	Labels   []LabelValue
-	inferred *types.Record
+	inferred *hmtypes.Record
 	Range
 	tAnnotationContainer
 }
@@ -506,10 +506,10 @@ type RecordExtend struct {
 func (e *RecordExtend) ExprName() string { return "RecordExtend" }
 
 // Get the inferred (or assigned) type of e.
-func (e *RecordExtend) Type() types.Type { return types.RealType(e.inferred) }
+func (e *RecordExtend) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordExtend) SetType(rt *types.Record) { e.inferred = rt }
+func (e *RecordExtend) SetType(rt *hmtypes.Record) { e.inferred = rt }
 
 func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied := *e
@@ -535,7 +535,7 @@ type LabelValue struct {
 }
 
 // Get the inferred (or assigned) type of e.
-func (e *LabelValue) Type() types.Type { return e.Value.Type() }
+func (e *LabelValue) Type() hmtypes.Type { return e.Value.Type() }
 func (e *LabelValue) Copy() *LabelValue {
 	copied := *e
 	return &copied
@@ -545,7 +545,7 @@ func (e *LabelValue) Copy() *LabelValue {
 type RecordRestrict struct {
 	Record   Expr
 	Label    string
-	inferred *types.Record
+	inferred *hmtypes.Record
 	Range
 	tAnnotationContainer
 }
@@ -554,10 +554,10 @@ type RecordRestrict struct {
 func (e *RecordRestrict) ExprName() string { return "RecordRestrict" }
 
 // Get the inferred (or assigned) type of e.
-func (e *RecordRestrict) Type() types.Type { return types.RealType(e.inferred) }
+func (e *RecordRestrict) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordRestrict) SetType(rt *types.Record) { e.inferred = rt }
+func (e *RecordRestrict) SetType(rt *hmtypes.Record) { e.inferred = rt }
 
 func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -567,7 +567,7 @@ func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 
 // Empty record: `{}`
 type RecordEmpty struct {
-	inferred *types.Record
+	inferred *hmtypes.Record
 	Range
 	tAnnotationContainer
 }
@@ -576,10 +576,10 @@ type RecordEmpty struct {
 func (e *RecordEmpty) ExprName() string { return "RecordEmpty" }
 
 // Get the inferred (or assigned) type of e.
-func (e *RecordEmpty) Type() types.Type { return types.RealType(e.inferred) }
+func (e *RecordEmpty) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordEmpty) SetType(rt *types.Record) { e.inferred = rt }
+func (e *RecordEmpty) SetType(rt *hmtypes.Record) { e.inferred = rt }
 
 func (e *RecordEmpty) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -598,7 +598,7 @@ type Variant struct {
 func (e *Variant) ExprName() string { return "Variant" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Variant) Type() types.Type { return e.Value.Type() }
+func (e *Variant) Type() hmtypes.Type { return e.Value.Type() }
 
 func (e *Variant) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -618,7 +618,7 @@ type WhenMatch struct {
 	Value      Expr
 	Cases      []WhenCase
 	Default    *LabelValue
-	inferred   types.Type
+	inferred   hmtypes.Type
 	Positioner // of the match operator and the matched first expression (not the clauses)
 	tAnnotationContainer
 }
@@ -627,18 +627,18 @@ type WhenMatch struct {
 func (e *WhenMatch) ExprName() string { return "WhenMatch" }
 
 // Get the inferred (or assigned) type of e.
-func (e *WhenMatch) Type() types.Type { return types.RealType(e.inferred) }
+func (e *WhenMatch) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *WhenMatch) SetType(t types.Type) { e.inferred = t }
+func (e *WhenMatch) SetType(t hmtypes.Type) { e.inferred = t }
 
 type WhenCase struct {
 	Pattern  MatchPattern
 	Value    Expr
-	inferred *types.Record
+	inferred *hmtypes.Record
 }
 
-func (e *WhenCase) Type() types.Type { return e.Value.Type() }
+func (e *WhenCase) Type() hmtypes.Type { return e.Value.Type() }
 
 func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
 	copied := *e
@@ -690,7 +690,7 @@ type VariantPattern struct {
 	Label string
 	Var   string
 	//Value   Expr deprecated in favour of
-	varType types.Type
+	varType hmtypes.Type
 	Positioner
 }
 
@@ -701,17 +701,17 @@ func (e *VariantPattern) TransformChildExprs(f func(expr Expr) Expr) MatchPatter
 }
 
 // Get the inferred (or assigned) variant-type of e.
-func (e *VariantPattern) VariantType() types.Type { return types.RealType(e.varType) }
+func (e *VariantPattern) VariantType() hmtypes.Type { return hmtypes.RealType(e.varType) }
 
 // Assign a variant-type to e. Type assignments should occur indirectly, during inference.
-func (e *VariantPattern) SetVariantType(t types.Type) { e.varType = t }
+func (e *VariantPattern) SetVariantType(t hmtypes.Type) { e.varType = t }
 
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 type Pipe struct {
 	Source   Expr
 	As       string
 	Sequence []Expr
-	inferred types.Type
+	inferred hmtypes.Type
 	Range    // of the first pipe operator?
 	tAnnotationContainer
 }
@@ -720,10 +720,10 @@ type Pipe struct {
 func (e *Pipe) ExprName() string { return "Pipe" }
 
 // Get the inferred (or assigned) type of e.
-func (e *Pipe) Type() types.Type { return types.RealType(e.inferred) }
+func (e *Pipe) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Pipe) SetType(t types.Type) { e.inferred = t }
+func (e *Pipe) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -742,8 +742,8 @@ type ErrorExpr struct {
 	tAnnotationContainer
 }
 
-func (e *ErrorExpr) Type() types.Type { return types.NewUnit() }
-func (e *ErrorExpr) ExprName() string { return "Error" }
+func (e *ErrorExpr) Type() hmtypes.Type { return hmtypes.NewUnit() }
+func (e *ErrorExpr) ExprName() string   { return "Error" }
 func (e *ErrorExpr) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)

@@ -35,7 +35,7 @@ import (
 
 var logger = log.DefaultLogger.With("section", "inference-each")
 
-func (ti *InferenceContext) infer(env *TypeEnv, level uint, e ast.Expr) (ret types.Type, err error) {
+func (ti *InferenceContext) infer(env *TypeEnv, level uint, e ast.Expr) (ret hmtypes.Type, err error) {
 	current := env.common.CurrentExpr
 	env.common.CurrentExpr = e
 	ret, err = ti.inferCurrentExpr(env, level)
@@ -56,13 +56,13 @@ func (ti *InferenceContext) infer(env *TypeEnv, level uint, e ast.Expr) (ret typ
 	return
 }
 
-func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret types.Type, err error) {
+func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret hmtypes.Type, err error) {
 	switch e := env.common.CurrentExpr.(type) {
 	case *ast.Literal:
-		var using []types.Type
+		var using []hmtypes.Type
 		// Lookup types for variables bound within the literal:
 		if len(e.Using) != 0 {
-			using = make([]types.Type, len(e.Using))
+			using = make([]hmtypes.Type, len(e.Using))
 			for i, name := range e.Using {
 				vt := env.Lookup(name)
 				if vt == nil {
@@ -87,7 +87,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		return t, nil
 
 	case *ast.Var:
-		var t types.Type
+		var t hmtypes.Type
 		var scope *ast.Scope
 		if ti.annotate {
 			t, scope = env.scopeLookup(e.Name)
@@ -115,11 +115,11 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		}
 		tv := env.common.VarTracker.New(level)
 		tv.SetWeak()
-		if err := env.common.Unify(types.NewRef(tv), t); err != nil {
+		if err := env.common.Unify(hmtypes.NewRef(tv), t); err != nil {
 			ti.invalid, ti.err = e, err
 			return t, err
 		}
-		t = types.RealType(tv)
+		t = hmtypes.RealType(tv)
 		if ti.annotate {
 			e.SetType(t)
 		}
@@ -132,7 +132,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		}
 		tv := env.common.VarTracker.New(level)
 		tv.SetWeak()
-		if err := env.common.Unify(types.NewRef(tv), ref); err != nil {
+		if err := env.common.Unify(hmtypes.NewRef(tv), ref); err != nil {
 			ti.invalid, ti.err = e, err
 			return ref, err
 		}
@@ -144,7 +144,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			ti.invalid, ti.err = e, err
 			return ref, err
 		}
-		ref = types.RealType(ref)
+		ref = hmtypes.RealType(ref)
 		if ti.annotate {
 			e.SetType(ref)
 		}
@@ -180,7 +180,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		return t, err
 
 	case *ast.Assign:
-		var t types.Type
+		var t hmtypes.Type
 		env.common.EnterScope(e)
 		env.common.PushVarScope(e.Var)
 		stashed := 0
@@ -223,7 +223,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 
 		// desugared to an Assign which does not use its value
 	case *ast.Unused:
-		var t types.Type
+		var t hmtypes.Type
 		// TODO this was level+1 but I IIUC this does not make a difference as long
 		//   as I do not add vars to the scope
 		_, err := ti.infer(env, level, e.Value)
@@ -243,7 +243,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		return t, err
 
 	case *ast.Func:
-		args := make([]types.Type, len(e.ArgNames))
+		args := make([]hmtypes.Type, len(e.ArgNames))
 		stashed := 0
 		vars := env.common.VarTracker.NewList(level, len(e.ArgNames))
 		tv, tail := vars.Head(), vars.Tail()
@@ -264,7 +264,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		// Restore the parent scope:
 		env.common.LeaveScope()
 		env.common.Unstash(env, stashed)
-		t := &types.Arrow{Args: args, Return: ret}
+		t := &hmtypes.Arrow{Args: args, Return: ret}
 		if ti.annotate {
 			e.SetType(t)
 		}
@@ -295,14 +295,14 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			}
 		}
 		if ti.annotate {
-			arrow, _ := ft.(*types.Arrow)
+			arrow, _ := ft.(*hmtypes.Arrow)
 			e.SetFuncType(arrow)
 			e.SetType(ret)
 		}
 		return ret, nil
 
 	case *ast.RecordEmpty:
-		rt := &types.Record{Row: types.RowEmptyPointer}
+		rt := &hmtypes.Record{Row: hmtypes.RowEmptyPointer}
 		if ti.annotate {
 			e.SetType(rt)
 		}
@@ -331,31 +331,31 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		return rest, nil
 
 	case *ast.RecordExtend:
-		mb := types.NewTypeMapBuilder()
+		mb := hmtypes.NewTypeMapBuilder()
 		for _, label := range e.Labels {
 			t, err := ti.infer(env, level, label.Value)
 			if err != nil {
 				return nil, err
 			}
-			mb.Set(label.Label, types.SingletonTypeList(t))
+			mb.Set(label.Label, hmtypes.SingletonTypeList(t))
 		}
 		rowType := env.common.VarTracker.New(level)
 		recordType, err := ti.infer(env, level, e.Record)
 		if err != nil {
 			return nil, err
 		}
-		if err := env.common.Unify(&types.Record{Row: rowType}, recordType); err != nil {
+		if err := env.common.Unify(&hmtypes.Record{Row: rowType}, recordType); err != nil {
 			ti.invalid, ti.err = e, err
 			return nil, err
 		}
-		ext := &types.RowExtend{Row: rowType, Labels: mb.Build()}
-		labels, rest, err := types.FlattenRowType(ext)
+		ext := &hmtypes.RowExtend{Row: rowType, Labels: mb.Build()}
+		labels, rest, err := hmtypes.FlattenRowType(ext)
 		if err != nil {
 			ti.invalid, ti.err = e, err
 			return nil, err
 		}
 		ext.Labels, ext.Row = labels, rest
-		rt := &types.Record{Row: ext}
+		rt := &hmtypes.Record{Row: ext}
 		if ti.annotate {
 			e.SetType(rt)
 		}
@@ -372,8 +372,8 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			ti.invalid, ti.err = e, err
 			return nil, err
 		}
-		labels := types.SingletonTypeMap(e.Label, variantType)
-		vt := &types.Variant{Row: &types.RowExtend{Row: rowType, Labels: labels}}
+		labels := hmtypes.SingletonTypeMap(e.Label, variantType)
+		vt := &hmtypes.Variant{Row: &hmtypes.RowExtend{Row: rowType, Labels: labels}}
 		return vt, nil
 
 	case *ast.WhenMatch:
@@ -385,17 +385,17 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		// handler := ({a : 'a -> 'result, b : 'b -> 'result})[variant.label]
 		// result := handler(variant.value)
 		var (
-			retType, rowType types.Type
+			retType, rowType hmtypes.Type
 			err              error
 		)
 		if e.Default == nil {
-			retType, rowType = env.common.VarTracker.New(level), types.RowEmptyPointer
+			retType, rowType = env.common.VarTracker.New(level), hmtypes.RowEmptyPointer
 		} else {
 			rowType = env.common.VarTracker.New(level)
 			// Begin a new scope:
 			stashed := env.common.Stash(env, e.Default.Label)
 			env.common.EnterScope(e)
-			env.Assign(e.Default.Label, &types.Variant{Row: rowType})
+			env.Assign(e.Default.Label, &hmtypes.Variant{Row: rowType})
 			env.common.PushVarScope(e.Default.Label)
 			retType, err = ti.infer(env, level, e.Default.Value)
 			// Restore the parent scope:
@@ -441,12 +441,12 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 // label, rest := fresh(), fresh()
 // unify({ <label>: label | rest }, record)
 // -> (label, rest)
-func (ti *InferenceContext) splitRecord(env *TypeEnv, level uint, recordExpr ast.Expr, label string) (labelType types.Type, restType types.Type, err error) {
+func (ti *InferenceContext) splitRecord(env *TypeEnv, level uint, recordExpr ast.Expr, label string) (labelType hmtypes.Type, restType hmtypes.Type, err error) {
 	rowType := env.common.VarTracker.New(level)
 	labelType = env.common.VarTracker.New(level)
-	labels := types.SingletonTypeMap(label, labelType)
-	paramType := &types.Record{Row: &types.RowExtend{Row: rowType, Labels: labels}}
-	var recordType types.Type
+	labels := hmtypes.SingletonTypeMap(label, labelType)
+	paramType := &hmtypes.Record{Row: &hmtypes.RowExtend{Row: rowType, Labels: labels}}
+	var recordType hmtypes.Type
 	recordType, err = ti.infer(env, level, recordExpr)
 	if err != nil {
 		return nil, nil, err
@@ -454,33 +454,33 @@ func (ti *InferenceContext) splitRecord(env *TypeEnv, level uint, recordExpr ast
 	if err = env.common.Unify(paramType, recordType); err != nil {
 		return nil, nil, err
 	}
-	restType = &types.Record{Row: rowType}
+	restType = &hmtypes.Record{Row: rowType}
 	return
 }
 
 // If t is an unbound type-variable, instantiate a function with unbound type-variables for its arguments and return value;
 // otherwise, ensure t has the correct argument count.
-func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t types.Type) (*types.Arrow, error) {
+func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t hmtypes.Type) (*hmtypes.Arrow, error) {
 	switch t := t.(type) {
-	case *types.Arrow:
+	case *hmtypes.Arrow:
 		if len(t.Args) != argc {
 			return t, errors.New("Unexpected number of arguments for applied function")
 		}
 		return t, nil
 
-	case *types.Var:
+	case *hmtypes.Var:
 		switch {
 		case t.IsLinkVar():
 			return ti.matchFuncType(env, argc, t.Link())
 		case t.IsUnboundVar():
-			args := make([]types.Type, argc)
+			args := make([]hmtypes.Type, argc)
 			vars := env.common.VarTracker.NewList(t.Level(), argc+1)
 			tv, tail := vars.Head(), vars.Tail()
 			for i := 0; i < argc; i++ {
 				args[i] = tv
 				tv, tail = tail.Head(), tail.Tail()
 			}
-			arrow := &types.Arrow{Args: args, Return: tv}
+			arrow := &hmtypes.Arrow{Args: args, Return: tv}
 			t.SetLink(arrow)
 			return arrow, nil
 		default:
@@ -501,7 +501,7 @@ func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t types.Type) 
 //			unify return_ty (infer (Env.extend env var_name variant_ty) level expr) ;
 //			let other_cases_row = infer_cases env level return_ty rest_row_ty other_cases in
 //			TRowExtend(LabelMap.singleton label [variant_ty], other_cases_row)
-func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType types.Type, cases []ast.WhenCase) (retRowType types.Type, err error) {
+func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType hmtypes.Type, cases []ast.WhenCase) (retRowType hmtypes.Type, err error) {
 	// Each case extends an existing record formed from all subsequent cases.
 	// Visit cases in reverse order, accumulating labels and value types into the record as row-extensions.
 	vars := env.common.VarTracker.NewList(level, len(cases))
@@ -530,8 +530,8 @@ func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowTyp
 				return nil, err
 			}
 			// Extend the accumulated record:
-			var extension types.RowExtend
-			extension.Row, extension.Labels = rowType, types.SingletonTypeMap(pattern.Label, variantType)
+			var extension hmtypes.RowExtend
+			extension.Row, extension.Labels = rowType, hmtypes.SingletonTypeMap(pattern.Label, variantType)
 			rowType = &extension
 			tv, tail = tail.Head(), tail.Tail()
 
@@ -554,13 +554,13 @@ func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowTyp
 			return nil, fmt.Errorf("unsupported pattern match type %v", reflect.TypeOf(pattern))
 		}
 	}
-	subjectType := &types.Variant{Row: rowType}
+	subjectType := &hmtypes.Variant{Row: rowType}
 	// Return the accumulated record which maps each variant label to its associated type(s):
 	return subjectType, nil
 }
 
 // Grouped let-bindings are sorted into strongly-connected components, then type-checked in dependency order.
-func (ti *InferenceContext) inferLetGroup(env *TypeEnv, level uint, e *ast.LetGroup) (ret types.Type, err error) {
+func (ti *InferenceContext) inferLetGroup(env *TypeEnv, level uint, e *ast.LetGroup) (ret hmtypes.Type, err error) {
 	if !ti.analyzed {
 		if ti.analysis == nil {
 			ti.analysis = new(astutil.Analysis)

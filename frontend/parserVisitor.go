@@ -488,8 +488,9 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	}
 	var astCases []ast.WhenCase
 	// we must parse when cases from the bottom since that is the order expressions are pushed to the stack in
-	for _, whenCase := range slices.Backward(cases) {
-		astCase, err := l.doWhenCase(whenCase)
+
+	for i := len(cases) - 1; i >= 0; i-- {
+		astCase, err := l.doWhenCase(cases[i])
 		if err != nil {
 			l.visitErrors = append(l.visitErrors, err)
 			continue

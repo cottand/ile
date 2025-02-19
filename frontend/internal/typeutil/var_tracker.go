@@ -27,7 +27,7 @@ import (
 )
 
 type varList struct {
-	head types.Var
+	head hmtypes.Var
 	tail *varList
 }
 
@@ -39,7 +39,7 @@ type VarList struct {
 
 func (vs VarList) Len() int { return vs.length }
 
-func (vs VarList) Head() *types.Var {
+func (vs VarList) Head() *hmtypes.Var {
 	if vs.length == 0 {
 		return nil
 	}
@@ -71,7 +71,7 @@ func (vt *VarTracker) FlattenLinks() {
 	}
 }
 
-func (vt *VarTracker) New(level uint) *types.Var {
+func (vt *VarTracker) New(level uint) *hmtypes.Var {
 	if len(vt.block) == 0 {
 		vt.block = make([]varList, 8)
 	}

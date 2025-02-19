@@ -40,13 +40,13 @@ func mustInfer(t *testing.T, env *TypeEnv, ctx *InferenceContext, expr ast.Expr,
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, typeString, types.TypeString(ty))
+	assert.Equal(t, typeString, hmtypes.TypeString(ty))
 }
 
 func TestUnit(t *testing.T) {
 	ty := TArrow1(TConst("int"), TUnit())
-	if types.TypeString(ty) != "int -> ()" {
-		t.Fatalf("type: %s", types.TypeString(ty))
+	if hmtypes.TypeString(ty) != "int -> ()" {
+		t.Fatalf("type: %s", hmtypes.TypeString(ty))
 	}
 }
 
@@ -58,7 +58,7 @@ func TestLiterals(t *testing.T) {
 
 	xvec := &ast.Literal{
 		Syntax: "[x]", Using: []string{"x"},
-		Construct: func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
+		Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 			return TApp(TConst("vec"), using[0]), nil // x :: int |- vec[int]
 		},
 	}
@@ -107,7 +107,7 @@ func TestRefs(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	a := env.NewVar(types.TopLevel)
+	a := env.NewVar(hmtypes.TopLevel)
 	env.DeclareWeak("r", TRef(a))
 	mustInfer(t, env, ctx, Var("r"), "weak '_0 => ref['_0]")
 
@@ -141,14 +141,14 @@ func TestAliases(t *testing.T) {
 	ctx := NewContext()
 
 	a := env.NewGenericVar()
-	sliceHeader := TRecord(TRowExtend(types.RowEmptyPointer, TypeMap(map[string]types.Type{
+	sliceHeader := TRecord(TRowExtend(hmtypes.RowEmptyPointer, TypeMap(map[string]hmtypes.Type{
 		"data": TRef(TApp(TConst("array"), a)),
 		"len":  TConst("int"),
 		"cap":  TConst("int"),
 	})))
 	slice := Generalize(TAlias(TApp(TConst("slice"), a), sliceHeader))
 
-	intSliceHeader := TRecord(TRowExtend(types.RowEmptyPointer, TypeMap(map[string]types.Type{
+	intSliceHeader := TRecord(TRowExtend(hmtypes.RowEmptyPointer, TypeMap(map[string]hmtypes.Type{
 		"data": TRef(TApp(TConst("array"), TConst("int"))),
 		"len":  TConst("int"),
 		"cap":  TConst("int"),
@@ -276,11 +276,11 @@ func TestRecursiveTypes(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	params := []*types.Var{env.NewGenericVar()}
-	list := env.NewSimpleRecursive(params, func(rec *types.Recursive, self *types.RecursiveLink) {
+	params := []*hmtypes.Var{env.NewGenericVar()}
+	list := env.NewSimpleRecursive(params, func(rec *hmtypes.Recursive, self *hmtypes.RecursiveLink) {
 		a := rec.Params[0]
 		rec.AddType("list", TAlias(TApp(TConst("list"), a),
-			TRecordFlat(map[string]types.Type{"head": a, "tail": self})))
+			TRecordFlat(map[string]hmtypes.Type{"head": a, "tail": self})))
 	})
 
 	env.Declare("someintlist", list.WithParams(env, TConst("int")).GetType("list"))
@@ -318,15 +318,15 @@ func TestMutuallyRecursiveTypes(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	cycle := env.NewRecursive(nil, func(rec *types.Recursive) {
+	cycle := env.NewRecursive(nil, func(rec *hmtypes.Recursive) {
 		int2bool := TApp(TConst("cycle"), TConst("int"), TConst("bool"))
 		bool2int := TApp(TConst("cycle"), TConst("bool"), TConst("int"))
 		rec.AddType("int2bool", int2bool)
 		rec.AddType("bool2int", bool2int)
-		int2bool.Underlying = TRecordFlat(map[string]types.Type{
+		int2bool.Underlying = TRecordFlat(map[string]hmtypes.Type{
 			"v": TConst("int"), "link": TRecursiveLink(rec, "bool2int"),
 		})
-		bool2int.Underlying = TRecordFlat(map[string]types.Type{
+		bool2int.Underlying = TRecordFlat(map[string]hmtypes.Type{
 			"v": TConst("bool"), "link": TRecursiveLink(rec, "int2bool"),
 		})
 	})
@@ -365,17 +365,17 @@ func TestGenericMutuallyRecursiveTypes(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	params := []*types.Var{env.NewGenericVar(), env.NewGenericVar()}
-	cycle := env.NewRecursive(params, func(rec *types.Recursive) {
+	params := []*hmtypes.Var{env.NewGenericVar(), env.NewGenericVar()}
+	cycle := env.NewRecursive(params, func(rec *hmtypes.Recursive) {
 		a, b := rec.Params[0], rec.Params[1]
 		a2b := TApp(TConst("cycle"), a, b)
 		b2a := TApp(TConst("cycle"), b, a)
 		rec.AddType("a2b", a2b)
 		rec.AddType("b2a", b2a)
-		a2b.Underlying = TRecordFlat(map[string]types.Type{
+		a2b.Underlying = TRecordFlat(map[string]hmtypes.Type{
 			"v": a, "link": TRecursiveLink(rec, "b2a"),
 		})
-		b2a.Underlying = TRecordFlat(map[string]types.Type{
+		b2a.Underlying = TRecordFlat(map[string]hmtypes.Type{
 			"v": b, "link": TRecursiveLink(rec, "a2b"),
 		})
 	})
@@ -624,7 +624,7 @@ func TestValueLiteralMatch(t *testing.T) {
 	ifExpr := Call(Var("if"), Var("somebool"), Variant("i", Var("someint")), Variant("b", Var("somebool")))
 	mustInfer(t, env, ctx, ifExpr, "[b : bool, i : int | 'a]")
 
-	constructInt := func(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
+	constructInt := func(_ hmtypes.TypeEnv, _ uint, _ []hmtypes.Type) (hmtypes.Type, error) {
 		return TConst("int"), nil
 	}
 
@@ -690,16 +690,16 @@ func TestSafeStacks(t *testing.T) {
 	rest, a := env.NewGenericVar(), env.NewGenericVar()
 	env.Declare("push", TArrow2( // ({'rest}, 'a) -> {top : 'a | 'rest}
 		TRecord(rest), a,
-		TRecord(TRowExtend(rest, TypeMap(map[string]types.Type{"top": a})))))
+		TRecord(TRowExtend(rest, TypeMap(map[string]hmtypes.Type{"top": a})))))
 
 	rest, a = env.NewGenericVar(), env.NewGenericVar()
 	env.Declare("peek", TArrow1( // {top : 'a | 'rest} -> 'a
-		TRecord(TRowExtend(rest, TypeMap(map[string]types.Type{"top": a}))),
+		TRecord(TRowExtend(rest, TypeMap(map[string]hmtypes.Type{"top": a}))),
 		a))
 
 	rest, a = env.NewGenericVar(), env.NewGenericVar()
 	env.Declare("pop", TArrow1( // {top : 'a | 'rest} -> 'rest
-		TRecord(TRowExtend(rest, TypeMap(map[string]types.Type{"top": a}))),
+		TRecord(TRowExtend(rest, TypeMap(map[string]hmtypes.Type{"top": a}))),
 		TRecord(rest)))
 
 	env.Declare("i", TConst("int"))
@@ -748,11 +748,11 @@ func TestHigherKindedTypes(t *testing.T) {
 
 	// class Functor 'f where
 	//   fmap :: (('a -> 'b), 'f['a]) -> 'f['b]
-	Functor, err := env.DeclareTypeClass("Functor", func(f *types.Var) types.MethodSet {
+	Functor, err := env.DeclareTypeClass("Functor", func(f *hmtypes.Var) hmtypes.MethodSet {
 		f.SetWeak()
 		f.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"fmap": TArrow2(TArrow1(a, b), TApp(f, a), TApp(f, b)),
 		}
 	})
@@ -763,11 +763,11 @@ func TestHigherKindedTypes(t *testing.T) {
 	// class (Functor 'f) => Applicative 'f where
 	//   pure  :: 'a -> 'f['a]
 	//   (<*>) :: ('f[('a -> 'b)], 'f['a]) -> 'f['b]
-	Applicative, err := env.DeclareTypeClass("Applicative", func(f *types.Var) types.MethodSet {
+	Applicative, err := env.DeclareTypeClass("Applicative", func(f *hmtypes.Var) hmtypes.MethodSet {
 		f.SetWeak()
 		f.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"pure":  TArrow1(a, TApp(f, a)),
 			"(<*>)": TArrow2(TApp(f, TArrow1(a, b)), TApp(f, a), TApp(f, b)),
 		}
@@ -778,11 +778,11 @@ func TestHigherKindedTypes(t *testing.T) {
 
 	// class (Applicative 'm) => Monad 'm where
 	//   (>>=) :: ('m['a], (a -> 'm['b])) -> 'm['b]
-	Monad, err := env.DeclareTypeClass("Monad", func(m *types.Var) types.MethodSet {
+	Monad, err := env.DeclareTypeClass("Monad", func(m *hmtypes.Var) hmtypes.MethodSet {
 		m.SetWeak()
 		m.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"(>>=)": TArrow2(TApp(m, a), TArrow1(a, TApp(m, b)), TApp(m, b)),
 		}
 	}, Applicative) // extends/subsumes Applicative
@@ -855,7 +855,7 @@ func TestHigherKindedTypes(t *testing.T) {
 	//   fmap = ref_map
 	a, b = env.NewGenericVar(), env.NewGenericVar()
 	env.Declare("ref_map", TArrow2(TArrow1(a, b), TRef(a), TRef(b)))
-	if _, err := env.DeclareInstance(Functor, types.RefType, map[string]string{"fmap": "ref_map"}); err != nil {
+	if _, err := env.DeclareInstance(Functor, hmtypes.RefType, map[string]string{"fmap": "ref_map"}); err != nil {
 		t.Fatal(err)
 	}
 	env.Declare("someintref", TRef(TConst("int")))
@@ -890,7 +890,7 @@ func TestUnionTypeClasses(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	ABC, err := env.DeclareUnionTypeClass("ABC", nil, map[string]types.Type{
+	ABC, err := env.DeclareUnionTypeClass("ABC", nil, map[string]hmtypes.Type{
 		"A": TConst("A"),
 		"B": TConst("B"),
 		"C": TConst("C"),
@@ -898,7 +898,7 @@ func TestUnionTypeClasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	abc := env.NewQualifiedVar(types.InstanceConstraint{ABC})
+	abc := env.NewQualifiedVar(hmtypes.InstanceConstraint{ABC})
 	env.Declare("fabc", TArrow1(abc, abc))
 	env.Declare("somea", TConst("A"))
 	env.Declare("someint", TConst("int"))
@@ -925,10 +925,10 @@ func TestDeferredInstanceMatching(t *testing.T) {
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	objA := TRecordFlat(map[string]types.Type{"x": TConst("A")})
-	objB := TRecordFlat(map[string]types.Type{"x": TConst("B")})
+	objA := TRecordFlat(map[string]hmtypes.Type{"x": TConst("A")})
+	objB := TRecordFlat(map[string]hmtypes.Type{"x": TConst("B")})
 
-	HasX, err := env.DeclareUnionTypeClass("HasX", nil, map[string]types.Type{
+	HasX, err := env.DeclareUnionTypeClass("HasX", nil, map[string]hmtypes.Type{
 		"A": objA,
 		"B": objB,
 	})
@@ -940,7 +940,7 @@ func TestDeferredInstanceMatching(t *testing.T) {
 	env.Declare("objB", objB)
 	env.Declare("a_id", TArrow1(TConst("A"), TConst("A")))
 
-	hasX := env.NewQualifiedVar(types.InstanceConstraint{HasX})
+	hasX := env.NewQualifiedVar(hmtypes.InstanceConstraint{HasX})
 	env.Declare("obj_id", TArrow1(hasX, hasX))
 
 	mustInfer(t, env, ctx, Var("obj_id"), "HasX 'a => 'a -> 'a")
@@ -978,21 +978,21 @@ func TestConstraints(t *testing.T) {
 	intType, shortType, floatType, boolType := TConst("int"), TConst("short"), TConst("float"), TConst("bool")
 	intVecType := TApp(TConst("vec"), intType)
 
-	Add, err := env.DeclareTypeClass("Add", func(param *types.Var) types.MethodSet {
-		return types.MethodSet{
+	Add, err := env.DeclareTypeClass("Add", func(param *hmtypes.Var) hmtypes.MethodSet {
+		return hmtypes.MethodSet{
 			"+": TArrow2(param, param, param),
 		}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	adderVecType := TApp(TConst("vec"), env.NewQualifiedVar(types.InstanceConstraint{Add}))
-	if types.TypeString(adderVecType) != "Add 'a => vec['a]" {
-		t.Fatalf("invalid vec string: %s", types.TypeString(adderVecType))
+	adderVecType := TApp(TConst("vec"), env.NewQualifiedVar(hmtypes.InstanceConstraint{Add}))
+	if hmtypes.TypeString(adderVecType) != "Add 'a => vec['a]" {
+		t.Fatalf("invalid vec string: %s", hmtypes.TypeString(adderVecType))
 	}
 
-	Int, err := env.DeclareTypeClass("Int", func(param *types.Var) types.MethodSet {
-		return types.MethodSet{
+	Int, err := env.DeclareTypeClass("Int", func(param *hmtypes.Var) hmtypes.MethodSet {
+		return hmtypes.MethodSet{
 			"&": TArrow2(param, param, param),
 		}
 	}, Add) // implements/subsumes Add
@@ -1040,8 +1040,8 @@ func TestConstraints(t *testing.T) {
 	if err = ctx.AnnotateDirect(call, env); err != nil {
 		t.Fatal(err)
 	}
-	if types.TypeString(call.Type()) != "int" {
-		t.Fatalf("expected int return, found " + types.TypeString(call.Type()))
+	if hmtypes.TypeString(call.Type()) != "int" {
+		t.Fatalf("expected int return, found " + hmtypes.TypeString(call.Type()))
 	}
 
 	method := call.FuncType().Method
@@ -1052,8 +1052,8 @@ func TestConstraints(t *testing.T) {
 	if methodInstance == nil {
 		t.Fatal("no method instance found")
 	}
-	if types.TypeString(methodInstance.Param) != "int" {
-		t.Fatalf("expected int instance, found %s", types.TypeString(methodInstance.Param))
+	if hmtypes.TypeString(methodInstance.Param) != "int" {
+		t.Fatalf("expected int instance, found %s", hmtypes.TypeString(methodInstance.Param))
 	}
 	if methodInstance.MethodNames["+"] != "int_add" {
 		t.Fatalf("expected int_add, found %s", methodInstance.MethodNames["+"])

@@ -84,7 +84,7 @@ func (ti *InferenceContext) InvalidExpr() ast.Expr { return ti.invalid }
 // A type-environment cannot be used concurrently for inference; to share a type-environment
 // across threads, create a new type-environment for each thread which inherits from the
 // shared environment.
-func (ti *InferenceContext) Infer(expr ast.Expr, env *TypeEnv) (types.Type, error) {
+func (ti *InferenceContext) Infer(expr ast.Expr, env *TypeEnv) (hmtypes.Type, error) {
 	nocopy := true
 	_, t, err := ti.inferRoot(expr, env, nocopy)
 	return t, err
@@ -117,7 +117,7 @@ func (ti *InferenceContext) AnnotateDirect(expr ast.Expr, env *TypeEnv) error {
 	return err
 }
 
-func (ti *InferenceContext) inferRoot(root ast.Expr, env *TypeEnv, nocopy bool) (ast.Expr, types.Type, error) {
+func (ti *InferenceContext) inferRoot(root ast.Expr, env *TypeEnv, nocopy bool) (ast.Expr, hmtypes.Type, error) {
 	if root == nil {
 		return nil, nil, errors.New("Empty expression")
 	}
@@ -128,7 +128,7 @@ func (ti *InferenceContext) inferRoot(root ast.Expr, env *TypeEnv, nocopy bool) 
 		ti.reset()
 	}
 	ti.rootExpr, env.common.TrackScopes, env.common.DeferredConstraintsEnabled = root, ti.annotate, ti.canDeferMatch
-	t, err := ti.infer(env, types.TopLevel+1, root)
+	t, err := ti.infer(env, hmtypes.TopLevel+1, root)
 	if err != nil {
 		ti.err = err
 		goto Cleanup

@@ -108,10 +108,10 @@ func BenchmarkInstanceLookups(t *testing.B) { // ~15000 ns/op
 	env := NewTypeEnv(nil)
 	ctx := NewContext()
 
-	Functor, err := env.DeclareTypeClass("Functor", func(f *types.Var) types.MethodSet {
+	Functor, err := env.DeclareTypeClass("Functor", func(f *hmtypes.Var) hmtypes.MethodSet {
 		f.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"fmap": TArrow2(TArrow1(a, b), TApp(f, a), TApp(f, b)),
 		}
 	})
@@ -119,10 +119,10 @@ func BenchmarkInstanceLookups(t *testing.B) { // ~15000 ns/op
 		t.Fatal(err)
 	}
 
-	Applicative, err := env.DeclareTypeClass("Applicative", func(f *types.Var) types.MethodSet {
+	Applicative, err := env.DeclareTypeClass("Applicative", func(f *hmtypes.Var) hmtypes.MethodSet {
 		f.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"pure":  TArrow1(a, TApp(f, a)),
 			"(<*>)": TArrow2(TApp(f, TArrow1(a, b)), TApp(f, a), TApp(f, b)),
 		}
@@ -131,10 +131,10 @@ func BenchmarkInstanceLookups(t *testing.B) { // ~15000 ns/op
 		t.Fatal(err)
 	}
 
-	Monad, err := env.DeclareTypeClass("Monad", func(m *types.Var) types.MethodSet {
+	Monad, err := env.DeclareTypeClass("Monad", func(m *hmtypes.Var) hmtypes.MethodSet {
 		m.RestrictConstVar()
 		a, b := env.NewGenericVar(), env.NewGenericVar()
-		return types.MethodSet{
+		return hmtypes.MethodSet{
 			"(>>=)": TArrow2(TApp(m, a), TArrow1(a, TApp(m, b)), TApp(m, b)),
 		}
 	}, Applicative) // extends/subsumes Applicative

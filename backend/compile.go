@@ -117,7 +117,7 @@ func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) ([]goast.Gen
 				errs = append(errs, err)
 				continue
 			}
-			if _, isCompTime := decl.E.Type().(*types.CompTimeConst); isCompTime {
+			if _, isCompTime := decl.E.Type().(*hmtypes.CompTimeConst); isCompTime {
 				goConstDecls = append(goConstDecls, &goast.ValueSpec{
 					Names:  []*goast.Ident{goast.NewIdent(decl.Name)},
 					Values: []goast.Expr{value},
@@ -168,11 +168,11 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ast.Declaration) ([]goast.Decl
 				continue
 			}
 			var resultList *goast.FieldList
-			t, ok := fn.Type().(*types.Arrow)
+			t, ok := fn.Type().(*hmtypes.Arrow)
 			if !ok {
 				errs = append(errs, errors.New("expected a arrow function"))
 			}
-			if t.Return != types.UnitPointer {
+			if t.Return != hmtypes.UnitPointer {
 				resultType, err := tp.transpileType(t.Return)
 				if err != nil {
 					errs = append(errs, err)
@@ -233,7 +233,7 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 	case *ast.WhenMatch:
 		whenResultT, err := tp.transpileType(e.Type())
 		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
+			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", hmtypes.TypeString(e.Type()), err)
 		}
 		whenBlock, err := tp.transpileExpressionToStatements(e, "return")
 		if err != nil {
@@ -332,12 +332,12 @@ func (tp *Transpiler) transpileParameterDecls(decl ast.Declaration, fn *ast.Func
 	return fieldList, errors.Join(errs...)
 }
 
-func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
+func (tp *Transpiler) transpileType(t hmtypes.Type) (goast.Expr, error) {
 	if t == nil {
 		return nil, nil
 	}
-	switch e := types.RealType(t).(type) {
-	case *types.Arrow:
+	switch e := hmtypes.RealType(t).(type) {
+	case *hmtypes.Arrow:
 		if e == nil {
 			panic("nil type for arrow function")
 		}
@@ -358,7 +358,7 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 			Results: &goast.FieldList{List: []*goast.Field{{Type: retType}}},
 		}, nil
 
-	case *types.Const:
+	case *hmtypes.Const:
 		goEquivalent, ok := ileToGoTypes[e.Name]
 		if ok {
 			return goast.NewIdent(goEquivalent), nil
@@ -366,10 +366,10 @@ func (tp *Transpiler) transpileType(t types.Type) (goast.Expr, error) {
 		return goast.NewIdent(e.Name), nil
 
 		// generic type!
-	case *types.Var:
-		return nil, fmt.Errorf("generics are not implemented yet, but got %v", types.TypeString(t))
+	case *hmtypes.Var:
+		return nil, fmt.Errorf("generics are not implemented yet, but got %v", hmtypes.TypeString(t))
 
-	case *types.CompTimeConst:
+	case *hmtypes.CompTimeConst:
 		// FIXME https://github.com/cottand/ile/issues/14
 		//  it means we let a comptime type slip through
 		//  type inference
@@ -431,7 +431,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 	case *ast.WhenMatch:
 		whenResultT, err := tp.transpileType(e.Type())
 		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
+			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", hmtypes.TypeString(e.Type()), err)
 		}
 		switchResultIdent := goast.NewIdent(util.MangledIdentFrom(e, e.ExprName()))
 		statements = append(statements, &goast.DeclStmt{Decl: &goast.GenDecl{

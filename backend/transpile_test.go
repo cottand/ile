@@ -94,23 +94,23 @@ func TestStringDecl(t *testing.T) {
 
 func TestFunctionDecl(t *testing.T) {
 	fn := ast.Func{
-		ArgNames:  []string{"a"},
-		Body:      ast.IntLiteral("32", nil),
-		Range:     ast.Range{},
+		ArgNames: []string{"a"},
+		Body:     ast.IntLiteral("32", nil),
+		Range:    ast.Range{},
 		//TAnnotation: ,
 	}
 	f := ast.File{
 		PkgName: "main",
 		Declarations: []ast.Declaration{
 			{
-				Name:   "OneInt",
-				E:      &fn,
+				Name: "OneInt",
+				E:    &fn,
 			},
 		},
 	}
-	fn.SetType(&types.Arrow{
-		Args:   []types.Type{&types.Const{Name: "Int"}},
-		Return: &types.Const{Name: "Int"},
+	fn.SetType(&hmtypes.Arrow{
+		Args:   []hmtypes.Type{&hmtypes.Const{Name: "Int"}},
+		Return: &hmtypes.Const{Name: "Int"},
 	})
 
 	tp := Transpiler{}

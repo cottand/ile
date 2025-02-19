@@ -18,7 +18,7 @@ type TypeAnnotation interface {
 	TypeString() string
 
 	// ConstructType produces a types.Type for use in inference
-	ConstructType(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
+	ConstructType(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
 }
 
 var (
@@ -32,20 +32,20 @@ type TConst struct {
 	Range
 }
 
-func (t TConst) ConstructType(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
-	return &types.Const{Name: t.Name}, nil
+func (t TConst) ConstructType(_ hmtypes.TypeEnv, _ uint, _ []hmtypes.Type) (hmtypes.Type, error) {
+	return &hmtypes.Const{Name: t.Name}, nil
 }
 
 func (t TConst) TypeString() string { return t.Name }
 
-type TComptimeInt struct{
+type TComptimeInt struct {
 	Range
 }
 
-func (t TComptimeInt) ConstructType(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
-	return &types.CompTimeConst{
+func (t TComptimeInt) ConstructType(_ hmtypes.TypeEnv, _ uint, _ []hmtypes.Type) (hmtypes.Type, error) {
+	return &hmtypes.CompTimeConst{
 		Name: "<go untyped Int>",
-		MaybeUnify: func(other types.Const) error {
+		MaybeUnify: func(other hmtypes.Const) error {
 			switch other.Name {
 			case "Int":
 				return nil
@@ -53,7 +53,7 @@ func (t TComptimeInt) ConstructType(_ types.TypeEnv, _ uint, _ []types.Type) (ty
 				return fmt.Errorf("a go untyped int cannot be used with type %s", other.Name)
 			}
 		},
-		DefaultType: &types.Const{Name: "Int"},
+		DefaultType: &hmtypes.Const{Name: "Int"},
 	}, nil
 }
 
@@ -65,9 +65,9 @@ type TArrow struct {
 	Range
 }
 
-func (t TArrow) ConstructType(env types.TypeEnv, level uint, using []types.Type) (types.Type, error) {
+func (t TArrow) ConstructType(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 	var err error
-	var args = make([]types.Type, len(t.Args))
+	var args = make([]hmtypes.Type, len(t.Args))
 
 	for i, arg := range t.Args {
 		if arg == nil {
@@ -83,7 +83,7 @@ func (t TArrow) ConstructType(env types.TypeEnv, level uint, using []types.Type)
 		}
 		// no type was constructed, so we make a new var
 	}
-	var ret types.Type
+	var ret hmtypes.Type
 	if t.Return != nil {
 		ret, err = t.Return.ConstructType(env, level, using)
 		if err != nil {
@@ -92,7 +92,7 @@ func (t TArrow) ConstructType(env types.TypeEnv, level uint, using []types.Type)
 	} else {
 		ret = env.NewVar(level)
 	}
-	return &types.Arrow{
+	return &hmtypes.Arrow{
 		Args:   args,
 		Return: ret,
 		//Flags:  0,

@@ -26,24 +26,24 @@ import (
 	"github.com/cottand/ile/frontend/types"
 )
 
-func GeneralizeOpts(level uint, t types.Type, forceGeneralize, weak bool) types.Type {
+func GeneralizeOpts(level uint, t hmtypes.Type, forceGeneralize, weak bool) hmtypes.Type {
 	// Path compression:
-	t = types.RealType(t)
+	t = hmtypes.RealType(t)
 	visitTypeVars(level, t, forceGeneralize, weak)
 	return t
 }
 
-func visitTypeVars(level uint, t types.Type, forceGeneralize, weak bool) (tf types.TypeFlags) {
+func visitTypeVars(level uint, t hmtypes.Type, forceGeneralize, weak bool) (tf hmtypes.TypeFlags) {
 	switch t := t.(type) {
-	case *types.Unit:
+	case *hmtypes.Unit:
 		return
 
-	case *types.Var:
+	case *hmtypes.Var:
 		switch {
 		case t.IsLinkVar():
 			return visitTypeVars(level, t.Link(), forceGeneralize, weak)
 		case t.IsGenericVar():
-			tf |= types.ContainsGenericVars
+			tf |= hmtypes.ContainsGenericVars
 			// Weak type-variables may not be re-generalized after instantiation:
 			if weak {
 				t.SetWeak()
@@ -54,7 +54,7 @@ func visitTypeVars(level uint, t types.Type, forceGeneralize, weak bool) (tf typ
 			// If the current level is less than the type-variable's level, a let-binding where the type-variable was instantiated
 			// is being generalized:
 			if t.LevelNum() > level && (forceGeneralize || (!weak && !t.IsWeakVar())) {
-				tf |= types.ContainsGenericVars
+				tf |= hmtypes.ContainsGenericVars
 				t.SetGeneric()
 			}
 			// Weak type-variables may not be re-generalized after instantiation:
@@ -63,74 +63,74 @@ func visitTypeVars(level uint, t types.Type, forceGeneralize, weak bool) (tf typ
 			}
 		}
 
-	case *types.RecursiveLink:
+	case *hmtypes.RecursiveLink:
 		rec := t.Recursive
 		if !rec.NeedsGeneralization() { // break cycles
 			if rec.IsGeneric() {
-				tf |= types.ContainsGenericVars
+				tf |= hmtypes.ContainsGenericVars
 			}
 			if rec.HasRefs() {
-				tf |= types.ContainsRefs
+				tf |= hmtypes.ContainsRefs
 			}
 			return
 		}
-		rec.Flags &^= types.NeedsGeneralization // break cycles
+		rec.Flags &^= hmtypes.NeedsGeneralization // break cycles
 		for _, alias := range rec.Types {
 			tf |= visitTypeVars(level, alias, forceGeneralize, weak)
 		}
 		rec.Flags |= tf
 		// back-propagate type-flags through links:
-		if tf&(types.ContainsGenericVars|types.ContainsRefs) != 0 {
+		if tf&(hmtypes.ContainsGenericVars|hmtypes.ContainsRefs) != 0 {
 			for _, alias := range rec.Types {
 				visitTypeVars(level, alias, forceGeneralize, weak)
 			}
 		}
 
-	case *types.App:
-		if types.IsRefType(t) {
-			tf |= types.ContainsRefs
+	case *hmtypes.App:
+		if hmtypes.IsRefType(t) {
+			tf |= hmtypes.ContainsRefs
 			weak = true
 		}
 		for i, param := range t.Params {
-			t.Params[i] = types.RealType(param)
+			t.Params[i] = hmtypes.RealType(param)
 			tf |= visitTypeVars(level, t.Params[i], forceGeneralize, weak)
 		}
-		t.Const = types.RealType(t.Const)
+		t.Const = hmtypes.RealType(t.Const)
 		tf |= visitTypeVars(level, t.Const, forceGeneralize, weak)
 		if t.Underlying != nil {
-			t.Underlying = types.RealType(t.Underlying)
+			t.Underlying = hmtypes.RealType(t.Underlying)
 			tf |= visitTypeVars(level, t.Underlying, forceGeneralize, weak)
 		}
 		t.Flags |= tf
 
-	case *types.Arrow:
+	case *hmtypes.Arrow:
 		for i, arg := range t.Args {
-			t.Args[i] = types.RealType(arg)
+			t.Args[i] = hmtypes.RealType(arg)
 			tf |= visitTypeVars(level, t.Args[i], forceGeneralize, weak)
 		}
-		t.Return = types.RealType(t.Return)
+		t.Return = hmtypes.RealType(t.Return)
 		tf |= visitTypeVars(level, t.Return, forceGeneralize, weak)
 		t.Flags |= tf
 
-	case *types.Record:
-		t.Row = types.RealType(t.Row)
+	case *hmtypes.Record:
+		t.Row = hmtypes.RealType(t.Row)
 		tf |= visitTypeVars(level, t.Row, forceGeneralize, weak)
 		t.Flags |= tf
 
-	case *types.Variant:
-		t.Row = types.RealType(t.Row)
+	case *hmtypes.Variant:
+		t.Row = hmtypes.RealType(t.Row)
 		tf |= visitTypeVars(level, t.Row, forceGeneralize, weak)
 		t.Flags |= tf
 
-	case *types.RowExtend:
-		t.Labels.Range(func(label string, ts types.TypeList) bool {
-			ts.Range(func(i int, t types.Type) bool {
-				tf |= visitTypeVars(level, types.RealType(t), forceGeneralize, weak)
+	case *hmtypes.RowExtend:
+		t.Labels.Range(func(label string, ts hmtypes.TypeList) bool {
+			ts.Range(func(i int, t hmtypes.Type) bool {
+				tf |= visitTypeVars(level, hmtypes.RealType(t), forceGeneralize, weak)
 				return true
 			})
 			return true
 		})
-		t.Row = types.RealType(t.Row)
+		t.Row = hmtypes.RealType(t.Row)
 		tf |= visitTypeVars(level, t.Row, forceGeneralize, weak)
 		t.Flags |= tf
 	}

@@ -37,9 +37,9 @@ import (
 // shared environment.
 type TypeEnv struct {
 	// Mappings from identifiers to declared types in the current type-environment
-	Types map[string]types.Type
+	Types map[string]hmtypes.Type
 	// Type-classes declared in the current type-environment
-	TypeClasses map[string]*types.TypeClass
+	TypeClasses map[string]*hmtypes.TypeClass
 	// Predeclared types in the parent of the current type-environment
 	Parent *TypeEnv
 
@@ -54,7 +54,7 @@ type TypeEnv struct {
 func NewTypeEnv(parent *TypeEnv) *TypeEnv {
 	env := &TypeEnv{
 		Parent: parent,
-		Types:  make(map[string]types.Type),
+		Types:  make(map[string]hmtypes.Type),
 	}
 	env.common.Init()
 	if parent != nil {
@@ -73,21 +73,21 @@ func (e *TypeEnv) freshId() uint {
 }
 
 // Create a unbound type-variable with a unique id at a given binding-level.
-func (e *TypeEnv) NewVar(level uint) *types.Var { return types.NewVar(e.freshId(), level) }
+func (e *TypeEnv) NewVar(level uint) *hmtypes.Var { return hmtypes.NewVar(e.freshId(), level) }
 
 // Create a generic type-variable with a unique id.
-func (e *TypeEnv) NewGenericVar() *types.Var { return types.NewGenericVar(e.freshId()) }
+func (e *TypeEnv) NewGenericVar() *hmtypes.Var { return hmtypes.NewGenericVar(e.freshId()) }
 
 // Create a generic size type-variable with a unique id. Size type-variables must link to size types.
-func (e *TypeEnv) NewGenericSize() *types.Var {
+func (e *TypeEnv) NewGenericSize() *hmtypes.Var {
 	tv := e.NewGenericVar()
 	tv.RestrictSizeVar()
 	return tv
 }
 
 // Create a qualified type-variable with a unique id.
-func (e *TypeEnv) NewQualifiedVar(constraints ...types.InstanceConstraint) *types.Var {
-	tv := types.NewGenericVar(e.freshId())
+func (e *TypeEnv) NewQualifiedVar(constraints ...hmtypes.InstanceConstraint) *hmtypes.Var {
+	tv := hmtypes.NewGenericVar(e.freshId())
 	for _, c := range constraints {
 		tv.AddConstraint(c)
 	}
@@ -98,14 +98,14 @@ func (e *TypeEnv) NewQualifiedVar(constraints ...types.InstanceConstraint) *type
 //
 // The bind function should add aliased types with underlying types which are recursively linked
 // to one or more types in the Recursive.
-func (e *TypeEnv) NewRecursive(params []*types.Var, bind func(recursive *types.Recursive)) *types.Recursive {
-	rec := &types.Recursive{Params: params, Bind: bind, Flags: types.NeedsGeneralization}
+func (e *TypeEnv) NewRecursive(params []*hmtypes.Var, bind func(recursive *hmtypes.Recursive)) *hmtypes.Recursive {
+	rec := &hmtypes.Recursive{Params: params, Bind: bind, Flags: hmtypes.NeedsGeneralization}
 	for i, tv := range rec.Params {
-		rec.Params[i] = Generalize(tv).(*types.Var)
+		rec.Params[i] = Generalize(tv).(*hmtypes.Var)
 	}
 	bind(rec)
 	for i, alias := range rec.Types {
-		rec.Types[i] = Generalize(alias).(*types.App)
+		rec.Types[i] = Generalize(alias).(*hmtypes.App)
 	}
 	return rec
 }
@@ -114,37 +114,37 @@ func (e *TypeEnv) NewRecursive(params []*types.Var, bind func(recursive *types.R
 //
 // The bindSelf function should add a single aliased type with an underlying type which is recursively linked
 // to the Recursive.
-func (e *TypeEnv) NewSimpleRecursive(params []*types.Var, bindSelf func(*types.Recursive, *types.RecursiveLink)) *types.Recursive {
-	return e.NewRecursive(params, func(rec *types.Recursive) {
-		bindSelf(rec, &types.RecursiveLink{Recursive: rec, Index: 0})
+func (e *TypeEnv) NewSimpleRecursive(params []*hmtypes.Var, bindSelf func(*hmtypes.Recursive, *hmtypes.RecursiveLink)) *hmtypes.Recursive {
+	return e.NewRecursive(params, func(rec *hmtypes.Recursive) {
+		bindSelf(rec, &hmtypes.RecursiveLink{Recursive: rec, Index: 0})
 	})
 }
 
 // Declare a type for an identifier within the type environment.
 //
 // Type-variables contained within mutable reference-types will be generalized.
-func (e *TypeEnv) Declare(name string, t types.Type) {
+func (e *TypeEnv) Declare(name string, t hmtypes.Type) {
 	e.Types[name] = GeneralizeRefs(t)
 }
 
 // Declare a weakly-polymorphic type for an identifier within the type environment.
 //
 // Type-variables contained within mutable reference-types will not be generalized.
-func (e *TypeEnv) DeclareWeak(name string, t types.Type) {
+func (e *TypeEnv) DeclareWeak(name string, t hmtypes.Type) {
 	e.Types[name] = Generalize(t)
 }
 
 // Declare a type for an identifier within the type environment.
 //
 // Type-variables will not be generalized.
-func (e *TypeEnv) DeclareInvariant(name string, t types.Type) { e.Types[name] = t }
+func (e *TypeEnv) DeclareInvariant(name string, t hmtypes.Type) { e.Types[name] = t }
 
 // Declare a type for an identifier within the type environment.
 //
 // Type-variables will not be generalized.
 //
 // Assign is an alias for DeclareInvariant.
-func (e *TypeEnv) Assign(name string, t types.Type) { e.Types[name] = t }
+func (e *TypeEnv) Assign(name string, t hmtypes.Type) { e.Types[name] = t }
 
 // Remove the assigned type for an identifier within the type environment. Parent environment(s) will not be affected,
 // and the identifier's type will still be visible if defined in a parent environment.
@@ -153,7 +153,7 @@ func (e *TypeEnv) Remove(name string) { delete(e.Types, name) }
 // Lookup the type for an identifier in the environment or its parent environment(s).
 //
 // WhenMatch looking for a QualifiedVar, name is <Identifier>.<Name>
-func (e *TypeEnv) Lookup(name string) types.Type {
+func (e *TypeEnv) Lookup(name string) hmtypes.Type {
 	if t, ok := e.Types[name]; ok {
 		return t
 	}
@@ -163,7 +163,7 @@ func (e *TypeEnv) Lookup(name string) types.Type {
 	return e.Parent.Lookup(name)
 }
 
-func (e *TypeEnv) scopeLookup(name string) (types.Type, *ast.Scope) {
+func (e *TypeEnv) scopeLookup(name string) (hmtypes.Type, *ast.Scope) {
 	if t, ok := e.Types[name]; ok {
 		scopes := e.common.VarScopes[name]
 		if len(scopes) == 0 {
@@ -180,7 +180,7 @@ func (e *TypeEnv) scopeLookup(name string) (types.Type, *ast.Scope) {
 // Instantiate a type at a given let-binding level. Instantiation should only occur indirectly during inference.
 //
 // Literal expressions may need to instantiate types at the level they are being instantiated at.
-func (e *TypeEnv) Instantiate(level uint, t types.Type) types.Type {
+func (e *TypeEnv) Instantiate(level uint, t hmtypes.Type) hmtypes.Type {
 	return e.common.Instantiate(level, t)
 }
 
@@ -190,31 +190,31 @@ func (e *TypeEnv) Instantiate(level uint, t types.Type) types.Type {
 //
 // Each super-class which the type-class implements will be modified to add a sub-class entry; changes will be visible across all uses
 // of the super-classes, and changes must not be made to type-classes concurrently.
-func (e *TypeEnv) DeclareTypeClass(name string, bind func(*types.Var) types.MethodSet, implements ...*types.TypeClass) (*types.TypeClass, error) {
+func (e *TypeEnv) DeclareTypeClass(name string, bind func(*hmtypes.Var) hmtypes.MethodSet, implements ...*hmtypes.TypeClass) (*hmtypes.TypeClass, error) {
 	if existing := e.LookupTypeClass(name); existing != nil {
 		return nil, errors.New("Type-class " + name + " is already declared")
 	}
 	param := e.NewGenericVar()
 	methods := bind(param)
 	if param.IsLinkVar() {
-		if _, isFunction := types.RealType(param.Link()).(*types.Arrow); isFunction {
+		if _, isFunction := hmtypes.RealType(param.Link()).(*hmtypes.Arrow); isFunction {
 			return nil, errors.New("Unsupported function parameter for type-class " + name)
 		}
 	}
-	generalizedMethods := make(types.MethodSet, len(methods))
-	tc := types.NewTypeClass(e.freshId(), name, GeneralizeRefs(param), generalizedMethods)
+	generalizedMethods := make(hmtypes.MethodSet, len(methods))
+	tc := hmtypes.NewTypeClass(e.freshId(), name, GeneralizeRefs(param), generalizedMethods)
 	for name, arrow := range methods {
-		arrow = GeneralizeRefs(arrow).(*types.Arrow)
+		arrow = GeneralizeRefs(arrow).(*hmtypes.Arrow)
 		generalizedMethods[name] = arrow
-		e.Types[name] = &types.Method{TypeClass: tc, Name: name, Flags: arrow.Flags}
+		e.Types[name] = &hmtypes.Method{TypeClass: tc, Name: name, Flags: arrow.Flags}
 	}
 	if param.IsGeneric() {
-		param.AddConstraint(types.InstanceConstraint{tc})
+		param.AddConstraint(hmtypes.InstanceConstraint{tc})
 	} else {
-		tc.Param = types.RealType(tc.Param)
+		tc.Param = hmtypes.RealType(tc.Param)
 	}
 	if e.TypeClasses == nil {
-		e.TypeClasses = make(map[string]*types.TypeClass)
+		e.TypeClasses = make(map[string]*hmtypes.TypeClass)
 	}
 	e.TypeClasses[name] = tc
 	for _, super := range implements {
@@ -239,18 +239,18 @@ func (e *TypeEnv) DeclareTypeClass(name string, bind func(*types.Var) types.Meth
 //
 // Each super-class which the type-class implements will be modified to add a sub-class entry; changes will be visible across all uses
 // of the super-classes, and changes must not be made to type-classes concurrently.
-func (e *TypeEnv) DeclareUnionTypeClass(name string, bind func(*types.Var), instances map[string]types.Type) (*types.TypeClass, error) {
-	bindMethods := func(param *types.Var) types.MethodSet {
+func (e *TypeEnv) DeclareUnionTypeClass(name string, bind func(*hmtypes.Var), instances map[string]hmtypes.Type) (*hmtypes.TypeClass, error) {
+	bindMethods := func(param *hmtypes.Var) hmtypes.MethodSet {
 		if bind != nil {
 			bind(param)
 		}
-		return types.MethodSet{}
+		return hmtypes.MethodSet{}
 	}
 	tc, err := e.DeclareTypeClass(name, bindMethods)
 	if err != nil {
 		return nil, err
 	}
-	tc.Union = make(map[string]*types.Instance, len(instances))
+	tc.Union = make(map[string]*hmtypes.Instance, len(instances))
 	for label, param := range instances {
 		inst, err := e.DeclareInstance(tc, param, map[string]string{})
 		if err != nil {
@@ -258,18 +258,18 @@ func (e *TypeEnv) DeclareUnionTypeClass(name string, bind func(*types.Var), inst
 		}
 		tc.Union[label] = inst
 	}
-	tc.UnionVariant = &types.Variant{
-		Row: &types.RowExtend{Labels: types.NewFlatTypeMap(instances), Row: types.RowEmptyPointer},
+	tc.UnionVariant = &hmtypes.Variant{
+		Row: &hmtypes.RowExtend{Labels: hmtypes.NewFlatTypeMap(instances), Row: hmtypes.RowEmptyPointer},
 	}
-	e.Declare(name, &types.Arrow{
-		Args:   []types.Type{e.NewQualifiedVar(types.InstanceConstraint{tc})},
+	e.Declare(name, &hmtypes.Arrow{
+		Args:   []hmtypes.Type{e.NewQualifiedVar(hmtypes.InstanceConstraint{tc})},
 		Return: tc.UnionVariant,
 	})
 	return tc, nil
 }
 
 // Lookup a declared type-class in the environment or its parent environment(s).
-func (e *TypeEnv) LookupTypeClass(name string) *types.TypeClass {
+func (e *TypeEnv) LookupTypeClass(name string) *hmtypes.TypeClass {
 	if e.TypeClasses != nil {
 		if tc, ok := e.TypeClasses[name]; ok {
 			return tc
@@ -289,16 +289,16 @@ func (e *TypeEnv) LookupTypeClass(name string) *types.TypeClass {
 //
 // The type-class which the instance implements will be modified to add an instance entry; changes will be visible across all uses
 // of the type-class, and changes must not be made to type-classes concurrently.
-func (e *TypeEnv) DeclareInstance(tc *types.TypeClass, param types.Type, methodNames map[string]string) (*types.Instance, error) {
+func (e *TypeEnv) DeclareInstance(tc *hmtypes.TypeClass, param hmtypes.Type, methodNames map[string]string) (*hmtypes.Instance, error) {
 	switch param.(type) {
-	case *types.Const, *types.App, *types.Record, *types.Variant:
+	case *hmtypes.Const, *hmtypes.App, *hmtypes.Record, *hmtypes.Variant:
 		// ok
 	default:
 		return nil, errors.New("Type-class instance must be a type constant, type application, record type, or variant type")
 	}
 	// prevent overlapping instances:
-	var conflict *types.Instance
-	tc.FindInstanceFromRoots(func(inst *types.Instance) bool {
+	var conflict *hmtypes.Instance
+	tc.FindInstanceFromRoots(func(inst *hmtypes.Instance) bool {
 		if !e.common.CanUnify(e.common.Instantiate(0, param), e.common.Instantiate(0, inst.Param)) {
 			return false
 		}
@@ -309,16 +309,16 @@ func (e *TypeEnv) DeclareInstance(tc *types.TypeClass, param types.Type, methodN
 		return true
 	})
 	if conflict != nil {
-		return nil, errors.New("Found overlapping instance for type-class " + tc.Name + " at " + conflict.TypeClass.Name + " instance " + types.TypeString(conflict.Param))
+		return nil, errors.New("Found overlapping instance for type-class " + tc.Name + " at " + conflict.TypeClass.Name + " instance " + hmtypes.TypeString(conflict.Param))
 	}
 
-	impls := make(types.MethodSet, len(methodNames))
+	impls := make(hmtypes.MethodSet, len(methodNames))
 	for name, implName := range methodNames {
 		impl := e.Lookup(implName)
 		if impl == nil {
 			return nil, errors.New("Missing method implementation " + methodNames[name] + " for " + name)
 		}
-		arrow, ok := impl.(*types.Arrow)
+		arrow, ok := impl.(*hmtypes.Arrow)
 		if !ok {
 			return nil, errors.New("Method implementation " + methodNames[name] + " for " + name + "is not a function")
 		}
@@ -342,13 +342,13 @@ func (e *TypeEnv) DeclareInstance(tc *types.TypeClass, param types.Type, methodN
 //
 // arrow should be the function-type assigned to a Call expression during inference.
 // If the Call expression was not inferred to be a method call, a nil instance will be returned.
-func (e *TypeEnv) FindMethodInstance(arrow *types.Arrow) *types.Instance {
+func (e *TypeEnv) FindMethodInstance(arrow *hmtypes.Arrow) *hmtypes.Instance {
 	method := arrow.Method
 	if method == nil {
 		return nil
 	}
-	var match *types.Instance
-	method.TypeClass.FindInstance(func(inst *types.Instance) bool {
+	var match *hmtypes.Instance
+	method.TypeClass.FindInstance(func(inst *hmtypes.Instance) bool {
 		if !e.common.CanUnify(e.common.Instantiate(0, arrow), e.common.Instantiate(0, inst.Methods[method.Name])) {
 			return false
 		}
@@ -358,13 +358,13 @@ func (e *TypeEnv) FindMethodInstance(arrow *types.Arrow) *types.Instance {
 	return match
 }
 
-func (e *TypeEnv) checkSatisfies(tc *types.TypeClass, param types.Type, methodImpls types.MethodSet, seen util.UintDedupeMap) error {
+func (e *TypeEnv) checkSatisfies(tc *hmtypes.TypeClass, param hmtypes.Type, methodImpls hmtypes.MethodSet, seen util.UintDedupeMap) error {
 	for name, def := range tc.Methods {
 		impl, ok := methodImpls[name]
 		if !ok || len(def.Args) != len(impl.Args) {
 			return methodErr(tc, param, name)
 		}
-		if !e.common.CanUnify(e.common.Instantiate(0, def).(*types.Arrow), e.common.Instantiate(0, impl).(*types.Arrow)) {
+		if !e.common.CanUnify(e.common.Instantiate(0, def).(*hmtypes.Arrow), e.common.Instantiate(0, impl).(*hmtypes.Arrow)) {
 			return methodErr(tc, param, name)
 		}
 	}
@@ -381,6 +381,6 @@ func (e *TypeEnv) checkSatisfies(tc *types.TypeClass, param types.Type, methodIm
 }
 
 // TODO: use wrapped errors
-func methodErr(tc *types.TypeClass, param types.Type, method string) error {
-	return errors.New("Type " + types.TypeString(param) + " does not implement method " + method + " of type-class " + tc.Name)
+func methodErr(tc *hmtypes.TypeClass, param hmtypes.Type, method string) error {
+	return errors.New("Type " + hmtypes.TypeString(param) + " does not implement method " + method + " of type-class " + tc.Name)
 }

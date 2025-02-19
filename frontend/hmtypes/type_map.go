@@ -20,19 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package types
+package hmtypes
 
 import (
 	"github.com/benbjohnson/immutable"
 )
 
-var emptyMap = immutable.NewSortedMap(nil)
+var emptyMap = immutable.NewSortedMap[string, *immutable.List[Type]](nil)
 
 var EmptyTypeMap = TypeMap{emptyMap}
 
 // TypeMap contains immutable mappings from labels to immutable lists of types.
 type TypeMap struct {
-	m *immutable.SortedMap
+	m *immutable.SortedMap[string, *immutable.List[Type]]
 }
 
 func NewTypeMap() TypeMap { return TypeMap{emptyMap} }
@@ -59,8 +59,8 @@ func (m TypeMap) First() (string, TypeList) {
 	if m.Len() == 0 {
 		return "", EmptyTypeList
 	}
-	k, v := m.m.Iterator().Next()
-	return k.(string), TypeList{v.(*immutable.List)}
+	k, v, _ := m.m.Iterator().Next()
+	return k, TypeList{v}
 }
 
 // Get the list of types for a label.
@@ -69,7 +69,7 @@ func (m TypeMap) Get(label string) (TypeList, bool) {
 	if !ok {
 		return TypeList{}, false
 	}
-	return TypeList{l: l.(*immutable.List)}, true
+	return TypeList{l: l}, true
 }
 
 // Iterate over entries in the map.
@@ -77,8 +77,11 @@ func (m TypeMap) Get(label string) (TypeList, bool) {
 func (m TypeMap) Range(f func(string, TypeList) bool) {
 	iter := m.m.Iterator()
 	for !iter.Done() {
-		k, v := iter.Next()
-		if !f(k.(string), TypeList{v.(*immutable.List)}) {
+		k, v, ok := iter.Next()
+		if !ok {
+			break
+		}
+		if !f(k, TypeList{v}) {
 			return
 		}
 	}
@@ -91,27 +94,30 @@ func (m TypeMap) Iterator() TypeMapIterator {
 
 // Convert the map to a builder for modification, without mutating the existing map.
 func (m TypeMap) Builder() TypeMapBuilder {
-	imm := m.m
-	if imm == nil {
-		imm = emptyMap
-	}
-	return TypeMapBuilder{immutable.NewSortedMapBuilder(imm)}
+	//imm := m.m
+	//if imm == nil {
+	//	imm = emptyMap
+	//}
+	//return TypeMapBuilder{immutable.NewSortedMapBuilder(imm)}
+	panic("type map builder is not implemented")
 }
 
 // TypeMapBuilder enables in-place updates of a map before finalization.
 type TypeMapBuilder struct {
-	b *immutable.SortedMapBuilder
+	b *immutable.SortedMapBuilder[string, *immutable.List[Type]]
 }
 
 func NewTypeMapBuilder() TypeMapBuilder {
-	return TypeMapBuilder{immutable.NewSortedMapBuilder(emptyMap)}
+	//return TypeMapBuilder{immutable.NewSortedMapBuilder[string, *immutable.List[Type]](emptyMap)}
+	panic("type map builder is not implemented")
 }
 
 func (b *TypeMapBuilder) EnsureInitialized() {
 	if b.b != nil {
 		return
 	}
-	b.b = immutable.NewSortedMapBuilder(emptyMap)
+	//b.b = immutable.NewSortedMapBuilder(emptyMap)
+	panic("type map builder is not initialized")
 }
 
 // Get the number of entries in the builder.
@@ -144,26 +150,27 @@ func (b TypeMapBuilder) Build() TypeMap {
 
 // Merge entries into the builder.
 func (a TypeMapBuilder) Merge(b TypeMap) TypeMapBuilder {
-	b.Range(func(label string, bts TypeList) bool {
-		ts, ok := a.b.Get(label)
-		if !ok {
-			a.Set(label, bts)
-			return true
-		}
-		lb := TypeListBuilder{immutable.NewListBuilder(ts.(*immutable.List))}
-		bts.Range(func(i int, t Type) bool {
-			lb.Append(t)
-			return true
-		})
-		a.Set(label, lb.Build())
-		return true
-	})
-	return a
+	//b.Range(func(label string, bts TypeList) bool {
+	//	ts, ok := a.b.Get(label)
+	//	if !ok {
+	//		a.Set(label, bts)
+	//		return true
+	//	}
+	//	lb := TypeListBuilder{immutable.NewListBuilder(ts.(*immutable.List))}
+	//	bts.Range(func(i int, t Type) bool {
+	//		lb.Append(t)
+	//		return true
+	//	})
+	//	a.Set(label, lb.Build())
+	//	return true
+	//})
+	//return a
+	panic("type map builder merge is not implemented")
 }
 
 // TypeMapIterator reads entries in a map, in sequential order.
 type TypeMapIterator struct {
-	i *immutable.SortedMapIterator
+	i *immutable.SortedMapIterator[string, *immutable.List[Type]]
 }
 
 // Done returns true if the iterator has reached the end a map.
@@ -174,8 +181,8 @@ func (i TypeMapIterator) Next() (string, TypeList) {
 	if i.Done() {
 		return "", EmptyTypeList
 	}
-	k, v := i.i.Next()
-	return k.(string), TypeList{v.(*immutable.List)}
+	k, v, _ := i.i.Next()
+	return k, TypeList{v}
 }
 
 // Peek returns the next entry from a map without advancing the iterator.
@@ -183,7 +190,7 @@ func (i TypeMapIterator) Peek() (string, TypeList) {
 	if i.Done() {
 		return "", EmptyTypeList
 	}
-	k, v := i.i.Next()
+	k, v, _ := i.i.Next()
 	i.i.Prev()
-	return k.(string), TypeList{v.(*immutable.List)}
+	return k, TypeList{v}
 }

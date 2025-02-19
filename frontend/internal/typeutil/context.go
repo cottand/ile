@@ -30,20 +30,20 @@ import (
 // Shadowed variables
 type StashedType struct {
 	Name string
-	Type types.Type
+	Type hmtypes.Type
 }
 
 // Stashed type-variables (during speculative unification)
 type StashedLink struct {
-	v    *types.Var
-	prev types.Var
+	v    *hmtypes.Var
+	prev hmtypes.Var
 }
 
 func (l *StashedLink) Restore() { *l.v = l.prev }
 
 // Used for deferred instance matching (when multiple instances match)
 type DeferredConstraint struct {
-	Var  *types.Var
+	Var  *hmtypes.Var
 	Expr ast.Expr
 }
 
@@ -51,7 +51,7 @@ type CommonContext struct {
 	VarTracker          VarTracker              // type-variables generated during inference
 	EnvStash            []StashedType           // shadowed variables
 	LinkStash           []StashedLink           // stashed type-variables (during speculative unification)
-	InstLookup          map[uint]*types.Var     // instantiation lookup for generic type-variables
+	InstLookup          map[uint]*hmtypes.Var   // instantiation lookup for generic type-variables
 	VarScopes           map[string][]*ast.Scope // map from variable name to defining scope and shadowed scopes (stacked)
 	ScopeStack          []ast.Scope             // stack of nested binding scopes during inference
 	DeferredConstraints []DeferredConstraint    // deferred instance matching (when multiple instances match)
@@ -74,7 +74,7 @@ func (ctx *CommonContext) Init() {
 		return
 	}
 	ctx.EnvStash, ctx.LinkStash = ctx._envStash[:0], ctx._linkStash[:0]
-	ctx.InstLookup = make(map[uint]*types.Var, 16)
+	ctx.InstLookup = make(map[uint]*hmtypes.Var, 16)
 	ctx.DeferredConstraints = ctx._deferredConstraints[:0]
 	ctx.VarScopes = make(map[string][]*ast.Scope)
 }
@@ -106,7 +106,7 @@ func (ctx *CommonContext) ClearInstantiationLookup() {
 }
 
 // returns 1 if the variable was stashed, otherwise 0
-func (ctx *CommonContext) Stash(env types.TypeEnv, name string) int {
+func (ctx *CommonContext) Stash(env hmtypes.TypeEnv, name string) int {
 	if existing := env.Lookup(name); existing != nil {
 		ctx.EnvStash = append(ctx.EnvStash, StashedType{name, existing})
 		return 1
@@ -114,7 +114,7 @@ func (ctx *CommonContext) Stash(env types.TypeEnv, name string) int {
 	return 0
 }
 
-func (ctx *CommonContext) Unstash(env types.TypeEnv, count int) {
+func (ctx *CommonContext) Unstash(env hmtypes.TypeEnv, count int) {
 	if count <= 0 {
 		return
 	}
@@ -126,7 +126,7 @@ func (ctx *CommonContext) Unstash(env types.TypeEnv, count int) {
 	ctx.EnvStash = ctx.EnvStash[0 : len(stash)-unstashed]
 }
 
-func (ctx *CommonContext) StashLink(v *types.Var) {
+func (ctx *CommonContext) StashLink(v *hmtypes.Var) {
 	ctx.LinkStash = append(ctx.LinkStash, StashedLink{v, *v})
 }
 

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package types
+package hmtypes
 
 var _ Type = (*RecursiveLink)(nil)
 
@@ -32,14 +32,14 @@ var _ Type = (*RecursiveLink)(nil)
 // A recursive type δ has the form μi(α1,...,αn).(τ1,...,τn), where 1 ≤ i ≤ n and each αj
 // is a type variable that may appear free in any or all of τ1,...,τn.
 //
-//   δ ::= μi(α1,...,αn).(τ1,...,τn)
+//	δ ::= μi(α1,...,αn).(τ1,...,τn)
 //
 // Intuitively, this type is the ith in a system of n mutually recursive types. As such,
 // it is isomorphic to τi with each αj replaced by the jth component of the recursive bundle.
 //
 // Formally, it is isomorphic to the following type:
 //
-//   τi[μ1(α1,...,αn).(τ1,...,τn), ..., μn(α1,...,αn).(τ1,...,τn) / τ1,...,τn]
+//	τi[μ1(α1,...,αn).(τ1,...,τn), ..., μn(α1,...,αn).(τ1,...,τn) / τ1,...,τn]
 //
 // where we denote by τ[σ1,...,σn/α1,...,αn] the simultaneous capture-avoiding substitution
 // of σ1,...,σn for α1,...,αn in τ.

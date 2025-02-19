@@ -17,7 +17,7 @@ type Positioner interface {
 
 // TypeAnnotationFn should produce a type at the given binding-level. The constructed type may include
 // types derived from variables which are already in scope (retrieved from the type-environment).
-type TypeAnnotationFn = func(env types.TypeEnv, level uint, using []types.Type) (types.Type, error)
+type TypeAnnotationFn = func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
 
 type Range struct {
 	PosStart token.Pos
@@ -71,6 +71,6 @@ func (d Declaration) IsPublic() bool {
 type Import struct {
 	Positioner
 	// if Alias is the empty string it means there was no alias
-	Alias string
+	Alias      string
 	ImportPath string
 }

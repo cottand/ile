@@ -15,8 +15,8 @@ import (
 // and as such do not constitute a Package
 var Universe = func() *infer.TypeEnv {
 	env := infer.NewTypeEnv(nil)
-	env.Declare("True", &types.Const{Name: "Bool"})
-	env.Declare("False", &types.Const{Name: "Bool"})
+	env.Declare("True", &hmtypes.Const{Name: "Bool"})
+	env.Declare("False", &hmtypes.Const{Name: "Bool"})
 	return env
 }()
 
@@ -67,11 +67,11 @@ func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
 			asLetGroup := newExpr.(*ast.LetGroup)
 			for _, annotated := range asLetGroup.Vars {
 				if annotated.Var == decl.Name {
-					inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", types.TypeString(newExpr.Type()))
+					inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", hmtypes.TypeString(newExpr.Type()))
 					// skip over the Imports legGroup as Imports will be in scope in the compile phase
 					body := annotated.Value.(*ast.LetGroup).Body
 					file.Declarations[j].E = body
-					inferenceLogger.Debug("successfully annotated decl", "name", decl.Name, "type", types.TypeString(body.Type()))
+					inferenceLogger.Debug("successfully annotated decl", "name", decl.Name, "type", hmtypes.TypeString(body.Type()))
 				}
 			}
 		}

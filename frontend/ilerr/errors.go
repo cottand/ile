@@ -69,8 +69,8 @@ func (e Unclassified) withStack(stack []byte) IleError {
 
 type NewTypeUnificationConst struct {
 	ast.Positioner
-	First  types.Type
-	Second types.Type
+	First  hmtypes.Type
+	Second hmtypes.Type
 	stack  []byte
 }
 
@@ -203,8 +203,8 @@ func (e NewUnsupportedGoType) withStack(stack []byte) IleError {
 
 type NewTypeUnificationComptimeConst struct {
 	ast.Positioner
-	First  types.Type
-	Second types.Type
+	First  hmtypes.Type
+	Second hmtypes.Type
 	Reason string
 	stack  []byte
 }

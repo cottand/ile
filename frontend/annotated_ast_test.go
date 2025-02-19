@@ -29,11 +29,11 @@ func TestAnnotatedFunc(t *testing.T) {
 		},
 	}
 
-	expr.SetType(construct.TArrow1(&types.Const{Name: "Int"}, &types.Const{Name: "Int"}))
+	expr.SetType(construct.TArrow1(&hmtypes.Const{Name: "Int"}, &hmtypes.Const{Name: "Int"}))
 
 	env := infer.NewTypeEnv(nil)
 	ctx := infer.NewContext()
 	expr2, err := ctx.Annotate(expr, env)
 	assert.NoError(t, err)
-	fmt.Println(types.TypeString(expr2.Type()))
+	fmt.Println(hmtypes.TypeString(expr2.Type()))
 }

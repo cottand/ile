@@ -36,9 +36,9 @@ var logger = log.DefaultLogger.With("section", "unify")
 // http://okmij.org/ftp/ML/generalization.html#levels
 //
 // This implementation follows the sound_eager algorithm.
-func (ctx *CommonContext) occursAdjustLevels(id, level uint, t types.Type) error {
+func (ctx *CommonContext) occursAdjustLevels(id, level uint, t hmtypes.Type) error {
 	switch t := t.(type) {
-	case *types.Var:
+	case *hmtypes.Var:
 		switch {
 		case t.IsLinkVar():
 			return ctx.occursAdjustLevels(id, level, t.Link())
@@ -57,7 +57,7 @@ func (ctx *CommonContext) occursAdjustLevels(id, level uint, t types.Type) error
 		}
 		return nil
 
-	case *types.App:
+	case *hmtypes.App:
 		if err := ctx.occursAdjustLevels(id, level, t.Const); err != nil {
 			return err
 		}
@@ -73,7 +73,7 @@ func (ctx *CommonContext) occursAdjustLevels(id, level uint, t types.Type) error
 		}
 		return nil
 
-	case *types.Arrow:
+	case *hmtypes.Arrow:
 		for _, arg := range t.Args {
 			if err := ctx.occursAdjustLevels(id, level, arg); err != nil {
 				return err
@@ -81,16 +81,16 @@ func (ctx *CommonContext) occursAdjustLevels(id, level uint, t types.Type) error
 		}
 		return ctx.occursAdjustLevels(id, level, t.Return)
 
-	case *types.Record:
+	case *hmtypes.Record:
 		return ctx.occursAdjustLevels(id, level, t.Row)
 
-	case *types.Variant:
+	case *hmtypes.Variant:
 		return ctx.occursAdjustLevels(id, level, t.Row)
 
-	case *types.RowExtend:
+	case *hmtypes.RowExtend:
 		var err error
-		t.Labels.Range(func(label string, ts types.TypeList) bool {
-			ts.Range(func(i int, t types.Type) bool {
+		t.Labels.Range(func(label string, ts hmtypes.TypeList) bool {
+			ts.Range(func(i int, t hmtypes.Type) bool {
 				err = ctx.occursAdjustLevels(id, level, t)
 				return err == nil
 			})
@@ -127,14 +127,14 @@ func (ctx *CommonContext) Commit(txn UnifyTxn) {
 	ctx.Speculate, ctx.LinkStash = txn.Speculate, txn.LinkStash
 }
 
-func (ctx *CommonContext) CanUnify(a, b types.Type) bool {
+func (ctx *CommonContext) CanUnify(a, b hmtypes.Type) bool {
 	txn := ctx.NewUnifyTxn()
 	err := ctx.Unify(a, b)
 	ctx.Rollback(txn)
 	return err == nil
 }
 
-func (ctx *CommonContext) TryUnify(a, b types.Type) error {
+func (ctx *CommonContext) TryUnify(a, b hmtypes.Type) error {
 	txn := ctx.NewUnifyTxn()
 	if err := ctx.Unify(a, b); err != nil {
 		ctx.Rollback(txn)
@@ -161,18 +161,18 @@ func (ctx *CommonContext) ApplyDeferredConstraints() (invalidExpr ast.Expr, err 
 	return
 }
 
-func (ctx *CommonContext) applyConstraints(a *types.Var, b types.Type) error {
+func (ctx *CommonContext) applyConstraints(a *hmtypes.Var, b hmtypes.Type) error {
 	acs := a.Constraints()
-	bv, bIsVar := b.(*types.Var)
+	bv, bIsVar := b.(*hmtypes.Var)
 	// Ensure size type-variables are only linked to size types (or other type-variables):
 	if a.IsSizeVar() && !bIsVar {
-		if _, ok := b.(types.Size); !ok {
+		if _, ok := b.(hmtypes.Size); !ok {
 			return errors.New("Failed to unify size type-variable with " + b.TypeName())
 		}
 	}
 	// Ensure constructor/constant type-variables are only linked to type constants (or other type-variables):
 	if a.IsConstVar() && !bIsVar {
-		if _, ok := b.(*types.Const); !ok {
+		if _, ok := b.(*hmtypes.Const); !ok {
 			return errors.New("Failed to unify constructor/constant type-variable with " + b.TypeName())
 		}
 	}
@@ -185,7 +185,7 @@ func (ctx *CommonContext) applyConstraints(a *types.Var, b types.Type) error {
 		if ctx.Speculate {
 			// don't modify the existing slice of constraints
 			ctx.StashLink(bv)
-			bcsTmp := make([]types.InstanceConstraint, len(bcs), len(bcs)+len(acs))
+			bcsTmp := make([]hmtypes.InstanceConstraint, len(bcs), len(bcs)+len(acs))
 			copy(bcsTmp, bcs)
 			bv.SetConstraints(bcsTmp)
 		}
@@ -202,9 +202,9 @@ func (ctx *CommonContext) applyConstraints(a *types.Var, b types.Type) error {
 		// between instances where one is a subclass of the other, and the search order ensures
 		// sub-classes are visited first. If the linked type b unifies with multiple instances,
 		// overlap will be re-checked after inference during deferred unification (when enabled).
-		var firstMatch, lastMatch *types.Instance
+		var firstMatch, lastMatch *hmtypes.Instance
 		overlapping := false
-		c.TypeClass.MatchInstance(b, func(inst *types.Instance) (done bool) {
+		c.TypeClass.MatchInstance(b, func(inst *hmtypes.Instance) (done bool) {
 			if ctx.CanUnify(b, ctx.Instantiate(a.LevelNum(), inst.Param)) {
 				// Sub-classes are visited first:
 				if lastMatch != nil && !lastMatch.TypeClass.HasSuperClass(inst.TypeClass) {
@@ -239,9 +239,9 @@ func (ctx *CommonContext) applyConstraints(a *types.Var, b types.Type) error {
 	return nil
 }
 
-func (ctx *CommonContext) Unify(a, b types.Type) error {
+func (ctx *CommonContext) Unify(a, b hmtypes.Type) error {
 	// Path compression:
-	a, b = types.RealType(a), types.RealType(b)
+	a, b = hmtypes.RealType(a), hmtypes.RealType(b)
 
 	if a == b {
 		return nil
@@ -249,8 +249,8 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 
 	// unify with recursive types:
 
-	if a, ok := a.(*types.RecursiveLink); ok {
-		if b, ok := b.(*types.RecursiveLink); ok {
+	if a, ok := a.(*hmtypes.RecursiveLink); ok {
+		if b, ok := b.(*hmtypes.RecursiveLink); ok {
 			if !a.Recursive.Matches(b.Recursive) || a.Index != b.Index {
 				return errors.New("Failed to unify recursive type links")
 			}
@@ -265,15 +265,15 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 		// unroll a
 		return ctx.Unify(a.Link(), b)
 	}
-	if b, ok := b.(*types.RecursiveLink); ok {
+	if b, ok := b.(*hmtypes.RecursiveLink); ok {
 		// unroll b
 		return ctx.Unify(a, b.Link())
 	}
 
 	// unify type variables:
 
-	avar, _ := a.(*types.Var)
-	bvar, _ := b.(*types.Var)
+	avar, _ := a.(*hmtypes.Var)
+	bvar, _ := b.(*hmtypes.Var)
 	switch {
 	case avar == nil && bvar != nil:
 		return ctx.Unify(b, a)
@@ -310,7 +310,7 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			case bvar.IsRestrictedVar():
 				avar.Restrict(bvar.Level())
 			}
-		} else if bConst, isComptimeConst := b.(*types.CompTimeConst); isComptimeConst {
+		} else if bConst, isComptimeConst := b.(*hmtypes.CompTimeConst); isComptimeConst {
 			logger.Debug("trying to unify a comptime constant with a type var", "var", avar, "comptime", b)
 
 			avar.SetLink(bConst.DefaultType)
@@ -331,9 +331,9 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 
 	// unify aliased types:
 
-	aliasA, _ := a.(*types.App)
-	aliasB, _ := b.(*types.App)
-	var underA, underB types.Type
+	aliasA, _ := a.(*hmtypes.App)
+	aliasB, _ := b.(*hmtypes.App)
+	var underA, underB hmtypes.Type
 	if aliasA != nil && aliasA.Underlying != nil {
 		underA = aliasA.Underlying
 	}
@@ -367,33 +367,33 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 	switch a := a.(type) {
 	// Var and RecursiveLink are handled above
 
-	case *types.Unit:
-		if _, ok := b.(*types.Unit); ok {
+	case *hmtypes.Unit:
+		if _, ok := b.(*hmtypes.Unit); ok {
 			return nil
 		}
-		return errors.New("Failed to unify unit with " + types.TypeName(b))
+		return errors.New("Failed to unify unit with " + hmtypes.TypeName(b))
 
-	case *types.Const:
-		if b, ok := b.(*types.Const); ok {
+	case *hmtypes.Const:
+		if b, ok := b.(*hmtypes.Const); ok {
 			if a.Name == b.Name {
 				return nil
 			}
 			return ilerr.New(ilerr.NewTypeUnificationConst{Positioner: ctx.CurrentExpr, First: a, Second: b})
 		}
-		if b, ok := b.(*types.CompTimeConst); ok {
+		if b, ok := b.(*hmtypes.CompTimeConst); ok {
 			err := b.MaybeUnify(*a)
 			if err == nil {
 				return nil
 			}
 			return ilerr.New(ilerr.NewTypeUnificationComptimeConst{Positioner: ctx.CurrentExpr, First: a, Second: b, Reason: err.Error()})
 		}
-	case *types.CompTimeConst:
-		if b, ok := b.(*types.CompTimeConst); ok {
+	case *hmtypes.CompTimeConst:
+		if b, ok := b.(*hmtypes.CompTimeConst); ok {
 			if a.Name == b.Name {
 				return nil
 			}
 		}
-		if b, ok := b.(*types.Const); ok {
+		if b, ok := b.(*hmtypes.Const); ok {
 			err := a.MaybeUnify(*b)
 			if err == nil {
 				return nil
@@ -401,18 +401,18 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 			return ilerr.New(ilerr.NewTypeUnificationComptimeConst{Positioner: ctx.CurrentExpr, First: b, Second: a, Reason: err.Error()})
 		}
 
-	case types.Size:
-		if b, ok := b.(types.Size); ok {
+	case hmtypes.Size:
+		if b, ok := b.(hmtypes.Size); ok {
 			if a != b {
 				return errors.New("Failed to unify sized types with different sizes")
 			}
 			return nil
 		}
 
-	case *types.App:
-		bapp, ok := b.(*types.App)
+	case *hmtypes.App:
+		bapp, ok := b.(*hmtypes.App)
 		if !ok {
-			return errors.New("Failed to unify type-application with " + types.TypeName(b))
+			return errors.New("Failed to unify type-application with " + hmtypes.TypeName(b))
 		}
 		if err := ctx.Unify(a.Const, bapp.Const); err != nil {
 			return err
@@ -430,10 +430,10 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 		}
 		return nil
 
-	case *types.Arrow:
-		b, ok := b.(*types.Arrow)
+	case *hmtypes.Arrow:
+		b, ok := b.(*hmtypes.Arrow)
 		if !ok {
-			return errors.New("Failed to unify arrow with type " + types.TypeName(b))
+			return errors.New("Failed to unify arrow with type " + hmtypes.TypeName(b))
 		}
 		if len(a.Args) != len(b.Args) {
 			return errors.New("Cannot unify arrows with differing arity")
@@ -448,29 +448,29 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 		}
 		return nil
 
-	case *types.Record:
-		if b, ok := b.(*types.Record); ok {
+	case *hmtypes.Record:
+		if b, ok := b.(*hmtypes.Record); ok {
 			return ctx.Unify(a.Row, b.Row)
 		}
 
-	case *types.Variant:
-		if b, ok := b.(*types.Variant); ok {
+	case *hmtypes.Variant:
+		if b, ok := b.(*hmtypes.Variant); ok {
 			return ctx.Unify(a.Row, b.Row)
 		}
 
-	case *types.RowExtend:
-		if b, ok := b.(*types.RowExtend); ok {
+	case *hmtypes.RowExtend:
+		if b, ok := b.(*hmtypes.RowExtend); ok {
 			return ctx.unifyRows(a, b)
 		}
 
-	case *types.RowEmpty:
-		if _, ok := b.(*types.RowEmpty); ok {
+	case *hmtypes.RowEmpty:
+		if _, ok := b.(*hmtypes.RowEmpty); ok {
 			return nil
 		}
 
 	}
 
-	return errors.New("failed to unify " + types.TypeName(a) + " with " + types.TypeName(b))
+	return errors.New("failed to unify " + hmtypes.TypeName(a) + " with " + hmtypes.TypeName(b))
 }
 
 // Returns a unification error or extra types in a and b, respectively, if the lengths do not match.
@@ -478,27 +478,27 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 // [0: a, 1: b, 2: c, 3: d] ==> extra types in a: [0: a]
 //
 //	[0: b, 1: c, 2: d] ==> extra types in b: []
-func (ctx *CommonContext) unifyLists(a, b types.TypeList) (extraA, extraB types.TypeList, err error) {
+func (ctx *CommonContext) unifyLists(a, b hmtypes.TypeList) (extraA, extraB hmtypes.TypeList, err error) {
 	la, lb := a.Len(), b.Len()
 	// common case for unscoped labels:
 	if la == 1 && lb == 1 {
-		return types.EmptyTypeList, types.EmptyTypeList, ctx.Unify(a.Get(0), b.Get(0))
+		return hmtypes.EmptyTypeList, hmtypes.EmptyTypeList, ctx.Unify(a.Get(0), b.Get(0))
 	}
 	n := la
 	if lb > la {
-		extraA, extraB = types.EmptyTypeList, b.Slice(0, lb-la)
+		extraA, extraB = hmtypes.EmptyTypeList, b.Slice(0, lb-la)
 		// rearrange so the longer list is on the left-hand side:
 		n, a, b, la, lb = lb, b, a, lb, la
 	} else if la > lb {
-		extraA, extraB = a.Slice(0, la-lb), types.EmptyTypeList
+		extraA, extraB = a.Slice(0, la-lb), hmtypes.EmptyTypeList
 	} else {
-		extraA, extraB = types.EmptyTypeList, types.EmptyTypeList
+		extraA, extraB = hmtypes.EmptyTypeList, hmtypes.EmptyTypeList
 	}
 	ai, bi := la-lb, 0
 	for ai < n {
 		va, vb := a.Get(ai), b.Get(bi)
 		if err := ctx.Unify(va, vb); err != nil {
-			return types.EmptyTypeList, types.EmptyTypeList, err
+			return hmtypes.EmptyTypeList, hmtypes.EmptyTypeList, err
 		}
 		ai++
 		bi++
@@ -506,18 +506,18 @@ func (ctx *CommonContext) unifyLists(a, b types.TypeList) (extraA, extraB types.
 	return extraA, extraB, nil
 }
 
-func (ctx *CommonContext) unifyRows(a, b types.Type) error {
-	labelsA, restA, err := types.FlattenRowType(a)
+func (ctx *CommonContext) unifyRows(a, b hmtypes.Type) error {
+	labelsA, restA, err := hmtypes.FlattenRowType(a)
 	if err != nil {
 		return err
 	}
-	labelsB, restB, err := types.FlattenRowType(b)
+	labelsB, restB, err := hmtypes.FlattenRowType(b)
 	if err != nil {
 		return err
 	}
 
 	// labels missing from labelsA/labelsA:
-	var missingA, missingB types.TypeMapBuilder
+	var missingA, missingB hmtypes.TypeMapBuilder
 	iterA, iterB := labelsA.Iterator(), labelsB.Iterator()
 	for !iterA.Done() {
 		label, va := iterA.Next()
@@ -554,27 +554,27 @@ func (ctx *CommonContext) unifyRows(a, b types.Type) error {
 	case za && zb: // all labels match
 		return ctx.Unify(restA, restB)
 	case za && !zb: // labels missing in labelsB
-		return ctx.Unify(restB, &types.RowExtend{Row: restA, Labels: missingB.Build()})
+		return ctx.Unify(restB, &hmtypes.RowExtend{Row: restA, Labels: missingB.Build()})
 	case !za && zb: // labels missing in labelsA
-		return ctx.Unify(restA, &types.RowExtend{Row: restB, Labels: missingA.Build()})
+		return ctx.Unify(restA, &hmtypes.RowExtend{Row: restB, Labels: missingA.Build()})
 	default: // labels missing in both labelsA/labelsB
 		switch restA := restA.(type) {
-		case *types.RowEmpty:
+		case *hmtypes.RowEmpty:
 			// will result in an error:
-			return ctx.Unify(restA, &types.RowExtend{Row: ctx.VarTracker.New(0), Labels: missingA.Build()})
-		case *types.Var:
+			return ctx.Unify(restA, &hmtypes.RowExtend{Row: ctx.VarTracker.New(0), Labels: missingA.Build()})
+		case *hmtypes.Var:
 			if !restA.IsUnboundVar() {
 				return errors.New("Invalid state while unifying type-variables for rows")
 			}
 			tv := ctx.VarTracker.New(restA.LevelNum())
-			ext := types.RowExtend{Row: tv, Labels: missingB.Build()}
+			ext := hmtypes.RowExtend{Row: tv, Labels: missingB.Build()}
 			if err := ctx.Unify(restB, &ext); err != nil {
 				return err
 			}
 			if restA.IsLinkVar() {
 				return errors.New("Invalid recursive row-types")
 			}
-			ext = types.RowExtend{Row: tv, Labels: missingA.Build()}
+			ext = hmtypes.RowExtend{Row: tv, Labels: missingA.Build()}
 			return ctx.Unify(restA, &ext)
 		}
 	}

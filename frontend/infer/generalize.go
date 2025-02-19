@@ -28,26 +28,26 @@ import (
 )
 
 // Generalize all unbound type-variables in t, excluding type-variables within mutable reference-types.
-func Generalize(t types.Type) types.Type {
-	return typeutil.GeneralizeOpts(types.TopLevel, t, false, false)
+func Generalize(t hmtypes.Type) hmtypes.Type {
+	return typeutil.GeneralizeOpts(hmtypes.TopLevel, t, false, false)
 }
 
 // Mark all type-variables in t as weakly-polymorphic. Weakly-polymorphic types will not be generalized during inference.
-func MarkWeak(t types.Type) types.Type {
-	return typeutil.GeneralizeOpts(types.TopLevel, t, false, true)
+func MarkWeak(t hmtypes.Type) hmtypes.Type {
+	return typeutil.GeneralizeOpts(hmtypes.TopLevel, t, false, true)
 }
 
 // Generalize all unbound type-variables in t, including type-variables within mutable reference-types.
-func GeneralizeRefs(t types.Type) types.Type {
-	return typeutil.GeneralizeOpts(types.TopLevel, t, true, false)
+func GeneralizeRefs(t hmtypes.Type) hmtypes.Type {
+	return typeutil.GeneralizeOpts(hmtypes.TopLevel, t, true, false)
 }
 
 // Generalize all unbound type-variables in t, excluding type-variables within mutable reference-types.
-func GeneralizeAtLevel(level uint, t types.Type) types.Type {
+func GeneralizeAtLevel(level uint, t hmtypes.Type) hmtypes.Type {
 	return typeutil.GeneralizeOpts(level, t, true, false)
 }
 
 // Generalize all unbound type-variables in t, marking each generalized variable as weakly-polymorphic.
-func GeneralizeWeak(t types.Type) types.Type {
-	return typeutil.GeneralizeOpts(types.TopLevel, t, true, true)
+func GeneralizeWeak(t hmtypes.Type) hmtypes.Type {
+	return typeutil.GeneralizeOpts(hmtypes.TopLevel, t, true, true)
 }

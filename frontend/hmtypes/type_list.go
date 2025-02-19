@@ -20,19 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package types
+package hmtypes
 
 import (
 	"github.com/benbjohnson/immutable"
 )
 
-var emptyList = immutable.NewList()
+var emptyList = immutable.NewList[Type]()
 
 var EmptyTypeList = TypeList{emptyList}
 
 // TypeList contains an immutable list of types.
 type TypeList struct {
-	l *immutable.List
+	l *immutable.List[Type]
 }
 
 func NewTypeList() TypeList { return TypeList{emptyList} }
@@ -58,40 +58,6 @@ func (l TypeList) Range(f func(int, Type) bool) {
 	}
 }
 
-func (l TypeList) Builder() TypeListBuilder {
-	imm := l.l
-	if imm == nil {
-		imm = emptyList
-	}
-	return TypeListBuilder{immutable.NewListBuilder(imm)}
-}
-
-type TypeListBuilder struct {
-	b *immutable.ListBuilder
-}
-
-func NewTypeListBuilder() TypeListBuilder {
-	return TypeListBuilder{immutable.NewListBuilder(emptyList)}
-}
-
-func (b *TypeListBuilder) EnsureInitialized() {
-	if b.b != nil {
-		return
-	}
-	b.b = immutable.NewListBuilder(emptyList)
-}
-
-func (b TypeListBuilder) Len() int {
-	if b.b == nil {
-		return 0
-	}
-	return b.b.Len()
-}
-func (b TypeListBuilder) Append(t Type)     { b.b.Append(t) }
-func (b TypeListBuilder) Set(i int, t Type) { b.b.Set(i, t) }
-func (b TypeListBuilder) Build() TypeList {
-	if b.b == nil {
-		return EmptyTypeList
-	}
-	return TypeList{b.b.List()}
+func (l TypeList) Append(value Type) TypeList {
+	return TypeList{l: l.l.Append(value)}
 }
