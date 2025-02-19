@@ -74,7 +74,7 @@ func WalkExpr(e Expr, f func(Expr)) {
 		f(e)
 		WalkExpr(e.Value, f)
 
-	case *MatchSubject:
+	case *WhenMatch:
 		f(e)
 		for _, v := range e.Cases {
 			WalkExpr(v.Value, f)

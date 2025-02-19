@@ -95,7 +95,7 @@ func StringLiteral(value string, in ast.Node) *Literal {
 
 // IntLiteral represents a compile time integer value
 //
-// # It is written as a literal so we do not know if it will be used as an Int, Int32, or IntPlat
+// It is written as a literal so we do not know if it will be used as an Int, Int32, or IntPlat
 //
 // Semantics for later converting to the appropriate type must follow Go's (see https://go.dev/ref/spec#Constants)
 func IntLiteral(value string, in ast.Node) *Literal {

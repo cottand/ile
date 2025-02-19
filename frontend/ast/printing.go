@@ -195,7 +195,7 @@ func exprString(sb *strings.Builder, simple bool, e Expr) {
 			sb.WriteByte(')')
 		}
 
-	case *MatchSubject:
+	case *WhenMatch:
 		sb.WriteString("match ")
 		exprString(sb, false, e.Value)
 		sb.WriteString(" {")
@@ -204,15 +204,22 @@ func exprString(sb *strings.Builder, simple bool, e Expr) {
 				sb.WriteString(" |")
 			}
 			sb.WriteString(" :")
-			sb.WriteString(c.Label)
-			sb.WriteByte(' ')
-			sb.WriteString(c.Var)
+			p, ok := c.Pattern.(*VariantPattern)
+			if ok {
+				sb.WriteString(p.Label)
+				sb.WriteByte(' ')
+				sb.WriteString(p.Var)
+			}
+			p2, ok := c.Pattern.(*ValueLiteralPattern)
+			if ok {
+				sb.WriteString(p2.Value.ExprName())
+			}
 			sb.WriteString(" -> ")
 			exprString(sb, false, c.Value)
 		}
 		if e.Default != nil {
 			sb.WriteString(" | ")
-			sb.WriteString(e.Default.Var)
+			sb.WriteString(e.Default.Label)
 			sb.WriteString(" -> ")
 			exprString(sb, false, e.Default.Value)
 		}

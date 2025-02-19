@@ -163,8 +163,8 @@ whenCase
     ;
 
 matchPattern
-    :  literal
-    | operandName
+    : literal       // matches literal equality
+    | operandName   // instantiates a new variable
     ;
 
 operand

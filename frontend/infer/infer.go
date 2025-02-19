@@ -24,12 +24,13 @@ package infer
 
 import (
 	"errors"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/internal/log"
-
+	"fmt"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/internal/astutil"
 	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/internal/log"
+	"reflect"
 )
 
 var logger = log.DefaultLogger.With("section", "inference-each")
@@ -375,24 +376,7 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		vt := &types.Variant{Row: &types.RowExtend{Row: rowType, Labels: labels}}
 		return vt, nil
 
-		// Inline equivalent to inferring a record-select on a record constructed from the cases,
-		// where each case is represented as a labeled function from none to the
-		// shared return type for the match expression
-	case *ast.When:
-		retType := env.common.VarTracker.New(level)
-
-		env.common.EnterScope(e)
-		err := ti.inferWhenCases(env, level, retType, e, e.Cases)
-		env.common.LeaveScope()
-		if err != nil {
-			return nil, err
-		}
-		if ti.annotate {
-			e.SetType(retType)
-		}
-		return retType, nil
-
-	case *ast.MatchSubject:
+	case *ast.WhenMatch:
 		// Inline equivalent to inferring a record-select on a record constructed from the cases,
 		// where each case is represented as a labeled function from the case's variant-type to the
 		// shared return type for the match expression:
@@ -409,15 +393,15 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 		} else {
 			rowType = env.common.VarTracker.New(level)
 			// Begin a new scope:
-			stashed := env.common.Stash(env, e.Default.Var)
+			stashed := env.common.Stash(env, e.Default.Label)
 			env.common.EnterScope(e)
-			env.Assign(e.Default.Var, &types.Variant{Row: rowType})
-			env.common.PushVarScope(e.Default.Var)
+			env.Assign(e.Default.Label, &types.Variant{Row: rowType})
+			env.common.PushVarScope(e.Default.Label)
 			retType, err = ti.infer(env, level, e.Default.Value)
 			// Restore the parent scope:
-			env.Remove(e.Default.Var)
+			env.Remove(e.Default.Label)
 			env.common.Unstash(env, stashed)
-			env.common.PopVarScope(e.Default.Var)
+			env.common.PopVarScope(e.Default.Label)
 			env.common.LeaveScope()
 			if err != nil {
 				return nil, err
@@ -428,12 +412,12 @@ func (ti *InferenceContext) inferCurrentExpr(env *TypeEnv, level uint) (ret type
 			return nil, err
 		}
 		env.common.EnterScope(e)
-		casesRow, err := ti.inferCases(env, level, retType, rowType, e, e.Cases)
+		casesRow, err := ti.inferCases(env, level, retType, rowType, e.Cases)
 		env.common.LeaveScope()
 		if err != nil {
 			return nil, err
 		}
-		if err := env.common.Unify(matchType, &types.Variant{Row: casesRow}); err != nil {
+		if err := env.common.Unify(matchType, casesRow); err != nil {
 			ti.invalid, ti.err = e, err
 			return nil, err
 		}
@@ -507,22 +491,6 @@ func (ti *InferenceContext) matchFuncType(env *TypeEnv, argc int, t types.Type) 
 	return nil, errors.New("Unexpected type " + t.TypeName() + " for applied function")
 }
 
-func (ti *InferenceContext) inferWhenCases(env *TypeEnv, level uint, retType types.Type, _ *ast.When, cases []ast.WhenCase) error {
-	for i := len(cases) - 1; i >= 0; i-- {
-		c := cases[i]
-		// Infer the return expression for the case
-		t, err := ti.infer(env, level, c.Value)
-		if err != nil {
-			return err
-		}
-		// Ensure all cases have matching return types:
-		if err := env.common.Unify(retType, t); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // https://github.com/tomprimozic/type-systems/blob/master/extensible_rows2/infer.ml#L287
 //
 // infer_cases env level return_ty rest_row_ty cases = match cases with
@@ -533,40 +501,62 @@ func (ti *InferenceContext) inferWhenCases(env *TypeEnv, level uint, retType typ
 //			unify return_ty (infer (Env.extend env var_name variant_ty) level expr) ;
 //			let other_cases_row = infer_cases env level return_ty rest_row_ty other_cases in
 //			TRowExtend(LabelMap.singleton label [variant_ty], other_cases_row)
-func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType types.Type, e *ast.MatchSubject, cases []ast.MatchCase) (types.Type, error) {
+func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowType types.Type, cases []ast.WhenCase) (retRowType types.Type, err error) {
 	// Each case extends an existing record formed from all subsequent cases.
 	// Visit cases in reverse order, accumulating labels and value types into the record as row-extensions.
-	extensions := make([]types.RowExtend, len(cases))
 	vars := env.common.VarTracker.NewList(level, len(cases))
 	tv, tail := vars.Head(), vars.Tail()
 	for i := len(cases) - 1; i >= 0; i-- {
 		c := cases[i]
-		// Infer the return expression for the case with the variable-name temporarily bound in the environment:
-		variantType := tv
-		// Begin a new scope:
-		stashed := env.common.Stash(env, c.Var)
-		env.Assign(c.Var, variantType)
-		env.common.PushVarScope(c.Var)
-		c.SetVariantType(variantType)
-		t, err := ti.infer(env, level, c.Value)
-		env.Remove(c.Var)
-		env.common.PopVarScope(c.Var)
-		// Restore the parent scope:
-		env.common.Unstash(env, stashed)
-		if err != nil {
-			return nil, err
+		switch pattern := c.Pattern.(type) {
+		case *ast.VariantPattern:
+			// Infer the return expression for the case with the variable-name temporarily bound in the environment:
+			variantType := tv
+			// Begin a new scope:
+			stashed := env.common.Stash(env, pattern.Var)
+			env.Assign(pattern.Var, variantType)
+			env.common.PushVarScope(pattern.Var)
+			pattern.SetVariantType(variantType)
+			t, err := ti.infer(env, level, c.Value)
+			env.Remove(pattern.Var)
+			env.common.PopVarScope(pattern.Var)
+			// Restore the parent scope:
+			env.common.Unstash(env, stashed)
+			if err != nil {
+				return nil, err
+			}
+			// Ensure all cases have matching return types:
+			if err := env.common.Unify(retType, t); err != nil {
+				return nil, err
+			}
+			// Extend the accumulated record:
+			var extension types.RowExtend
+			extension.Row, extension.Labels = rowType, types.SingletonTypeMap(pattern.Label, variantType)
+			rowType = &extension
+			tv, tail = tail.Head(), tail.Tail()
+
+			// todo encode type error where the subject is a variant but the pattern looks for a literal -
+			//   something that will never succeed. At the same time, we need to encode success for matching
+			//   random Exprs to literals
+			//   I think the solution is a new Any type!
+		case *ast.ValueLiteralPattern:
+			t, err := ti.infer(env, level, c.Value)
+			if err != nil {
+				return nil, err
+			}
+			// Ensure all cases have matching return types:
+			if err := env.common.Unify(retType, t); err != nil {
+				return nil, err
+			}
+			tv, tail = tail.Head(), tail.Tail()
+
+		default:
+			return nil, fmt.Errorf("unsupported pattern match type %v", reflect.TypeOf(pattern))
 		}
-		// Ensure all cases have matching return types:
-		if err := env.common.Unify(retType, t); err != nil {
-			return nil, err
-		}
-		// Extend the accumulated record:
-		extensions[i].Row, extensions[i].Labels = rowType, types.SingletonTypeMap(c.Label, variantType)
-		rowType = &extensions[i]
-		tv, tail = tail.Head(), tail.Tail()
 	}
+	subjectType := &types.Variant{Row: rowType}
 	// Return the accumulated record which maps each variant label to its associated type(s):
-	return rowType, nil
+	return subjectType, nil
 }
 
 // Grouped let-bindings are sorted into strongly-connected components, then type-checked in dependency order.

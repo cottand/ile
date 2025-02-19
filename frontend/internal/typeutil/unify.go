@@ -470,7 +470,7 @@ func (ctx *CommonContext) Unify(a, b types.Type) error {
 
 	}
 
-	return errors.New("Failed to unify " + types.TypeName(a) + " with " + types.TypeName(b))
+	return errors.New("failed to unify " + types.TypeName(a) + " with " + types.TypeName(b))
 }
 
 // Returns a unification error or extra types in a and b, respectively, if the lengths do not match.

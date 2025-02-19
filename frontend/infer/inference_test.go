@@ -24,6 +24,7 @@ package infer_test
 
 import (
 	. "github.com/cottand/ile/frontend/infer"
+	"github.com/stretchr/testify/assert"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,9 +40,7 @@ func mustInfer(t *testing.T, env *TypeEnv, ctx *InferenceContext, expr ast.Expr,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if types.TypeString(ty) != typeString {
-		t.Fatalf("type: %s", types.TypeString(ty))
-	}
+	assert.Equal(t, typeString, types.TypeString(ty))
 }
 
 func TestUnit(t *testing.T) {
@@ -543,37 +542,28 @@ func TestVariantMatch(t *testing.T) {
 	ifExpr := Call(Var("if"), Var("somebool"), Variant("i", Var("someint")), Variant("b", Var("somebool")))
 	mustInfer(t, env, ctx, ifExpr, "[b : bool, i : int | 'a]")
 
-	matchExpr := Match(ifExpr, // [i : int, b : bool | 'a]
-		[]ast.MatchCase{
-			{Label: "i", Var: "i", Value: Call(Var("add"), Var("i"), Var("i"))},
-			{Label: "b", Var: "b", Value: Call(Var("if"), Var("b"), Var("someint"), Var("someint"))},
-		},
-		// default case:
-		nil)
+	matchExpr := Match(ifExpr, nil, []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "i", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+		{Pattern: &ast.VariantPattern{Label: "b", Var: "b"}, Value: Call(Var("if"), Var("b"), Var("someint"), Var("someint"))},
+	})
 
 	mustInfer(t, env, ctx, matchExpr, "int")
 
-	matchExpr = Match(ifExpr, // [i : int, b : bool | 'a]
-		[]ast.MatchCase{
-			{Label: "i", Var: "i", Value: Call(Var("add"), Var("i"), Var("i"))},
-			// does not match variant type for the match argument (bool != int):
-			{Label: "b", Var: "b", Value: Call(Var("add"), Var("b"), Var("b"))},
-		},
-		// default case:
-		nil)
+	matchExpr = Match(ifExpr, nil, []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "i", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+		// does not match variant type for the match argument (bool != int):
+		{Pattern: &ast.VariantPattern{Label: "b", Var: "b"}, Value: Call(Var("add"), Var("b"), Var("b"))},
+	})
 
 	if _, err := ctx.Infer(matchExpr, env); err == nil {
 		t.Fatalf("expected error due to invalid variant argument for match")
 	}
 
-	expr := Let("f", Func1("x", Match(Var("x"),
-		[]ast.MatchCase{
-			{Label: "a", Var: "i", Value: Call(Var("f"), Variant("b", Var("i")))},
-			{Label: "b", Var: "i", Value: Call(Var("f"), Variant("c", Var("i")))},
-			{Label: "c", Var: "i", Value: Call(Var("add"), Var("i"), Var("someint"))},
-		},
-		// default case:
-		&ast.MatchCase{Var: "_", Value: Var("someint")})),
+	expr := Let("f", Func1("x", Match(Var("x"), Var("someint"), []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "a", Var: "i"}, Value: Call(Var("f"), Variant("b", Var("i")))},
+		{Pattern: &ast.VariantPattern{Label: "b", Var: "i"}, Value: Call(Var("f"), Variant("c", Var("i")))},
+		{Pattern: &ast.VariantPattern{Label: "c", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("someint"))},
+	})),
 		// let-in:
 		Var("f"))
 
@@ -583,15 +573,97 @@ func TestVariantMatch(t *testing.T) {
 	mustInfer(t, env, ctx, expr, "[a : int, b : int, c : int | 'a] -> int")
 
 	fnExpr := Func2("x", "y",
-		Match(
-			Var("x"),
-			[]ast.MatchCase{
-				{Label: "a", Var: "i", Value: Call(Var("add"), Var("i"), Var("i"))},
-				{Label: "b", Var: "i", Value: Call(Var("add"), Var("i"), Var("i"))},
-				{Label: "c", Var: "_", Value: Var("y")},
-			},
-			nil,
-		))
+		Match(Var("x"), nil, []ast.WhenCase{
+			{Pattern: &ast.VariantPattern{Label: "a", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+			{Pattern: &ast.VariantPattern{Label: "b", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+			{Pattern: &ast.VariantPattern{Label: "c", Var: "_"}, Value: Var("y")},
+		}))
+
+	if ast.ExprString(fnExpr) != "fn (x, y) -> match x { :a i -> add(i, i) | :b i -> add(i, i) | :c _ -> y }" {
+		t.Fatalf("expr: %s", ast.ExprString(fnExpr))
+	}
+	mustInfer(t, env, ctx, fnExpr, "([a : int, b : int, c : 'a], int) -> int")
+
+	// Call:
+
+	callExpr := Call(fnExpr, Variant("c", Var("somebool")), Var("someint"))
+
+	if ast.ExprString(callExpr) != "(fn (x, y) -> match x { :a i -> add(i, i) | :b i -> add(i, i) | :c _ -> y })(:c somebool, someint)" {
+		t.Fatalf("expr: %s", ast.ExprString(callExpr))
+	}
+	mustInfer(t, env, ctx, callExpr, "int")
+}
+
+func TestAnyTypeReturn(t *testing.T) {
+	env := NewTypeEnv(nil)
+	ctx := NewContext()
+
+	env.Declare("add", TArrow2(TConst("int"), TConst("int"), TConst("int")))
+	a := env.NewGenericVar()
+	env.Declare("if", TArrow3(TConst("bool"), a, a, a))
+	env.Declare("somebool", TConst("bool"))
+	env.Declare("someint", TConst("int"))
+	env.Declare("somebool", TConst("bool"))
+
+	ifExpr := Call(Var("if"), Var("somebool"), Var("someint"), Var("somebool"))
+
+	mustInfer(t, env, ctx, ifExpr, "Any")
+}
+
+func TestValueLiteralMatch(t *testing.T) {
+	env := NewTypeEnv(nil)
+	ctx := NewContext()
+
+	env.Declare("add", TArrow2(TConst("int"), TConst("int"), TConst("int")))
+	a := env.NewGenericVar()
+	env.Declare("if", TArrow3(TConst("bool"), a, a, a))
+	env.Declare("somebool", TConst("bool"))
+	env.Declare("someint", TConst("int"))
+	env.Declare("somebool", TConst("bool"))
+
+	ifExpr := Call(Var("if"), Var("somebool"), Variant("i", Var("someint")), Variant("b", Var("somebool")))
+	mustInfer(t, env, ctx, ifExpr, "[b : bool, i : int | 'a]")
+
+	constructInt := func(_ types.TypeEnv, _ uint, _ []types.Type) (types.Type, error) {
+		return TConst("int"), nil
+	}
+
+	matchExpr := Match(ifExpr, nil, []ast.WhenCase{
+		{Pattern: &ast.ValueLiteralPattern{Value: Literal("1", nil, constructInt)}, Value: Call(Var("add"), Var("someint"), Var("someint"))},
+		{Pattern: &ast.ValueLiteralPattern{Value: Literal("2", nil, constructInt)}, Value: Call(Var("if"), Var("somebool"), Var("someint"), Var("someint"))},
+	})
+
+	mustInfer(t, env, ctx, matchExpr, "int")
+
+	matchExpr = Match(ifExpr, nil, []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "i", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+		// does not match variant type for the match argument (bool != int):
+		{Pattern: &ast.VariantPattern{Label: "b", Var: "b"}, Value: Call(Var("add"), Var("b"), Var("b"))},
+	})
+
+	if _, err := ctx.Infer(matchExpr, env); err == nil {
+		t.Fatalf("expected error due to invalid variant argument for match")
+	}
+
+	expr := Let("f", Func1("x", Match(Var("x"), Var("someint"), []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "a", Var: "i"}, Value: Call(Var("f"), Variant("b", Var("i")))},
+		{Pattern: &ast.VariantPattern{Label: "b", Var: "i"}, Value: Call(Var("f"), Variant("c", Var("i")))},
+		{Pattern: &ast.VariantPattern{Label: "c", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("someint"))},
+	})),
+		// let-in:
+		Var("f"))
+
+	if ast.ExprString(expr) != "let f(x) = match x { :a i -> f(:b i) | :b i -> f(:c i) | :c i -> add(i, someint) | _ -> someint } in f" {
+		t.Fatalf("expr: %s", ast.ExprString(expr))
+	}
+	mustInfer(t, env, ctx, expr, "[a : int, b : int, c : int | 'a] -> int")
+
+	fnExpr := Func2("x", "y",
+		Match(Var("x"), nil, []ast.WhenCase{
+			{Pattern: &ast.VariantPattern{Label: "a", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+			{Pattern: &ast.VariantPattern{Label: "b", Var: "i"}, Value: Call(Var("add"), Var("i"), Var("i"))},
+			{Pattern: &ast.VariantPattern{Label: "c", Var: "_"}, Value: Var("y")},
+		}))
 
 	if ast.ExprString(fnExpr) != "fn (x, y) -> match x { :a i -> add(i, i) | :b i -> add(i, i) | :c _ -> y }" {
 		t.Fatalf("expr: %s", ast.ExprString(fnExpr))
@@ -840,14 +912,11 @@ func TestUnionTypeClasses(t *testing.T) {
 	call = Call(Var("ABC"), Var("somea"))
 	mustInfer(t, env, ctx, call, "[A : A, B : B, C : C]")
 
-	match := Match(Call(Var("ABC"), Var("somea")),
-		[]ast.MatchCase{
-			{Label: "A", Var: "a", Value: Var("someint")},
-			{Label: "B", Var: "b", Value: Var("someint")},
-			{Label: "C", Var: "c", Value: Var("someint")},
-		},
-		// no default case:
-		nil)
+	match := Match(Call(Var("ABC"), Var("somea")), nil, []ast.WhenCase{
+		{Pattern: &ast.VariantPattern{Label: "A", Var: "a"}, Value: Var("someint")},
+		{Pattern: &ast.VariantPattern{Label: "B", Var: "b"}, Value: Var("someint")},
+		{Pattern: &ast.VariantPattern{Label: "C", Var: "c"}, Value: Var("someint")},
+	})
 
 	mustInfer(t, env, ctx, match, "int")
 }
@@ -892,9 +961,7 @@ func TestDeferredInstanceMatching(t *testing.T) {
 	if ctx.InvalidExpr() == nil {
 		t.Fatalf("expected invalid expression to be retained")
 	}
-	if ast.ExprString(ctx.InvalidExpr()) != "obj_id({x = x})" {
-		t.Fatalf("invalid expr: %s", ast.ExprString(ctx.InvalidExpr()))
-	}
+	assert.Equal(t, "obj_id({x = x})", ast.ExprString(ctx.InvalidExpr()))
 
 	ctx.EnableDeferredInstanceMatching(true)
 	if _, err = ctx.Infer(expr, env); err != nil {

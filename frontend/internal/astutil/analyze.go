@@ -319,38 +319,33 @@ func (a *Analysis) analyzeExpr(expr ast.Expr) error {
 			return err
 		}
 
-	case *ast.MatchSubject:
+	case *ast.WhenMatch:
 		if err := a.analyzeExpr(expr.Value); err != nil {
 			return err
 		}
 		for _, c := range expr.Cases {
-			stashed := a.stash(c.Var)
-			a.Scopes[c.Var] = -1
-			if err := a.analyzeExpr(c.Value); err != nil {
-				return err
+			switch p := c.Pattern.(type) {
+			case *ast.VariantPattern:
+				stashed := a.stash(p.Var)
+				a.Scopes[p.Var] = -1
+				if err := a.analyzeExpr(c.Value); err != nil {
+					return err
+				}
+				delete(a.Scopes, p.Var)
+				a.unstash(stashed)
+			case *ast.ValueLiteralPattern:
+				panic("todo")
 			}
-			delete(a.Scopes, c.Var)
-			a.unstash(stashed)
 		}
 		if expr.Default != nil {
 			c := expr.Default
-			stashed := a.stash(c.Var)
-			a.Scopes[c.Var] = -1
+			stashed := a.stash(c.Label)
+			a.Scopes[c.Label] = -1
 			if err := a.analyzeExpr(c.Value); err != nil {
 				return err
 			}
-			delete(a.Scopes, c.Var)
+			delete(a.Scopes, c.Label)
 			a.unstash(stashed)
-		}
-
-	case *ast.When:
-		for _, c := range expr.Cases {
-			if err := a.analyzeExpr(c.Value); err != nil {
-				return err
-			}
-			if err := a.analyzeExpr(c.Predicate); err != nil {
-				return err
-			}
 		}
 
 	case nil:

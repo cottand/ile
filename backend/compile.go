@@ -230,7 +230,7 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 
 		// Go does not have ternary operators or anything that lets us inline logic into an expression,
 		// so we inline a function call
-	case *ast.When:
+	case *ast.WhenMatch:
 		whenResultT, err := tp.transpileType(e.Type())
 		if err != nil {
 			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
@@ -428,7 +428,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 		return append(final, remainder...), nil
 
 		// a when without clauses is equivalent to a Go switch without a subject
-	case *ast.When:
+	case *ast.WhenMatch:
 		whenResultT, err := tp.transpileType(e.Type())
 		if err != nil {
 			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", types.TypeString(e.Type()), err)
@@ -450,7 +450,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 		}
 		var caseClauses []goast.Stmt
 		for _, case_ := range e.Cases {
-			goPredicate, err := tp.transpileExpr(case_.Predicate)
+			goPredicate, err := tp.transpileExpr(case_.Pattern.(*ast.ValueLiteralPattern).Value)
 			if err != nil {
 				return nil, fmt.Errorf("failed to transpile when case predicate expression: %v", err)
 			}

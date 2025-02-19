@@ -114,8 +114,17 @@ type Unit struct {
 // Pointer to the unit type
 var UnitPointer *Unit = &Unit{}
 
+
 // Get a pointer to the unit type.
 func NewUnit() *Unit { return UnitPointer }
+
+// Any is the supertype of all types
+type Any struct {}
+var AnyPointer *Any = &Any{}
+func NewAny() *Any { return AnyPointer }
+func (Any) TypeName() string  { return "Any"}
+func (Any) IsGeneric() bool   { return false }
+func (Any) HasRefs() bool { return false }
 
 // Mutable references are applications of RefType (a mutable reference-type) with a single referenced type-parameter.
 var RefType = &Const{"ref"}

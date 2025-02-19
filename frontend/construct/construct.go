@@ -169,7 +169,6 @@ func Func3(arg1, arg2, arg3 string, body ast.Expr) *ast.Func {
 	return &ast.Func{ArgNames: []string{arg1, arg2, arg3}, Body: body}
 }
 
-
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 func Pipe(as string, sequence ...ast.Expr) *ast.Pipe {
 	return &ast.Pipe{Source: sequence[0], As: as, Sequence: sequence[1:]}
@@ -231,11 +230,14 @@ func Variant(label string, value ast.Expr) *ast.Variant {
 //	  |  ...
 //	  | z -> default_expr (optional)
 //	}
-func Match(value ast.Expr, cases []ast.MatchCase, defaultCase *ast.MatchCase) *ast.MatchSubject {
-	return &ast.MatchSubject{Value: value, Cases: cases, Default: defaultCase}
+func Match(value ast.Expr, defaultCase ast.Expr, cases []ast.WhenCase) *ast.WhenMatch {
+	var defCase *ast.LabelValue
+	if defaultCase != nil {
+		defCase = &ast.LabelValue{
+			Label: "_",
+			Value: defaultCase,
+		}
+	}
+	return &ast.WhenMatch{Value: value, Cases: cases, Default: defCase}
 }
 
-// Predicate expression within Match: `:X a -> expr1`
-func MatchCase(label string, varName string, value ast.Expr) ast.MatchCase {
-	return ast.MatchCase{Label: label, Var: varName, Value: value}
-}

@@ -38,7 +38,7 @@
 //	RecordRestrict:  deleting (scoped) label
 //	RecordEmpty:     empty record
 //	Variant:         tagged (ad-hoc) variant
-//	MatchSubject:           variant-matching switch
+//	WhenMatch:           variant-matching switch
 package ast
 
 import (
@@ -61,8 +61,8 @@ var (
 	_ Expr = (*RecordRestrict)(nil)
 	_ Expr = (*RecordEmpty)(nil)
 	_ Expr = (*Variant)(nil)
-	_ Expr = (*When)(nil)
-	_ Expr = (*MatchSubject)(nil)
+	_ Expr = (*WhenMatch)(nil)
+	_ Expr = (*WhenMatch)(nil)
 	_ Expr = (*Unused)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
@@ -87,7 +87,7 @@ var (
 //	RecordRestrict:  deleting (scoped) label
 //	RecordEmpty:     empty record
 //	Variant:         tagged (ad-hoc) variant
-//	MatchSubject:           variant-matching switch
+//	WhenMatch:           variant-matching switch
 type Expr interface {
 	Positioner
 	// ExprName is the name of the syntax-type of the expression.
@@ -606,86 +606,60 @@ func (e *Variant) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// When is a Bool-matching switch:
+// WhenMatch is a Variant-matching switch:
 //
-//	when {
-//	  boolExpr1 -> expr1
-//	  boolExpr2 -> expr2
-//	  _ -> expr2
-//	}
-type When struct {
-	Cases      []WhenCase
-	inferred   types.Type
-	Positioner // of the 'when' operator (not the clauses)
-	tAnnotationContainer
-}
-
-func (e *When) ExprName() string { return "when" }
-func (e *When) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	newCases := make([]WhenCase, len(e.Cases))
-	for i, c := range e.Cases {
-		newCases[i] = c
-		newCases[i].Predicate = c.Predicate.Transform(f)
-		newCases[i].Value = c.Value.Transform(f)
-	}
-	copied.Cases = newCases
-	return f(&copied)
-}
-func (e *When) SetType(t types.Type) { e.inferred = t }
-func (e *When) Type() types.Type     { return types.RealType(e.inferred) }
-
-type WhenCase struct {
-	Predicate Expr
-	Value     Expr
-	Positioner
-}
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-
-// MatchSubject is a Variant-matching switch:
-//
-//	match e {
+//	WhenMatch e {
 //	    :X a -> expr1
 //	  | :Y b -> expr2
 //	  |  ...
 //	  | z -> default_expr (optional)
 //	}
-type MatchSubject struct {
-	Value    Expr
-	Cases    []MatchCase
-	Default  *MatchCase
-	inferred types.Type
-	Range    // of the match operator and the matched first expression (not the clauses)
+type WhenMatch struct {
+	Value      Expr
+	Cases      []WhenCase
+	Default    *LabelValue
+	inferred   types.Type
+	Positioner // of the match operator and the matched first expression (not the clauses)
 	tAnnotationContainer
 }
 
-// "MatchSubject"
-func (e *MatchSubject) ExprName() string { return "MatchSubject" }
+// "WhenMatch"
+func (e *WhenMatch) ExprName() string { return "WhenMatch" }
 
 // Get the inferred (or assigned) type of e.
-func (e *MatchSubject) Type() types.Type { return types.RealType(e.inferred) }
+func (e *WhenMatch) Type() types.Type { return types.RealType(e.inferred) }
 
 // Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *MatchSubject) SetType(t types.Type) { e.inferred = t }
+func (e *WhenMatch) SetType(t types.Type) { e.inferred = t }
 
-func (e *MatchSubject) Transform(f func(expr Expr) Expr) Expr {
+type WhenCase struct {
+	Pattern  MatchPattern
+	Value    Expr
+	inferred *types.Record
+}
+
+func (e *WhenCase) Type() types.Type { return e.Value.Type() }
+
+func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
 	copied := *e
-	cases := make([]MatchCase, len(e.Cases))
+	copied.Pattern = e.Pattern.TransformChildExprs(f)
+	copied.Value = e.Value.Transform(f)
+	return copied
+}
+
+func (e *WhenMatch) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	cases := make([]WhenCase, len(e.Cases))
 	for i, v := range e.Cases {
-		copiedMatchCase := v
-		copiedMatchCase.Value = v.Value.Transform(f)
-		cases[i] = copiedMatchCase
+		cases[i] = v.TransformChildExprs(f)
 	}
-	defaultCase := e.Default
-	if defaultCase != nil {
-		copiedDefault := *defaultCase
-		defaultCase = &copiedDefault
-		defaultCase.Value = copiedDefault.Value.Transform(f)
+	if e.Default != nil {
+		defaultCase := *e.Default
+		copied.Default = &defaultCase
+		copied.Default.Value = e.Default.Value.Transform(f)
 	}
 	copied.Value = e.Value.Transform(f)
 	copied.Cases = cases
-	copied.Default = defaultCase
 	return f(&copied)
 }
 
@@ -698,7 +672,7 @@ type MatchPattern interface {
 }
 
 // ValueLiteralPattern represents matching a value.
-// Value can be any Expr but the language may have restrictions on what Value can be (eg, literals only)
+// Value can be any Expr but the grammar has restrictions on what Value can be (eg, literals only)
 type ValueLiteralPattern struct {
 	Value Expr
 	Positioner
@@ -711,22 +685,26 @@ func (e *ValueLiteralPattern) TransformChildExprs(f func(expr Expr) Expr) MatchP
 	return &copied
 }
 
-// Predicate expression within MatchSubject: `:X a -> expr1`
-type MatchCase struct {
-	Label   string
-	Var     string
-	Value   Expr
+// Predicate expression within WhenMatch: `:X a -> expr1`
+type VariantPattern struct {
+	Label string
+	Var   string
+	//Value   Expr deprecated in favour of
 	varType types.Type
+	Positioner
 }
 
-// Get the inferred (or assigned) type of e.
-func (e *MatchCase) Type() types.Type { return e.Value.Type() }
+func (e *VariantPattern) matchPattern() {}
+func (e *VariantPattern) TransformChildExprs(f func(expr Expr) Expr) MatchPattern {
+	copied := *e
+	return &copied
+}
 
 // Get the inferred (or assigned) variant-type of e.
-func (e *MatchCase) VariantType() types.Type { return types.RealType(e.varType) }
+func (e *VariantPattern) VariantType() types.Type { return types.RealType(e.varType) }
 
 // Assign a variant-type to e. Type assignments should occur indirectly, during inference.
-func (e *MatchCase) SetVariantType(t types.Type) { e.varType = t }
+func (e *VariantPattern) SetVariantType(t types.Type) { e.varType = t }
 
 // Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
 type Pipe struct {

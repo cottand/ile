@@ -130,6 +130,7 @@ func (ti *InferenceContext) inferRoot(root ast.Expr, env *TypeEnv, nocopy bool) 
 	ti.rootExpr, env.common.TrackScopes, env.common.DeferredConstraintsEnabled = root, ti.annotate, ti.canDeferMatch
 	t, err := ti.infer(env, types.TopLevel+1, root)
 	if err != nil {
+		ti.err = err
 		goto Cleanup
 	}
 	if invalid, err := env.common.ApplyDeferredConstraints(); err != nil {

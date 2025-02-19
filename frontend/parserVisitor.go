@@ -480,9 +480,70 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	cases := ctx.AllWhenCase()
 	if len(cases) < 1 {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
+		l.expressionStack.Push(&ast.ErrorExpr{
+			Range:  getPos(ctx.WHEN()),
+			Syntax: ctx.GetText(),
+		})
 		return
 	}
-	l.Logger.Error("not implemented ExitWhenBlock")
+	var astCases []ast.WhenCase
+	// we must parse when cases from the bottom since that is the order expressions are pushed to the stack in
+	for _, whenCase := range slices.Backward(cases) {
+		astCase, err := l.doWhenCase(whenCase)
+		if err != nil {
+			l.visitErrors = append(l.visitErrors, err)
+			continue
+		}
+		astCases = append(astCases, astCase)
+	}
+	// cases where reversed, let's order again
+	slices.Reverse(astCases)
+
+	// after we've popped the cases, the top expression should be the when subject
+	subjectExpr, ok := l.expressionStack.Pop()
+	if !ok {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse a subject expression but none found"))
+		return
+	}
+	whenExpr := &ast.WhenMatch{
+		Value:      subjectExpr,
+		Cases:      astCases,
+		Positioner: getPos(ctx.WHEN()),
+	}
+	l.expressionStack.Push(whenExpr)
+}
+
+func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ast.WhenCase, error) {
+	// extract expression in LHS of arrow in case
+	var caseExpr ast.Expr
+	if ctx.ArithmeticExpr() != nil {
+		var ok bool
+		caseExpr, ok = l.expressionStack.Pop()
+		if !ok {
+			caseExpr = &ast.ErrorExpr{
+				Syntax: ctx.GetText(),
+				Range:  getPos(ctx.ArithmeticExpr()),
+			}
+		}
+	} else {
+		caseExpr = &ast.ErrorExpr{
+			Syntax: ctx.GetText(),
+			Range:  getPos(ctx.ARROW()),
+		}
+	}
+
+	matchPattern, err := l.doMatchPattern(ctx.MatchPattern())
+	if err != nil {
+		return ast.WhenCase{}, err
+	}
+	return ast.WhenCase{
+		Pattern: matchPattern,
+		Value:   caseExpr,
+	}, nil
+}
+
+func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPattern, error) {
+	panic("implement me")
 }
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
