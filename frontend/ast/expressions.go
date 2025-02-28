@@ -42,7 +42,7 @@
 package ast
 
 import (
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"go/token"
 )
 
@@ -66,6 +66,9 @@ var (
 	_ Expr = (*Unused)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
+
+	_ AtomicExpr = (*Var)(nil)
+	_ AtomicExpr = (*Literal)(nil)
 )
 
 // Expr is the base for all expressions.
@@ -105,6 +108,23 @@ type Expr interface {
 
 	TAnnotated
 }
+
+// AtomicExpr is an Expr which specifically represents
+// variables and literals only
+//
+// It is called SimpleTerm in the mlstruct scala implementation
+type AtomicExpr interface {
+	Expr
+	// CanonicalSyntax should return equal strings for equal AtomicExpr
+	// for example, 1.0 and 1.00 for floats
+	//
+	// It is called IdStr in the mlstruct scala implementation
+	CanonicalSyntax() string
+	isAtomicExpr()
+}
+
+var a = 1e1
+var b = a
 
 // TAnnotated can apply to an Expr if its type can be directly annotated in the source.
 // This should only be used in the frontend, not in the backend (where we rely on the inferred
@@ -169,6 +189,8 @@ type Literal struct {
 	tAnnotationContainer
 }
 
+func (e *Literal) isAtomicExpr() {}
+
 // Returns the syntax of e.
 func (e *Literal) ExprName() string { return e.Syntax }
 
@@ -187,6 +209,9 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
 }
+
+// TODO desugar identical literals (01 == 1)
+func (e *Literal) CanonicalSyntax() string { return e.Syntax }
 
 // Variable (or identifier)
 type Var struct {
@@ -220,6 +245,9 @@ func (e *Var) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
 }
+func (e *Var) isAtomicExpr() {}
+
+func (e *Var) CanonicalSyntax() string { return e.Name }
 
 // We might not need QualifiedIdent after all if we represent packages as records!
 /*// QualifiedIdent is a Qualified variable or identifier

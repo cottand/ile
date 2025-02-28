@@ -26,8 +26,8 @@ import (
 	"errors"
 
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/frontend/internal/astutil"
-	"github.com/cottand/ile/frontend/types"
 )
 
 // InferenceContext is a reusable context for type inference.

@@ -29,7 +29,7 @@ import (
 	. "github.com/cottand/ile/frontend/construct"
 
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 )
 
 func BenchmarkMutuallyRecursiveLet(b *testing.B) { // ~10500 ns/op

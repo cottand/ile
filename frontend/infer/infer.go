@@ -26,9 +26,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/internal/astutil"
-	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/internal/log"
 	"reflect"
 )

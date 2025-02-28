@@ -23,7 +23,7 @@
 package typeutil
 
 import (
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 )
 
 type varList struct {

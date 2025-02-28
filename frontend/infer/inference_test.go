@@ -32,7 +32,7 @@ import (
 	. "github.com/cottand/ile/frontend/construct"
 
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 )
 
 func mustInfer(t *testing.T, env *TypeEnv, ctx *InferenceContext, expr ast.Expr, typeString string) {

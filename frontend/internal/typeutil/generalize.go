@@ -23,7 +23,7 @@
 package typeutil
 
 import (
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 )
 
 func GeneralizeOpts(level uint, t hmtypes.Type, forceGeneralize, weak bool) hmtypes.Type {

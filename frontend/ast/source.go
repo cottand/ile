@@ -2,7 +2,7 @@ package ast
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"go/token"
 	"unicode"
 	"unicode/utf8"

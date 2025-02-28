@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"strconv"
+	"strings"
 )
 
 // StringTakeUntil returns the string up to and excluding char as well as the remainder excluding char
@@ -32,3 +33,13 @@ func MangledIdentFrom(node ast.Node, name string) string {
 	end := strconv.Itoa(int(node.End()))
 	return fmt.Sprintf("ile_%v_at_%v_%v", name, start, end)
 }
+
+func JoinString[E fmt.Stringer](slice []E, sep string) string {
+	asStrings := make([]string, len(slice))
+	for i, e := range slice {
+		asStrings[i] = e.String()
+	}
+	return strings.Join(asStrings, sep)
+}
+
+

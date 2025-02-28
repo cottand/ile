@@ -23,8 +23,8 @@
 package infer
 
 import (
+	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/frontend/internal/typeutil"
-	"github.com/cottand/ile/frontend/types"
 )
 
 // Generalize all unbound type-variables in t, excluding type-variables within mutable reference-types.

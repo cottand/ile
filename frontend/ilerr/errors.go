@@ -3,7 +3,7 @@ package ilerr
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"runtime/debug"
 	"strings"
 )

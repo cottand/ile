@@ -23,7 +23,7 @@
 package typeutil
 
 import (
-	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/frontend/hmtypes"
 )
 
 func (ctx *CommonContext) Instantiate(level uint, t hmtypes.Type) hmtypes.Type {

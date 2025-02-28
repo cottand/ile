@@ -25,9 +25,9 @@ package infer
 import (
 	"errors"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/frontend/internal/typeutil"
 	"github.com/cottand/ile/frontend/internal/util"
-	"github.com/cottand/ile/frontend/types"
 )
 
 // TypeEnv is a type-enviroment containing mappings from identifiers to declared types.
