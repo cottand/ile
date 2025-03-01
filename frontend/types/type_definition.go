@@ -65,21 +65,32 @@ func (ctx *TypeCtx) processTypeDefs(newDefs []ast.Type) *TypeCtx {
 	panic("implement me")
 }
 
-func (ctx *TypeCtx) rightParents(def typeDefinition, prov *typeProvenance) (bool, error) {
-	if def.defKind == kindAlias {
-		return ctx.checkCycle(def.bodyType, prov, immutable.NewSet[typeName](nil), immutable.NewSet[typeVariableID](nil))
-	}
-	if def.defKind == kindClass || def.defKind == kindTrait {
+var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
+var emptySetTypeID = immutable.NewSet[typeVariableID](immutable.NewHasher(uint(1)))
 
+func (ctx *TypeCtx) rightParents(typeDef typeDefinition, prov *typeProvenance) (bool, error) {
+	switch typeDef.defKind {
+	case kindAlias:
+		return ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName, emptySetTypeID)
+	case kindClass, kindTrait:
+		if !ctx.checkParents(typeDef.bodyType) {
+			return false, nil
+		}
+		cycleOk, err := ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName.Add(typeDef.name), emptySetTypeID)
+		if err != nil {
+			return false, fmt.Errorf("checking cycle of parent types: %w", err)
+		}
+		return cycleOk && ctx.checkAbstractAddConstructors(), nil
 	}
-	panic("implement me")
+	panic("unreachable: unknown type definition kind: " + typeDef.defKind.String())
 }
 
-func (ctx *TypeCtx) checkParents(typ simpleType) {
+func (ctx *TypeCtx) checkParents(typ simpleType) bool {
 	panic("implement me")
 
 }
 
+// checkCycle returns true when type_ has no cycles
 func (ctx *TypeCtx) checkCycle(
 	type_ simpleType,
 	prov *typeProvenance,
@@ -135,18 +146,38 @@ func (ctx *TypeCtx) checkCycle(
 
 }
 
-func (ctx *TypeCtx) doTypeDefs(newDefs []ast.Type) *TypeCtx {
-	oldDefs := make(map[string]typeDefinition, len(ctx.typeDefs))
+// checkAbstractAddConstructors is defined as a variable 'checkAbstractAddCtors' in the
+// scala mlstruct implementation
+func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
+	panic("implement me")
+}
+
+func (ctx *TypeCtx) doTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
+	definitions := make(map[string]typeDefinition, len(ctx.typeDefs))
 	// copy the map
 	for def, t := range ctx.typeDefs {
-		oldDefs[def] = t
+		definitions[def] = t
 	}
 	for _, newDef := range newDefs {
-		_ = &typeProvenance{positioner: newDef, desc: "type definition"}
-
+		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
+		name := newDef.name
+		rightParents, err := ctx.rightParents(newDef, prov)
+		if err != nil {
+			return nil, err
+		}
+		if rightParents && checkRegular(newDef.bodyType, nil) {
+			definitions[name] = newDef
+		}
 	}
 
 	newCtx := *ctx
-	newCtx.typeDefs = oldDefs
-	return &newCtx
+	newCtx.typeDefs = definitions
+	return &newCtx, nil
+}
+
+func checkRegular(typ simpleType, reached *immutable.Map[string, []simpleType]) bool {
+	if reached == nil {
+		reached = immutable.NewMap[string, []simpleType](immutable.NewHasher(""))
+	}
+	panic("implement me")
 }
