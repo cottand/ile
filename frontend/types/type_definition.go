@@ -6,7 +6,9 @@ import (
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
+	"iter"
 	"reflect"
+	"slices"
 )
 
 type typeDefKind uint8
@@ -61,6 +63,16 @@ func (d *typeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed util.MSet[t
 	}
 }
 
+func (d *typeDefinition) typeParameters() iter.Seq[simpleType] {
+	return func(yield func(simpleType) bool) {
+		for _, arg := range d.typeParamArgs {
+			if !yield(arg.Snd) {
+				return
+			}
+		}
+	}
+}
+
 func (ctx *TypeCtx) processTypeDefs(newDefs []ast.Type) *TypeCtx {
 	panic("implement me")
 }
@@ -68,7 +80,34 @@ func (ctx *TypeCtx) processTypeDefs(newDefs []ast.Type) *TypeCtx {
 var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
 var emptySetTypeID = immutable.NewSet[typeVariableID](immutable.NewHasher(uint(1)))
 
-func (ctx *TypeCtx) rightParents(typeDef typeDefinition, prov *typeProvenance) (bool, error) {
+// typeTypeDefs processes newDefs and returns a new TypeCtx with the new names
+func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
+	definitions := make(map[string]typeDefinition, len(ctx.typeDefs))
+	// copy the map
+	for def, t := range ctx.typeDefs {
+		definitions[def] = t
+	}
+	for _, newDef := range newDefs {
+		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
+		name := newDef.name
+		rightParents, err := ctx.typeDefrightParents(newDef, prov)
+		if err != nil {
+			return nil, err
+		}
+		regular, err := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil)
+		if err != nil {
+			return nil, err
+		}
+		if rightParents && regular {
+			definitions[name] = newDef
+		}
+	}
+
+	newCtx := *ctx
+	newCtx.typeDefs = definitions
+	return &newCtx, nil
+}
+func (ctx *TypeCtx) typeDefrightParents(typeDef typeDefinition, prov *typeProvenance) (bool, error) {
 	switch typeDef.defKind {
 	case kindAlias:
 		return ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName, emptySetTypeID)
@@ -152,32 +191,36 @@ func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
 	panic("implement me")
 }
 
-func (ctx *TypeCtx) doTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
-	definitions := make(map[string]typeDefinition, len(ctx.typeDefs))
-	// copy the map
-	for def, t := range ctx.typeDefs {
-		definitions[def] = t
-	}
-	for _, newDef := range newDefs {
-		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
-		name := newDef.name
-		rightParents, err := ctx.rightParents(newDef, prov)
-		if err != nil {
-			return nil, err
-		}
-		if rightParents && checkRegular(newDef.bodyType, nil) {
-			definitions[name] = newDef
-		}
-	}
-
-	newCtx := *ctx
-	newCtx.typeDefs = definitions
-	return &newCtx, nil
-}
-
-func checkRegular(typ simpleType, reached *immutable.Map[string, []simpleType]) bool {
+func (ctx *TypeCtx) typeDefCheckRegular(typeDef typeDefinition, typ simpleType, reached *immutable.Map[string, []simpleType]) (bool, error) {
 	if reached == nil {
 		reached = immutable.NewMap[string, []simpleType](immutable.NewHasher(""))
 	}
-	panic("implement me")
+	if typ, ok := typ.(typeRef); ok {
+		if existingTs, isPresent := reached.Get(typ.defName); isPresent {
+			// Note: this check *has* to be relatively syntactic because
+			//    the termination of constraint solving relies on recursive type occurrences
+			//    obtained from unrolling a recursive type to be *equal* to the original type
+			//    and to have the same has hashCode (see: the use of a cache MutSet)
+			if typeDef.name == typ.defName && !util.SlicesEquivalent(existingTs, typ.typeArgs) {
+				return false, fmt.Errorf(
+					"type definition is not regular - it occurs within itself as %s, but it is defined as %s, at: %s",
+					typ.expand(ctx),
+					typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())}.expand(ctx),
+					"TODO: LOC here",
+				)
+			}
+			return true, nil
+		}
+		return ctx.typeDefCheckRegular(typeDef, typ.expandWith(ctx, false), reached.Set(typ.defName, typ.typeArgs))
+	}
+	for childT := range typ.children(false) {
+		ok, err := ctx.typeDefCheckRegular(typeDef, childT, reached)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
