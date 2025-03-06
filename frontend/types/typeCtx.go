@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
 	"reflect"
 )
@@ -11,6 +12,12 @@ func universe() map[string]typeInfo {
 	return m
 }
 
+type typeError struct{
+	message string
+	// Positioner may be nil
+	ast.Positioner
+}
+
 type TypeCtx struct {
 	parent   *TypeCtx // can be nil
 	env      map[string]typeInfo
@@ -18,7 +25,7 @@ type TypeCtx struct {
 	// methodEnv TODO
 	level     int
 	inPattern bool
-
+	errors    []typeError
 	//typeDefs  map[types.Type]typeDef
 }
 
@@ -61,4 +68,8 @@ func (ctx *TypeCtx) SolveSubtype(this, that simpleType, cache ctxCache) bool {
 		panic("implement me for" + reflect.TypeOf(this).String())
 
 	}
+}
+
+func (ctx *TypeCtx) addError(message string, pos ast.Positioner)  {
+	ctx.errors = append(ctx.errors, typeError{message, pos})
 }

@@ -1,7 +1,6 @@
 package types
 
 import (
-	"errors"
 	"fmt"
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
@@ -81,7 +80,7 @@ var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
 var emptySetTypeID = immutable.NewSet[typeVariableID](immutable.NewHasher(uint(1)))
 
 // typeTypeDefs processes newDefs and returns a new TypeCtx with the new names
-func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
+func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) *TypeCtx {
 	definitions := make(map[string]typeDefinition, len(ctx.typeDefs))
 	// copy the map
 	for def, t := range ctx.typeDefs {
@@ -90,14 +89,8 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
 	for _, newDef := range newDefs {
 		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
 		name := newDef.name
-		rightParents, err := ctx.typeDefrightParents(newDef, prov)
-		if err != nil {
-			return nil, err
-		}
-		regular, err := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil)
-		if err != nil {
-			return nil, err
-		}
+		rightParents := ctx.typeDefrightParents(newDef, prov)
+		regular := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil, prov.positioner)
 		if rightParents && regular {
 			definitions[name] = newDef
 		}
@@ -105,27 +98,36 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) (*TypeCtx, error) {
 
 	newCtx := *ctx
 	newCtx.typeDefs = definitions
-	return &newCtx, nil
+	return &newCtx
 }
-func (ctx *TypeCtx) typeDefrightParents(typeDef typeDefinition, prov *typeProvenance) (bool, error) {
+
+func (ctx *TypeCtx) typeDefrightParents(typeDef typeDefinition, prov *typeProvenance) bool {
 	switch typeDef.defKind {
 	case kindAlias:
 		return ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName, emptySetTypeID)
 	case kindClass, kindTrait:
 		if !ctx.checkParents(typeDef.bodyType) {
-			return false, nil
+			return false
 		}
-		cycleOk, err := ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName.Add(typeDef.name), emptySetTypeID)
-		if err != nil {
-			return false, fmt.Errorf("checking cycle of parent types: %w", err)
-		}
-		return cycleOk && ctx.checkAbstractAddConstructors(), nil
+		return ctx.checkParents(typeDef.bodyType) &&
+			ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName.Add(typeDef.name), emptySetTypeID) &&
+			ctx.checkAbstractAddConstructors()
 	}
 	panic("unreachable: unknown type definition kind: " + typeDef.defKind.String())
 }
 
 func (ctx *TypeCtx) checkParents(typ simpleType) bool {
-	panic("implement me")
+	switch typ := typ.(type) {
+	case objectTag:
+		return true
+	case typeRef:
+		// TODO in scala apparently this Map has a default value we need to find
+		//  and use here
+		//otherTypeDefs, ok := ctx.typeDefs[typ.defName]
+
+	default:
+		panic("unreachable: unknown type reference: " + typ.String() + "of type" + reflect.TypeOf(typ).String())
+	}
 
 }
 
@@ -135,49 +137,40 @@ func (ctx *TypeCtx) checkCycle(
 	prov *typeProvenance,
 	traversedNames immutable.Set[typeName],
 	traversedVars immutable.Set[typeVariableID],
-) (bool, error) {
+) bool {
 	switch typ := type_.(type) {
 	case typeRef:
 		if traversedNames.Has(typ.defName) {
-			return false, fmt.Errorf("illegal cycle detected fpr type=%s, at=%v", typ.defName, prov)
+			ctx.addError(fmt.Sprintf("illegal cycle detected fpr type=%s, at=%v", typ.defName), prov.positioner)
+			return false
 		}
 		return ctx.checkCycle(typ.expand(ctx), prov, traversedNames.Add(typ.defName), traversedVars)
 	case unionType:
-		left, err1 := ctx.checkCycle(typ.lhs, prov, traversedNames, traversedVars)
-		right, err2 := ctx.checkCycle(typ.rhs, prov, traversedNames, traversedVars)
-		return left && right, errors.Join(err1, err2)
+		return ctx.checkCycle(typ.lhs, prov, traversedNames, traversedVars) &&
+			ctx.checkCycle(typ.rhs, prov, traversedNames, traversedVars)
 	case negType:
 		return ctx.checkCycle(typ.negated, prov, traversedNames, traversedVars)
 	case typeRange:
-		left, err1 := ctx.checkCycle(typ.upperBound, prov, traversedNames, traversedVars)
-		right, err2 := ctx.checkCycle(typ.lowerBound, prov, traversedNames, traversedVars)
-		return left && right, errors.Join(err1, err2)
+		return ctx.checkCycle(typ.upperBound, prov, traversedNames, traversedVars) &&
+			ctx.checkCycle(typ.lowerBound, prov, traversedNames, traversedVars)
 	case typeVariable:
 		if traversedVars.Has(typ.id) {
-			return true, nil
+			return true
 		}
 		varsAndThis := traversedVars.Add(typ.id)
 		for _, bound := range typ.lowerBounds {
-			ok, err := ctx.checkCycle(bound, prov, traversedNames, varsAndThis)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				return false, nil
+			if !ctx.checkCycle(bound, prov, traversedNames, varsAndThis) {
+				return false
 			}
 		}
 		for _, bound := range typ.upperBounds {
-			ok, err := ctx.checkCycle(bound, prov, traversedNames, varsAndThis)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				return false, nil
+			if !ctx.checkCycle(bound, prov, traversedNames, varsAndThis) {
+				return false
 			}
 		}
-		return true, nil
+		return true
 	case extremeType, objectTag, funcType, arrayBase:
-		return true, nil
+		return true
 
 	default:
 		panic("unreachable case hit for type: " + reflect.TypeOf(typ).String())
@@ -191,7 +184,8 @@ func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
 	panic("implement me")
 }
 
-func (ctx *TypeCtx) typeDefCheckRegular(typeDef typeDefinition, typ simpleType, reached *immutable.Map[string, []simpleType]) (bool, error) {
+// implementation wise it is completed but TODO make a typeError to accumulate errors with their locations
+func (ctx *TypeCtx) typeDefCheckRegular(typeDef typeDefinition, typ simpleType, reached *immutable.Map[string, []simpleType], pos ast.Positioner) bool {
 	if reached == nil {
 		reached = immutable.NewMap[string, []simpleType](immutable.NewHasher(""))
 	}
@@ -202,25 +196,21 @@ func (ctx *TypeCtx) typeDefCheckRegular(typeDef typeDefinition, typ simpleType, 
 			//    obtained from unrolling a recursive type to be *equal* to the original type
 			//    and to have the same has hashCode (see: the use of a cache MutSet)
 			if typeDef.name == typ.defName && !util.SlicesEquivalent(existingTs, typ.typeArgs) {
-				return false, fmt.Errorf(
+				ctx.addError(fmt.Sprintf(
 					"type definition is not regular - it occurs within itself as %s, but it is defined as %s, at: %s",
 					typ.expand(ctx),
-					typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())}.expand(ctx),
-					"TODO: LOC here",
-				)
+					typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())}.expand(ctx)), pos)
+				return false
+
 			}
-			return true, nil
+			return true
 		}
-		return ctx.typeDefCheckRegular(typeDef, typ.expandWith(ctx, false), reached.Set(typ.defName, typ.typeArgs))
+		return ctx.typeDefCheckRegular(typeDef, typ.expandWith(ctx, false), reached.Set(typ.defName, typ.typeArgs), nil)
 	}
 	for childT := range typ.children(false) {
-		ok, err := ctx.typeDefCheckRegular(typeDef, childT, reached)
-		if err != nil {
-			return false, err
-		}
-		if !ok {
-			return false, nil
+		if !ctx.typeDefCheckRegular(typeDef, childT, reached, pos) {
+			return false
 		}
 	}
-	return true, nil
+	return true
 }
