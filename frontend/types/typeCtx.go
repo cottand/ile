@@ -27,6 +27,10 @@ type TypeCtx struct {
 	inPattern bool
 	errors    []typeError
 	//typeDefs  map[types.Type]typeDef
+
+	// here to avoid passing a position on every function call.
+	// not present in scala implementation
+	currentPos ast.Positioner
 }
 
 func NewEmptyTypeCtx() *TypeCtx {

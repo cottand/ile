@@ -216,14 +216,14 @@ func (t typeRef) level() int {
 	return maxSoFar
 }
 
-func (t typeRef) expand(ctx *TypeCtx) simpleType {
-	return t.expandWith(ctx, true)
+func (ctx *TypeCtx) expand(t typeRef) simpleType {
+	return ctx.expandWith(t, true)
 }
 func (t typeRef) Equivalent(other simpleType) bool {
 	otherT, ok := other.(typeRef)
 	return ok && t.defName == otherT.defName && util.SlicesEquivalent(t.typeArgs, otherT.typeArgs)
 }
-func (t typeRef) expandWith(ctx *TypeCtx, withParamTags bool) simpleType {
+func (ctx *TypeCtx) expandWith(t typeRef, withParamTags bool) simpleType {
 	panic("implement me")
 }
 func (t typeRef) children(bool) iter.Seq[simpleType] {

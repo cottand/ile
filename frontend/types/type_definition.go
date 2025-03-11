@@ -89,7 +89,8 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) *TypeCtx {
 	for _, newDef := range newDefs {
 		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
 		name := newDef.name
-		rightParents := ctx.typeDefrightParents(newDef, prov)
+		ctx.currentPos = prov.positioner
+		rightParents := ctx.typeDefRightParents(newDef)
 		regular := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil, prov.positioner)
 		if rightParents && regular {
 			definitions[name] = newDef
@@ -101,30 +102,52 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []typeDefinition) *TypeCtx {
 	return &newCtx
 }
 
-func (ctx *TypeCtx) typeDefrightParents(typeDef typeDefinition, prov *typeProvenance) bool {
+func (ctx *TypeCtx) typeDefRightParents(typeDef typeDefinition) bool {
 	switch typeDef.defKind {
 	case kindAlias:
-		return ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName, emptySetTypeID)
+		return ctx.checkCycle(typeDef.bodyType, emptySetTypeName, emptySetTypeID)
 	case kindClass, kindTrait:
-		if !ctx.checkParents(typeDef.bodyType) {
+		if !ctx.checkParents(typeDef, typeDef.bodyType, nil) {
 			return false
 		}
-		return ctx.checkParents(typeDef.bodyType) &&
-			ctx.checkCycle(typeDef.bodyType, prov, emptySetTypeName.Add(typeDef.name), emptySetTypeID) &&
+		return ctx.checkParents(typeDef, typeDef.bodyType, nil) &&
+			ctx.checkCycle(typeDef.bodyType, emptySetTypeName.Add(typeDef.name), emptySetTypeID) &&
 			ctx.checkAbstractAddConstructors()
 	}
 	panic("unreachable: unknown type definition kind: " + typeDef.defKind.String())
 }
 
-func (ctx *TypeCtx) checkParents(typ simpleType) bool {
+// checkParents is called by typeDefRightParents
+func (ctx *TypeCtx) checkParents(originalTypeDef typeDefinition, typ simpleType, parentsClasses []typeRef) bool {
 	switch typ := typ.(type) {
 	case objectTag:
 		return true
 	case typeRef:
-		// TODO in scala apparently this Map has a default value we need to find
-		//  and use here
-		//otherTypeDefs, ok := ctx.typeDefs[typ.defName]
-
+		otherTypeDef, ok := ctx.typeDefs[typ.defName]
+		if !ok {
+			otherTypeDef = typeDefinition{}
+			panic("TODO in scala apparently this Map has a default value we need to find, use here")
+		}
+		switch otherTypeDef.defKind {
+		case kindClass:
+			if originalTypeDef.defKind == kindClass {
+				parentsClasses = append(parentsClasses, typ)
+				if len(parentsClasses) != 0 {
+					ctx.addError(fmt.Sprintf("%s %s cannot inherit from class %s as it already inherits from %s", originalTypeDef.defKind.String(), originalTypeDef.name, otherTypeDef.name, parentsClasses[0]), ctx.currentPos)
+					return false
+				}
+				return true
+			} else {
+				return ctx.checkParents(originalTypeDef, ctx.expand(typ), parentsClasses)
+			}
+		case kindAlias:
+			ctx.addError("cannot inherit from type alias", ctx.currentPos)
+			return false
+		case kindTrait:
+			return ctx.checkParents(originalTypeDef, ctx.expand(typ), parentsClasses)
+		default:
+			panic("unreachable: unexpected type definition kind: " + otherTypeDef.defKind.String())
+		}
 	default:
 		panic("unreachable: unknown type reference: " + typ.String() + "of type" + reflect.TypeOf(typ).String())
 	}
@@ -134,37 +157,36 @@ func (ctx *TypeCtx) checkParents(typ simpleType) bool {
 // checkCycle returns true when type_ has no cycles
 func (ctx *TypeCtx) checkCycle(
 	type_ simpleType,
-	prov *typeProvenance,
 	traversedNames immutable.Set[typeName],
 	traversedVars immutable.Set[typeVariableID],
 ) bool {
 	switch typ := type_.(type) {
 	case typeRef:
 		if traversedNames.Has(typ.defName) {
-			ctx.addError(fmt.Sprintf("illegal cycle detected fpr type=%s, at=%v", typ.defName), prov.positioner)
+			ctx.addError(fmt.Sprintf("illegal cycle detected fpr type=%s", typ.defName), ctx.currentPos)
 			return false
 		}
-		return ctx.checkCycle(typ.expand(ctx), prov, traversedNames.Add(typ.defName), traversedVars)
+		return ctx.checkCycle(ctx.expand(typ), traversedNames.Add(typ.defName), traversedVars)
 	case unionType:
-		return ctx.checkCycle(typ.lhs, prov, traversedNames, traversedVars) &&
-			ctx.checkCycle(typ.rhs, prov, traversedNames, traversedVars)
+		return ctx.checkCycle(typ.lhs, traversedNames, traversedVars) &&
+			ctx.checkCycle(typ.rhs, traversedNames, traversedVars)
 	case negType:
-		return ctx.checkCycle(typ.negated, prov, traversedNames, traversedVars)
+		return ctx.checkCycle(typ.negated, traversedNames, traversedVars)
 	case typeRange:
-		return ctx.checkCycle(typ.upperBound, prov, traversedNames, traversedVars) &&
-			ctx.checkCycle(typ.lowerBound, prov, traversedNames, traversedVars)
+		return ctx.checkCycle(typ.upperBound, traversedNames, traversedVars) &&
+			ctx.checkCycle(typ.lowerBound, traversedNames, traversedVars)
 	case typeVariable:
 		if traversedVars.Has(typ.id) {
 			return true
 		}
 		varsAndThis := traversedVars.Add(typ.id)
 		for _, bound := range typ.lowerBounds {
-			if !ctx.checkCycle(bound, prov, traversedNames, varsAndThis) {
+			if !ctx.checkCycle(bound, traversedNames, varsAndThis) {
 				return false
 			}
 		}
 		for _, bound := range typ.upperBounds {
-			if !ctx.checkCycle(bound, prov, traversedNames, varsAndThis) {
+			if !ctx.checkCycle(bound, traversedNames, varsAndThis) {
 				return false
 			}
 		}
@@ -198,14 +220,14 @@ func (ctx *TypeCtx) typeDefCheckRegular(typeDef typeDefinition, typ simpleType, 
 			if typeDef.name == typ.defName && !util.SlicesEquivalent(existingTs, typ.typeArgs) {
 				ctx.addError(fmt.Sprintf(
 					"type definition is not regular - it occurs within itself as %s, but it is defined as %s, at: %s",
-					typ.expand(ctx),
-					typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())}.expand(ctx)), pos)
+					ctx.expand(typ),
+					ctx.expand(typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())})), pos)
 				return false
 
 			}
 			return true
 		}
-		return ctx.typeDefCheckRegular(typeDef, typ.expandWith(ctx, false), reached.Set(typ.defName, typ.typeArgs), nil)
+		return ctx.typeDefCheckRegular(typeDef, ctx.expandWith(typ, false), reached.Set(typ.defName, typ.typeArgs), nil)
 	}
 	for childT := range typ.children(false) {
 		if !ctx.typeDefCheckRegular(typeDef, childT, reached, pos) {
