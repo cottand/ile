@@ -93,7 +93,7 @@ var (
 //	WhenMatch:           variant-matching switch
 type Expr interface {
 	Positioner
-	// ExprName is the name of the syntax-type of the expression.
+	// ExprName is the Name of the syntax-type of the expression.
 	ExprName() string
 	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
 	Type() hmtypes.Type
@@ -213,7 +213,7 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 // TODO desugar identical literals (01 == 1)
 func (e *Literal) CanonicalSyntax() string { return e.Syntax }
 
-// Variable (or identifier)
+// Variable (or Identifier)
 type Var struct {
 	Name     string
 	inferred hmtypes.Type
@@ -250,7 +250,7 @@ func (e *Var) isAtomicExpr() {}
 func (e *Var) CanonicalSyntax() string { return e.Name }
 
 // We might not need QualifiedIdent after all if we represent packages as records!
-/*// QualifiedIdent is a Qualified variable or identifier
+/*// QualifiedIdent is a Qualified variable or Identifier
 type QualifiedIdent struct {
 	Qualifier string
 	Name      string
@@ -488,7 +488,7 @@ func (e *LetGroup) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// Paired identifier and value
+// Paired Identifier and value
 type LetBinding struct {
 	Var   string
 	Value Expr

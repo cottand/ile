@@ -2,9 +2,19 @@ package types
 
 import (
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
+	"maps"
 	"reflect"
 )
+
+// anyClassTag is called Object in the reference scala implementation
+var anyClassTag = classTag{
+	id:             ast.Var{Name: "Any"},
+	parents:        util.MSet[typeName]{},
+	withProvenance: withProvenance{},
+}
+
 
 // universe are the built-in bindings
 func universe() map[string]typeInfo {
@@ -12,20 +22,27 @@ func universe() map[string]typeInfo {
 	return m
 }
 
-type typeError struct{
+type typeError struct {
 	message string
 	// Positioner may be nil
 	ast.Positioner
 }
 
+// TypeCtx holds mutable state during the inference process, as well as settings
 type TypeCtx struct {
 	parent   *TypeCtx // can be nil
 	env      map[string]typeInfo
-	typeDefs map[string]typeDefinition
+	typeDefs map[string]TypeDefinition
 	// methodEnv TODO
 	level     int
 	inPattern bool
-	errors    []typeError
+
+	// failures are irrecoverable unexpected scenarios
+	// that a normal program should never hit
+	failures []typeError
+	// errors are language problems that a malformed program could cause
+	errors []ilerr.IleError
+
 	//typeDefs  map[types.Type]typeDef
 
 	// here to avoid passing a position on every function call.
@@ -74,6 +91,129 @@ func (ctx *TypeCtx) SolveSubtype(this, that simpleType, cache ctxCache) bool {
 	}
 }
 
-func (ctx *TypeCtx) addError(message string, pos ast.Positioner)  {
-	ctx.errors = append(ctx.errors, typeError{message, pos})
+func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
+	clonedEnv := maps.Clone(ctx.env)
+	allDefs := ctx.typeDefs
+	defsInfo := make(map[typeName]util.Pair[ast.TypeDefKind, int], len(newDefs))
+	for _, def := range newDefs {
+		defsInfo[def.Name.Name] = util.NewPair(def.Kind, len(def.TypeParams))
+	}
+	preprocessedDefs := make([]TypeDefinition, 0, len(defsInfo))
+	for _, td0 := range newDefs {
+		// reference implementation performs a capitalization check here which we skip,
+		// as for us that has a public/private meaning
+		name := td0.Name.Name
+		if isNameReserved(name) {
+			ctx.addError(ilerr.New(ilerr.NewRestrictedIdentName{
+				Positioner: ctx.currentPos,
+				Name:       name,
+			}))
+		}
+		if existing, ok := allDefs[name]; ok {
+			ctx.addError(ilerr.New(ilerr.NewNameRedeclaration{
+				Positioner: ctx.currentPos,
+				Name:       name,
+				Other:      existing.from,
+			}))
+		}
+		// check for duplicate type args
+		seen := make(map[typeName]ast.Positioner)
+		for _, arg := range td0.TypeParams {
+			if existing, ok := seen[arg.Name]; ok {
+				ctx.addError(ilerr.NewNameRedeclaration{
+					Positioner: ctx.currentPos,
+					Name:       arg.Name,
+					Other:      existing,
+				})
+			}
+			seen[arg.Name] = arg.Positioner
+		}
+
+		//dummyTypeArgs := make([]typeVariable, 0, len(td0.TypeParams))
+		//for _, arg := range td0.TypeParams {
+		//	dummyTypeArgs = append(dummyTypeArgs, fresh)
+		//}
+
+		typeParamsArgsMap := make(map[string]typeVariable, len(td0.TypeParams))
+		for _, arg := range td0.TypeParams {
+			fresh := freshTypeVar(ctx.level+1, newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
+			typeParamsArgsMap[arg.Name] = fresh
+		}
+		bodyType, typeVars := ctx.typeType2(td0.Body, false, typeParamsArgsMap, defsInfo)
+		baseClasses := baseClassesOfDef(td0)
+		var td1 TypeDefinition
+		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Len() == 0 {
+			td1 = TypeDefinition{
+				defKind:       td0.Kind,
+				name:          td0.Name.Name,
+				typeParamArgs: make([]util.Pair[typeName, typeVariable], 0, len(typeParamsArgsMap)),
+				typeVars:      typeVars,
+				bodyType:     intersectionType{ lhs: } ,
+			}
+			for argName, argType := range typeParamsArgsMap {
+				td1.typeParamArgs = append(td1.typeParamArgs, util.Pair[string, typeVariable]{
+					Fst: argName,
+					Snd: argType,
+				})
+			}
+		}
+	}
+
+}
+
+// def baseClassesOf(tyd: mlscript.TypeDef): Set[TypeName] =
+// if (tyd.kind === Als) Set.empty else baseClassesOf(tyd.body)
+func baseClassesOfDef(definition ast.TypeDefinition) util.MSet[typeName] {
+	if definition.Kind == ast.KindAlias {
+		return util.NewEmptySet[string]()
+	}
+	return baseClassesOfType(definition.Body)
+
+}
+
+func baseClassesOfType(typ ast.Type) util.MSet[typeName] {
+	switch typ := typ.(type) {
+	case *ast.IntersectionType:
+		leftClasses := baseClassesOfType(typ.Left)
+		rightClasses := baseClassesOfType(typ.Right)
+		for elem := range leftClasses.All() {
+			rightClasses.Add(elem)
+		}
+		return rightClasses
+	case *ast.TypeName:
+		return util.NewSetOf([]string{typ.Name})
+	case *ast.AppliedType:
+		return baseClassesOfType(&(typ.Base))
+		// including  *ast.Record, *ast.UnionType:
+	default:
+		return util.NewEmptySet[string]()
+	}
+}
+
+// wtf are these names
+func (ctx *TypeCtx) typeType2(
+	typ ast.Type,
+	simplify bool,
+	vars map[string]simpleType,
+	newDefsInfo map[string]util.Pair[ast.TypeDefKind, int],
+) (simpleType, []typeVariable) {
+	panic("TODO implement me")
+}
+
+// ComputeVariances Finds the variances of all type variables in the given type definitions with the given
+// context using a fixed point computation. The algorithm starts with each type variable
+// as bivariant by default and each type definition position as covariant and
+// then keeps updating the position variance based on the types it encounters.
+//
+// It uses the results to update variance info in the type definitions
+func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
+	panic("TODO implement me")
+}
+
+func (ctx *TypeCtx) addFailure(message string, pos ast.Positioner) {
+	ctx.failures = append(ctx.failures, typeError{message, pos})
+}
+
+func (ctx *TypeCtx) addError(ileError ilerr.IleError) {
+	ctx.errors = append(ctx.errors, ileError)
 }

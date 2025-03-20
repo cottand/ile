@@ -25,6 +25,7 @@ const (
 	RestrictedIdentName
 	UnsupportedGoType
 	TypeUnifyComptimeConst
+	NameRedeclaration
 )
 
 type IleError interface {
@@ -218,3 +219,22 @@ func (e NewTypeUnificationComptimeConst) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }
+
+type NewNameRedeclaration struct {
+	ast.Positioner
+	Other ast.Positioner
+	Name  string
+	stack []byte
+}
+
+func (e NewNameRedeclaration) Error() string {
+	// TODO ideally this should include Other
+	return fmt.Sprintf("name '%s' is already declared", e.Name)
+}
+func (e NewNameRedeclaration) Code() ErrCode { return NameRedeclaration }
+func (e NewNameRedeclaration) getStack() []byte { return e.stack }
+func (e NewNameRedeclaration) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+

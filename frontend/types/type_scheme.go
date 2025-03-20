@@ -256,6 +256,19 @@ func (t *Fresher) newTypeVariable(
 	}
 }
 
+func freshTypeVar(level int, prov typeProvenance, nameHint string, lowerBounds, upperBounds []simpleType) typeVariable {
+	panic("TODO implement me")
+}
+
+func newOriginProv(pos ast.Positioner, description string, name string) typeProvenance {
+	return typeProvenance{
+		positioner: pos,
+		desc:       description,
+		originName: name,
+		isType:     true,
+	}
+}
+
 type typeVariableID = uint
 
 // typeVariable living at a certain polymorphism level, with mutable bounds.
