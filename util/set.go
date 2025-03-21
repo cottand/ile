@@ -1,6 +1,9 @@
 package util
 
-import "iter"
+import (
+	"github.com/benbjohnson/immutable"
+	"iter"
+)
 
 // MSet is a shallow wrapper around a map
 // use immutable.Set if you are not going to be modifying this
@@ -62,4 +65,8 @@ func (s MSet[A]) AsSlice() []A  {
 		slice = append(slice, elem)
 	}
 	return slice
+}
+
+func (s MSet[A]) Immutable(hasher immutable.Hasher[A]) immutable.Set[A] {
+	return immutable.NewSet(hasher, s.AsSlice()...)
 }

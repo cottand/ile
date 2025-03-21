@@ -153,4 +153,5 @@ type TypeDefinition struct {
 	Name       TypeName
 	TypeParams []TypeName
 	Body       Type
+	Positioner
 }

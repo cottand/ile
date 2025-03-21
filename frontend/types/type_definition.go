@@ -10,8 +10,6 @@ import (
 	"slices"
 )
 
-
-
 type TypeDefinition struct {
 	defKind       ast.TypeDefKind
 	name          typeName
@@ -55,15 +53,14 @@ func isNameReserved(name typeName) bool {
 	panic("TODO implement me")
 }
 
-
 var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
 var emptySetTypeID = immutable.NewSet[typeVariableID](immutable.NewHasher(uint(1)))
 
 // typeTypeDefs processes newDefs and returns a new TypeCtx with the new names
-func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition) *TypeCtx {
+func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]TypeDefinition) *TypeCtx {
 	definitions := make(map[string]TypeDefinition, len(ctx.typeDefs))
 	// copy the map
-	for def, t := range ctx.typeDefs {
+	for def, t := range oldDefs {
 		definitions[def] = t
 	}
 	for _, newDef := range newDefs {

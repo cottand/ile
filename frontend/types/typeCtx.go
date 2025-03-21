@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
@@ -10,11 +11,10 @@ import (
 
 // anyClassTag is called Object in the reference scala implementation
 var anyClassTag = classTag{
-	id:             ast.Var{Name: "Any"},
+	id:             &ast.Var{Name: "Any"},
 	parents:        util.MSet[typeName]{},
 	withProvenance: withProvenance{},
 }
-
 
 // universe are the built-in bindings
 func universe() map[string]typeInfo {
@@ -98,6 +98,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 	for _, def := range newDefs {
 		defsInfo[def.Name.Name] = util.NewPair(def.Kind, len(def.TypeParams))
 	}
+
 	preprocessedDefs := make([]TypeDefinition, 0, len(defsInfo))
 	for _, td0 := range newDefs {
 		// reference implementation performs a capitalization check here which we skip,
@@ -129,36 +130,63 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 			seen[arg.Name] = arg.Positioner
 		}
 
-		//dummyTypeArgs := make([]typeVariable, 0, len(td0.TypeParams))
-		//for _, arg := range td0.TypeParams {
-		//	dummyTypeArgs = append(dummyTypeArgs, fresh)
-		//}
-
-		typeParamsArgsMap := make(map[string]typeVariable, len(td0.TypeParams))
+		// here, there reference implementation uses a lazy zip - we just for loops
+		typeParamsArgsMap := make(map[string]simpleType, len(td0.TypeParams))
 		for _, arg := range td0.TypeParams {
 			fresh := freshTypeVar(ctx.level+1, newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
+			// invariant: all types in argTypes should be of type variable
 			typeParamsArgsMap[arg.Name] = fresh
 		}
 		bodyType, typeVars := ctx.typeType2(td0.Body, false, typeParamsArgsMap, defsInfo)
 		baseClasses := baseClassesOfDef(td0)
 		var td1 TypeDefinition
+		typeParamsArgsAsSlice := make([]util.Pair[typeName, typeVariable], 0, len(typeParamsArgsMap))
+		for argName, argType := range typeParamsArgsMap {
+			argType, ok := argType.(typeVariable)
+			if !ok {
+				panic("all types in argTypes should be of type variable")
+			}
+			td1.typeParamArgs = append(typeParamsArgsAsSlice, util.Pair[string, typeVariable]{
+				Fst: argName,
+				Snd: argType,
+			})
+		}
 		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Len() == 0 {
 			td1 = TypeDefinition{
 				defKind:       td0.Kind,
 				name:          td0.Name.Name,
-				typeParamArgs: make([]util.Pair[typeName, typeVariable], 0, len(typeParamsArgsMap)),
+				typeParamArgs: typeParamsArgsAsSlice,
 				typeVars:      typeVars,
-				bodyType:     intersectionType{ lhs: } ,
+				bodyType: intersectionType{lhs: anyClassTag, rhs: bodyType, withProvenance: withProvenance{&typeProvenance{
+					positioner: nil,
+					desc:       "intersection type",
+					originName: "",
+					isType:     true,
+				}}},
+				// this is Object in the reference implementation
+				baseClasses: emptySetTypeName.Add("Any"),
 			}
-			for argName, argType := range typeParamsArgsMap {
-				td1.typeParamArgs = append(td1.typeParamArgs, util.Pair[string, typeVariable]{
-					Fst: argName,
-					Snd: argType,
-				})
+		} else {
+			td1 = TypeDefinition{
+				defKind:       td0.Kind,
+				name:          td0.Name.Name,
+				typeParamArgs: typeParamsArgsAsSlice,
+				typeVars:      typeVars,
+				bodyType:      bodyType,
+				baseClasses:   baseClasses.Immutable(immutable.NewHasher("")),
+				from:          td0.Positioner,
 			}
 		}
+		allDefs[name] = td1
+		preprocessedDefs = append(preprocessedDefs, td1)
 	}
+	ctxCopy := &(*ctx)
+	ctxCopy.env = clonedEnv
+	ctxCopy.typeDefs = allDefs
 
+	oldDefs := ctx.typeDefs
+
+	return ctxCopy.typeTypeDefs(preprocessedDefs, oldDefs)
 }
 
 // def baseClassesOf(tyd: mlscript.TypeDef): Set[TypeName] =
