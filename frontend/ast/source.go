@@ -56,8 +56,6 @@ type Declaration struct {
 	// Comments keeps a list of lines for comments immediately preceding a declaration.
 	// It may be nil if the declaration was not adjacent to any comments.
 	Comments []string
-	// TODO TAnnotation has to go here as otherwise I need to annotate the entire AST not just funcs
-	//  because any expression can be a Decl when declared as a var!
 }
 
 func (d Declaration) IsPublic() bool {

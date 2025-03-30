@@ -53,6 +53,7 @@ var (
 	_ Expr = (*DerefAssign)(nil)
 	_ Expr = (*Pipe)(nil)
 	_ Expr = (*Call)(nil)
+	_ Expr = (*Ascribe)(nil)
 	_ Expr = (*Func)(nil)
 	_ Expr = (*Assign)(nil)
 	_ Expr = (*LetGroup)(nil)
@@ -95,8 +96,6 @@ type Expr interface {
 	Positioner
 	// ExprName is the Name of the syntax-type of the expression.
 	ExprName() string
-	// Type returns an inferred type for an expression. Expression types are only available after type-inference.
-	Type() hmtypes.Type
 
 	// Transform should, in order:
 	//  - copy the expression
@@ -105,8 +104,6 @@ type Expr interface {
 	// In practice this means first copying the entire tree, applying f to each component bottom-up,
 	// and returning the result
 	Transform(f func(Expr) Expr) Expr
-
-	TAnnotated
 }
 
 // AtomicExpr is an Expr which specifically represents
@@ -374,29 +371,29 @@ func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
+type Ascribe struct {
+	Expr  Expr
+	type_ Type
+	Range // of the type annotating operator (':')
+}
+
+func (e *Ascribe) ExprName() string { return "Ascribe" }
+func (e *Ascribe) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	copied.Expr = e.Expr.Transform(f)
+	return f(&copied)
+}
+
 // Function abstraction: `fn (x, y) -> x`
 type Func struct {
 	ArgNames []string
 	Body     Expr
-	inferred *hmtypes.Arrow
 	Range    // of the declaration including parameters but not the body
 	tAnnotationContainer
 }
 
 // "Func"
 func (e *Func) ExprName() string { return "Func" }
-
-// Get the inferred (or assigned) type of e.
-func (e *Func) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Func) SetType(ft *hmtypes.Arrow) { e.inferred = ft }
-
-// Get the inferred (or assigned) type of an argument of e.
-func (e *Func) ArgType(index int) hmtypes.Type { return hmtypes.RealType(e.inferred.Args[index]) }
-
-// Get the inferred (or assigned) return type of e.
-func (e *Func) RetType() hmtypes.Type { return hmtypes.RealType(e.inferred.Return) }
 
 func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -417,9 +414,6 @@ type Assign struct {
 
 func (e *Assign) ExprName() string { return "Assign" }
 
-// Get the inferred (or assigned) type of e.
-func (e *Assign) Type() hmtypes.Type { return e.Body.Type() }
-
 func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Body = copied.Body.Transform(f)
@@ -437,7 +431,6 @@ type Unused struct {
 }
 
 func (e *Unused) ExprName() string   { return "Unused" }
-func (e *Unused) Type() hmtypes.Type { return e.Body.Type() }
 
 func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -457,9 +450,6 @@ type LetGroup struct {
 
 // "LetGroup"
 func (e *LetGroup) ExprName() string { return "LetGroup" }
-
-// Get the inferred (or assigned) type of e.
-func (e *LetGroup) Type() hmtypes.Type { return e.Body.Type() }
 
 // Get the strongly connected components inferred for e, in dependency order.
 // The strongly connected components will be assigned if e is inferred with
@@ -493,9 +483,6 @@ type LetBinding struct {
 	Var   string
 	Value Expr
 }
-
-// Get the inferred (or assigned) type of e.
-func (e *LetBinding) Type() hmtypes.Type { return e.Value.Type() }
 
 // Selecting (scoped) value of label: `r.a`
 type RecordSelect struct {
@@ -562,8 +549,6 @@ type LabelValue struct {
 	Value Expr
 }
 
-// Get the inferred (or assigned) type of e.
-func (e *LabelValue) Type() hmtypes.Type { return e.Value.Type() }
 func (e *LabelValue) Copy() *LabelValue {
 	copied := *e
 	return &copied
@@ -625,9 +610,6 @@ type Variant struct {
 // "Variant"
 func (e *Variant) ExprName() string { return "Variant" }
 
-// Get the inferred (or assigned) type of e.
-func (e *Variant) Type() hmtypes.Type { return e.Value.Type() }
-
 func (e *Variant) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	e.Value = e.Value.Transform(f)
@@ -665,9 +647,6 @@ type WhenCase struct {
 	Value    Expr
 	inferred *hmtypes.Record
 }
-
-func (e *WhenCase) Type() hmtypes.Type { return e.Value.Type() }
-
 func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
 	copied := *e
 	copied.Pattern = e.Pattern.TransformChildExprs(f)

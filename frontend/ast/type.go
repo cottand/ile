@@ -1,7 +1,6 @@
 package ast
 
 import (
-	"github.com/cottand/ile/util"
 	"go/token"
 	"strings"
 )
@@ -21,7 +20,7 @@ type NullaryType interface {
 var (
 	_ Type = (*IntersectionType)(nil)
 	_ Type = (*UnionType)(nil)
-	_ Type = (*Record)(nil)
+	//_ Type = (*Record)(nil)
 	_ Type = (*AppliedType)(nil)
 
 	_ NullaryType = (*TypeVar)(nil)
