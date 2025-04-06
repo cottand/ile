@@ -40,6 +40,13 @@ type typeProvenance struct {
 	isType     bool   // Whether this represents a type
 }
 
+func errorType() simpleType {
+	return classTag{
+		id:      &ast.Var{Name: "Error"},
+		parents: util.MSet[typeName]{},
+	}
+}
+
 func (tp *typeProvenance) embed() withProvenance {
 	return withProvenance{
 		provenance: tp,
@@ -82,7 +89,19 @@ var (
 	_ arrayBase = (*tupleType)(nil)
 	_ arrayBase = (*namedTupleType)(nil)
 	_ arrayBase = (*arrayType)(nil)
+
+	_ simpleType = (*PolymorphicType)(nil)
 )
+
+// wrappingProvType encapsulates another simpleType but contains different provenance info
+type wrappingProvType struct {
+	simpleType
+	proxyProvenance *typeProvenance
+}
+
+func (t wrappingProvType) underlying() simpleType { return t.simpleType }
+func (t wrappingProvType) String() string         { return "[" + t.simpleType.String() + "]" }
+func (t wrappingProvType) prov() *typeProvenance  { return t.proxyProvenance }
 
 // arrayBase is implemented by types which wrap other types
 type arrayBase interface {
@@ -241,7 +260,7 @@ type Fresher struct {
 
 func (t *Fresher) newTypeVariable(
 	level level,
-	prov typeProvenance,
+	prov *typeProvenance,
 	nameHint string,
 	lowerBounds,
 	upperBounds []simpleType,
@@ -259,8 +278,8 @@ func (t *Fresher) newTypeVariable(
 	}
 }
 
-func newOriginProv(pos ast.Positioner, description string, name string) typeProvenance {
-	return typeProvenance{
+func newOriginProv(pos ast.Positioner, description string, name string) *typeProvenance {
+	return &typeProvenance{
 		positioner: pos,
 		desc:       description,
 		originName: name,
@@ -270,7 +289,7 @@ func newOriginProv(pos ast.Positioner, description string, name string) typeProv
 
 type typeVariableID = uint
 
-// typeVariable living at a certain polymorphism level, with mutable bounds.
+// typeVariable living stack a certain polymorphism level, with mutable bounds.
 // Invariant: Types appearing in the bounds never have a level higher than this variable's `level`
 //
 // Construct with Fresher.newTypeVariable
@@ -333,7 +352,7 @@ func (t classTag) children(bool) iter.Seq[simpleType] { return emptySeqSimpleTyp
 // TODO unclear whether equivalent requires more than the ID to be equal for classTag
 func (t classTag) Equivalent(other simpleType) bool {
 	otherT, ok := other.(classTag)
-	return ok && t.id == otherT.id
+	return ok && t.id.Equivalent(otherT.id) && t.parents.Equals(otherT.parents)
 }
 
 type traitTag struct {
@@ -356,7 +375,7 @@ func (t traitTag) Equivalent(other simpleType) bool {
 	panic("implement me")
 }
 
-func (t traitTag) children(includeBounds bool) iter.Seq[simpleType] {return emptySeqSimpleType}
+func (t traitTag) children(includeBounds bool) iter.Seq[simpleType] { return emptySeqSimpleType }
 
 // typeRange represents an unknown type between bounds `lb` and `ub`,
 // where `lb` is in negative position and `ub` is in positive position.
@@ -411,38 +430,42 @@ func (ctx *TypeCtx) makeTypeRange(lowerBound, upperBound simpleType, provenance 
 }
 
 type funcType struct {
-	args, ret simpleType
+	args []simpleType
+	ret  simpleType
 	withProvenance
 }
 
 func (t funcType) uninstantiatedBody() simpleType { return t }
 func (t funcType) instantiate(level) simpleType   { return t }
-func (t funcType) level() level                   { return max(t.args.level(), t.ret.level()) }
+func (t funcType) level() level {
+	maxArgLevel := level(0)
+	for _, arg := range t.args {
+		maxArgLevel = max(maxArgLevel, arg.level())
+	}
+	return max(maxArgLevel, t.ret.level())
+}
 func (t funcType) Equivalent(other simpleType) bool {
 	otherT, ok := other.(funcType)
-	return ok && t.args.Equivalent(otherT.args) && t.ret.Equivalent(otherT.ret)
+	return ok && t.ret.Equivalent(otherT.ret) && util.SlicesEquivalent(t.args, otherT.args)
 }
 func (t funcType) String() string {
-	var argsStr string
-	// if there is a single tuple type, and it has no var, that's our type
-	if asTuple, ok := t.args.(tupleType); ok && len(asTuple.fields) == 1 {
-		argsStr = asTuple.fields[0].String()
-	} else {
-		argsStr = t.args.String()
-	}
-	return fmt.Sprintf("(%s -> %s)", argsStr, t.ret.String())
+	var argsStr string = util.JoinString(t.args, ", ")
+	return fmt.Sprintf("(fn %s -> %s)", argsStr, t.ret.String())
 }
 func (t funcType) children(bool) iter.Seq[simpleType] {
 	return func(yield func(simpleType) bool) {
-		if !yield(t.args) {
-			yield(t.ret)
+		for _, arg := range t.args {
+			if !yield(arg) {
+				return
+			}
 		}
+		yield(t.ret)
 	}
 }
 
 // tupleType is for known-width structures with specific types (say, [Int, String, Int])
 //
-// in the mlstruct scala implementation, this is simply a TupleType
+// in the mlstruct scala implementaution, this is simply a TupleType
 type tupleType struct {
 	fields []simpleType
 	withProvenance
@@ -563,23 +586,41 @@ func (t arrayType) children(bool) iter.Seq[simpleType] {
 }
 
 type PolymorphicType struct {
-	Body  simpleType
-	level level
+	Body   simpleType
+	_level level
+	withProvenance
 }
 
-func (p *PolymorphicType) prov() *typeProvenance {
+func (p PolymorphicType) Equivalent(other simpleType) bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p PolymorphicType) String() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p PolymorphicType) level() level { return p._level }
+
+func (p PolymorphicType) children(includeBounds bool) iter.Seq[simpleType] {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p PolymorphicType) prov() *typeProvenance {
 	return p.Body.prov()
 }
-
-func (p *PolymorphicType) End() token.Pos {
+func (p PolymorphicType) End() token.Pos {
 	return p.Body.prov().positioner.End()
 }
-
-func (p *PolymorphicType) instantiate(level level) simpleType {
-	return level.freshenAbove(p.level, p.Body)
+func (p PolymorphicType) Pos() token.Pos {
+	return p.Body.prov().positioner.Pos()
 }
-func (p *PolymorphicType) uninstantiatedBody() simpleType { return p.Body }
-
-func (p *PolymorphicType) rigidify(level level) simpleType {
-	return level.freshenAboveWithRigidify(p.level, p.Body, true)
+func (p PolymorphicType) instantiate(level level) simpleType {
+	return level.freshenAbove(p._level, p.Body)
+}
+func (p PolymorphicType) uninstantiatedBody() simpleType { return p.Body }
+func (p PolymorphicType) rigidify(level level) simpleType {
+	return level.freshenAboveWithRigidify(p._level, p.Body, true)
 }

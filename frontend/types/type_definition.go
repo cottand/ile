@@ -202,7 +202,7 @@ func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ simpleType, 
 			//    and to have the same has hashCode (see: the use of a cache MutSet)
 			if typeDef.name == typ.defName && !util.SlicesEquivalent(existingTs, typ.typeArgs) {
 				ctx.addFailure(fmt.Sprintf(
-					"type definition is not regular - it occurs within itself as %s, but it is defined as %s, at: %s",
+					"type definition is not regular - it occurs within itself as %s, but it is defined as %s",
 					ctx.expand(typ),
 					ctx.expand(typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())})), pos)
 				return false

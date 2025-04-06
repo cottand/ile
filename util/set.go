@@ -3,6 +3,7 @@ package util
 import (
 	"github.com/benbjohnson/immutable"
 	"iter"
+	"maps"
 )
 
 // MSet is a shallow wrapper around a map
@@ -18,7 +19,7 @@ func NewEmptySet[A comparable]() MSet[A] {
 	}
 }
 
-func NewSetOf[A comparable](elems []A) MSet[A] {
+func NewSetOf[A comparable](elems ...A) MSet[A] {
 	underlying := make(map[A]struct{}, len(elems))
 	for _, elem := range elems {
 		underlying[elem] = struct{}{}
@@ -69,4 +70,8 @@ func (s MSet[A]) AsSlice() []A  {
 
 func (s MSet[A]) Immutable(hasher immutable.Hasher[A]) immutable.Set[A] {
 	return immutable.NewSet(hasher, s.AsSlice()...)
+}
+
+func (s MSet[A]) Equals(other MSet[A]) bool {
+	return maps.Equal(s.underlying, other.underlying)
 }

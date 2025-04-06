@@ -1,7 +1,111 @@
 package types
 
-import "github.com/cottand/ile/frontend/ast"
+import (
+	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/internal/log"
+	"reflect"
+)
 
-func (ctx *TypeCtx) TypeLetBody(name string, body ast.Expr) {
-	
+var logger = log.DefaultLogger.With("section", "typeExpr")
+
+func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[typeVariableID]simpleType) PolymorphicType {
+	res := ctx.nextLevel().typeExpr(body, vars)
+	return PolymorphicType{
+		_level: ctx.level,
+		Body:   res,
+	}
+}
+
+func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) {
+
+}
+
+// typeExpr infers the type of a ast.Expr
+//
+// it is called typeTerm in the reference scala implementation
+func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]simpleType) simpleType {
+	logger.Debug("typing expression", "expr", expr.ExprName())
+	ctx.currentPos = expr
+	prov := withProvenance{provenance: &typeProvenance{positioner: expr}}
+	switch expr := expr.(type) {
+	case *ast.Literal:
+		return classTag{
+			id:             expr,
+			parents:        expr.BaseTypes(),
+			withProvenance: prov,
+		}
+		// the reference implementation has two matches here: one without Var (param names) and another with
+		// we will focus on the former for now
+	case *ast.Call:
+		fType := ctx.typeExpr(expr.Func, vars)
+		argTypes := make([]simpleType, 0, len(expr.Args))
+		for _, arg := range expr.Args {
+			argTypes = append(argTypes, ctx.typeExpr(arg, vars))
+		}
+		res := ctx.newTypeVariable(prov.provenance, "", nil, nil)
+		return ctx.typeExprConstrain(fType, funcType{
+			args:           argTypes,
+			ret:            res,
+			withProvenance: prov,
+		}, res, prov.provenance)
+	case *ast.ListLiteral:
+		tupleT := tupleType{
+			fields:         make([]simpleType, 0, len(expr.Args)),
+			withProvenance: withProvenance{provenance: newOriginProv(expr, "list literal", "")},
+		}
+		for _, tupleElement := range expr.Args {
+			typed := ctx.typeExpr(tupleElement, vars)
+			tupleT.fields = append(tupleT.fields, typed)
+		}
+		return tupleT
+	default:
+		panic("not implemented: unexpected expression type for " + reflect.TypeOf(expr).String())
+	}
+}
+
+func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res simpleType, prov *typeProvenance) simpleType {
+	errCount := 0
+	ctx.Constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
+		errCount++
+		if errCount == 0 {
+			// so that we can get error types leak into the result
+			ctx.addError(err)
+			ctx.Constrain(errorType(), res, prov, func(err ilerr.IleError) (terminateEarly bool) { return false })
+			return false
+		} else if errCount < 3 {
+			// silence further errors
+			return false
+		} else {
+			// stop constraining stack this point in order to avoid explosive badly behaved error cases
+			return true
+		}
+	})
+	return res
+}
+
+func (ctx *TypeCtx) GetLowerBoundFunctionType(t simpleType) []funcType {
+	switch t := unwrapProvenance(t).(type) {
+	case PolymorphicType:
+		//if ctx.typeIsAliasOf(t) {
+		// see reference impl for getLowerBoundFunctionType
+		panic("TODO implement type refs unapply")
+	case funcType:
+		return []funcType{t}
+	case typeVariable:
+		var funcTypes = make([]funcType, 0)
+		for _, lowerBound := range t.lowerBounds {
+			for _, lBoundFuncType := range ctx.GetLowerBoundFunctionType(lowerBound) {
+				funcTypes = append(funcTypes, lBoundFuncType)
+			}
+		}
+		return funcTypes
+	case intersectionType:
+		var funcTypes = make([]funcType, 0)
+		funcTypes = append(funcTypes, ctx.GetLowerBoundFunctionType(t.lhs)...)
+		funcTypes = append(funcTypes, ctx.GetLowerBoundFunctionType(t.rhs)...)
+		return funcTypes
+	default:
+		return make([]funcType, 0)
+	}
 }

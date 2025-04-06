@@ -12,3 +12,9 @@ result
 **/**.ile.go
 
 **/**.DS_Store
+
+# symlinking these to your local working directory can help
+# to see these reference implementations from your IDE, as well
+# as including them in your IDE AI context
+mlstruct
+mlscript

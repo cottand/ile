@@ -1,12 +1,15 @@
 package types
 
 import (
+	"fmt"
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
 	"maps"
 	"reflect"
+	"runtime/debug"
+	"strings"
 )
 
 // anyClassTag is called Object in the reference scala implementation
@@ -26,6 +29,12 @@ type typeError struct {
 	message string
 	// Positioner may be nil
 	ast.Positioner
+	stack []byte
+}
+
+func (err typeError) String() string {
+	stack := strings.Split(string(err.stack), "\n")[6]
+	return fmt.Sprintf("( %s ): %s", strings.TrimSpace(stack), err.message)
 }
 
 // TypeCtx holds mutable state during the inference process, as well as settings
@@ -34,8 +43,25 @@ type TypeCtx struct {
 	env      map[string]typeInfo
 	typeDefs map[string]TypeDefinition
 	// methodEnv TODO
-	level     int
+	level     level
 	inPattern bool
+
+	//typeDefs  map[types.Type]typeDef
+
+	// here to avoid passing a position on every function call.
+	// not present in scala implementation
+	currentPos ast.Positioner
+
+	*TypeState
+}
+
+// TypeState is part of TypeCtx and is shared across all copies of it during a single inference.
+// It is not concurrency safe and is not present on the scala implementation
+type TypeState struct {
+	// fresher keeps track of new type variables
+	// it is not present in the scala implementation,
+	// there the same functionality is implemented by keeping global state
+	fresher *Fresher
 
 	// failures are irrecoverable unexpected scenarios
 	// that a normal program should never hit
@@ -43,11 +69,7 @@ type TypeCtx struct {
 	// errors are language problems that a malformed program could cause
 	errors []ilerr.IleError
 
-	//typeDefs  map[types.Type]typeDef
-
-	// here to avoid passing a position on every function call.
-	// not present in scala implementation
-	currentPos ast.Positioner
+	dontRecordProvenance bool
 }
 
 func NewEmptyTypeCtx() *TypeCtx {
@@ -56,6 +78,9 @@ func NewEmptyTypeCtx() *TypeCtx {
 		env:       universe(),
 		level:     0,
 		inPattern: false,
+		TypeState: &TypeState{
+			fresher: &Fresher{},
+		},
 	}
 }
 
@@ -133,7 +158,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 		// here, there reference implementation uses a lazy zip - we just for loops
 		typeParamsArgsMap := make(map[string]simpleType, len(td0.TypeParams))
 		for _, arg := range td0.TypeParams {
-			fresh := freshTypeVar(ctx.level+1, newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
+			fresh := (ctx.level + 1).freshTypeVar(newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
 			// invariant: all types in argTypes should be of type variable
 			typeParamsArgsMap[arg.Name] = fresh
 		}
@@ -209,7 +234,7 @@ func baseClassesOfType(typ ast.Type) util.MSet[typeName] {
 		}
 		return rightClasses
 	case *ast.TypeName:
-		return util.NewSetOf([]string{typ.Name})
+		return util.NewSetOf(typ.Name)
 	case *ast.AppliedType:
 		return baseClassesOfType(&(typ.Base))
 		// including  *ast.Record, *ast.UnionType:
@@ -238,10 +263,20 @@ func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
 	panic("TODO implement me")
 }
 
-func (ctx *TypeCtx) addFailure(message string, pos ast.Positioner) {
-	ctx.failures = append(ctx.failures, typeError{message, pos})
+func (ctx *TypeState) addFailure(message string, pos ast.Positioner) {
+	ctx.failures = append(ctx.failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
 }
 
-func (ctx *TypeCtx) addError(ileError ilerr.IleError) {
+func (ctx *TypeState) addError(ileError ilerr.IleError) {
 	ctx.errors = append(ctx.errors, ileError)
+}
+
+func (ctx *TypeCtx) nextLevel() *TypeCtx {
+	copied := *ctx
+	copied.level++
+	return &copied
+}
+
+func (ctx *TypeCtx) newTypeVariable(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []simpleType) typeVariable {
+	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
 }

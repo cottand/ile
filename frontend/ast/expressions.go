@@ -43,7 +43,9 @@ package ast
 
 import (
 	"github.com/cottand/ile/frontend/hmtypes"
+	"github.com/cottand/ile/util"
 	"go/token"
+	"strings"
 )
 
 var (
@@ -63,8 +65,10 @@ var (
 	_ Expr = (*RecordEmpty)(nil)
 	_ Expr = (*Variant)(nil)
 	_ Expr = (*WhenMatch)(nil)
-	_ Expr = (*WhenMatch)(nil)
 	_ Expr = (*Unused)(nil)
+	_ Expr = (*ListLiteral)(nil)
+
+	_ AtomicExpr = (*Literal)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
 
@@ -118,6 +122,7 @@ type AtomicExpr interface {
 	// It is called IdStr in the mlstruct scala implementation
 	CanonicalSyntax() string
 	isAtomicExpr()
+	Equivalent(other AtomicExpr) bool
 }
 
 var a = 1e1
@@ -209,6 +214,18 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 
 // TODO desugar identical literals (01 == 1)
 func (e *Literal) CanonicalSyntax() string { return e.Syntax }
+func (e *Literal) BaseTypes() util.MSet[string] {
+	switch e.Kind {
+	case token.INT:
+		return util.NewSetOf(IntBuiltinType, NumberBuiltinType)
+	}
+	// TODO add base types for each lit type (LitImpl in reference scala implementation)
+	return util.MSet[string]{}
+}
+func (e *Literal) Equivalent(other AtomicExpr) bool {
+	otherAsLiteral, ok := other.(*Literal)
+	return ok && e.Syntax == otherAsLiteral.Syntax
+}
 
 // Variable (or Identifier)
 type Var struct {
@@ -245,6 +262,10 @@ func (e *Var) Transform(f func(expr Expr) Expr) Expr {
 func (e *Var) isAtomicExpr() {}
 
 func (e *Var) CanonicalSyntax() string { return e.Name }
+func (e *Var) Equivalent(other AtomicExpr) bool {
+	otherAsVar, ok := other.(*Var)
+	return ok && e.Name == otherAsVar.Name
+}
 
 // We might not need QualifiedIdent after all if we represent packages as records!
 /*// QualifiedIdent is a Qualified variable or Identifier
@@ -430,12 +451,36 @@ type Unused struct {
 	tAnnotationContainer
 }
 
-func (e *Unused) ExprName() string   { return "Unused" }
+func (e *Unused) ExprName() string { return "Unused" }
 
 func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Body = e.Body.Transform(f)
 	copied.Value = e.Value.Transform(f)
+	return f(&copied)
+}
+// ListLiteral can be used to represent lists as well as tuples of known width and subtypes (["aa", 1])
+type ListLiteral struct {
+	Args []Expr
+	Positioner
+}
+
+func (l *ListLiteral) ExprName() string  {return "list literal"}
+
+func (l *ListLiteral) String() string {
+	var exprArgs = make([]string, len(l.Args))
+	for i, arg := range l.Args {
+		exprArgs[i] = arg.ExprName()
+	}
+	return "[" + strings.Join(exprArgs, ", ") + "]"
+}
+
+func (l *ListLiteral) Transform(f func(expr Expr) Expr) Expr  {
+	copied := *l
+	copied.Args = make([]Expr, len(l.Args))
+	for i, arg := range l.Args {
+		copied.Args[i] = arg.Transform(f)
+	}
 	return f(&copied)
 }
 
@@ -647,6 +692,7 @@ type WhenCase struct {
 	Value    Expr
 	inferred *hmtypes.Record
 }
+
 func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
 	copied := *e
 	copied.Pattern = e.Pattern.TransformChildExprs(f)

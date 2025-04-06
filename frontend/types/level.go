@@ -16,68 +16,6 @@ func (l level) freshenAbove(limit level, type_ simpleType) simpleType {
 	return l.freshenAboveWithRigidify(limit, type_, false)
 }
 
-/*
-	def freshenAbove(lim: Int, ty: SimpleType, rigidify: Bool = false)(implicit lvl: Int): SimpleType = {
-	  val freshened = MutMap.empty[TV, SimpleType]
-	  def freshen(ty: SimpleType): SimpleType =
-	    if (!rigidify // Rigidification now also substitutes TypeBound-s with fresh vars;
-	                  // since these have the level of their bounds, when rigidifying
-	                  // we need to make sure to copy the whole type regardless of level...
-	      && ty.level <= lim) ty else ty match {
-	    case tv: TypeVariable => freshened.get(tv) match {
-	      case Some(tv) => tv
-	      case None if rigidify =>
-	        val rv = TraitTag( // Rigid type variables (ie, skolems) are encoded as TraitTag-s
-	          Var(tv.nameHint.getOrElse("_"+freshVar(noProv).toString)))(tv.prov)
-	        if (tv.lowerBounds.nonEmpty || tv.upperBounds.nonEmpty) {
-	          // The bounds of `tv` may be recursive (refer to `tv` itself),
-	          //    so here we create a fresh variabe that will be able to tie the presumed recursive knot
-	          //    (if there is no recursion, it will just be a useless type variable)
-	          val tv2 = freshVar(tv.prov, tv.nameHint)
-	          freshened += tv -> tv2
-	          // Assuming there were no recursive bounds, given L <: tv <: U,
-	          //    we essentially need to turn tv's occurrence into the type-bounds (rv | L)..(rv & U),
-	          //    meaning all negative occurrences should be interpreted as rv | L
-	          //    and all positive occurrences should be interpreted as rv & U
-	          //    where rv is the rigidified variables.
-	          // Now, since there may be recursive bounds, we do the same
-	          //    but through the indirection of a type variable tv2:
-	          tv2.lowerBounds ::= tv.lowerBounds.map(freshen).foldLeft(rv: ST)(_ & _)
-	          tv2.upperBounds ::= tv.upperBounds.map(freshen).foldLeft(rv: ST)(_ | _)
-	          tv2
-	        } else {
-	          freshened += tv -> rv
-	          rv
-	        }
-	      case None =>
-	        val v = freshVar(tv.prov, tv.nameHint)
-	        freshened += tv -> v
-	        v.lowerBounds = tv.lowerBounds.mapConserve(freshen)
-	        v.upperBounds = tv.upperBounds.mapConserve(freshen)
-	        v
-	    }
-	    case t @ TypeRange(lb, ub) =>
-	      if (rigidify) {
-	        val tv = freshVar(t.prov)
-	        tv.lowerBounds ::= freshen(lb)
-	        tv.upperBounds ::= freshen(ub)
-	        tv
-	      } else TypeRange(freshen(lb), freshen(ub))(t.prov)
-	    case t @ FunctionType(l, r) => FunctionType(freshen(l), freshen(r))(t.prov)
-	    case t @ ComposedType(p, l, r) => ComposedType(p, freshen(l), freshen(r))(t.prov)
-	    case t @ RecordType(fs) => RecordType(fs.mapValues(_.update(freshen, freshen)))(t.prov)
-	    case t @ TupleType(fs) => TupleType(fs.mapValues(freshen))(t.prov)
-	    case t @ ArrayType(ar) => ArrayType(freshen(ar))(t.prov)
-	    case n @ NegType(neg) => NegType(freshen(neg))(n.prov)
-	    case e @ ExtrType(_) => e
-	    case p @ ProvType(und) => ProvType(freshen(und))(p.prov)
-	    case p @ ProxyType(und) => freshen(und)
-	    case _: ClassTag | _: TraitTag => ty
-	    case tr @ TypeRef(d, ts) => TypeRef(d, ts.map(freshen(_)))(tr.prov)
-	  }
-	  freshen(ty)
-	}
-*/
 func (l level) freshenAboveWithRigidify(limit level, type_ simpleType, rigidify bool) simpleType {
 	return l.freshen(limit, type_, rigidify, make(map[typeVariableID]simpleType))
 }
@@ -107,7 +45,7 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 			}
 			return freshV
 		}
-		// so we have rigidify
+		// so we have rigidify=true
 
 		var_ := &ast.Var{
 			Name: type_.nameHint,
@@ -163,8 +101,12 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 		freshVar.upperBounds = append(freshVar.upperBounds, l.freshen(limit, type_.upperBound, rigidify, freshened))
 		return freshVar
 	case funcType:
+		var fields = make([]simpleType, len(type_.args))
+		for i, field := range type_.args {
+			fields[i] = l.freshen(limit, field, rigidify, freshened)
+		}
 		return funcType{
-			args: l.freshen(limit, type_.args, rigidify, freshened),
+			args: fields,
 			ret:  l.freshen(limit, type_.ret, rigidify, freshened),
 		}
 	case unionType:
@@ -184,7 +126,7 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 	case extremeType:
 		return type_
 	case tupleType:
-		var fields []simpleType = make([]simpleType, len(type_.fields))
+		var fields = make([]simpleType, len(type_.fields))
 		for i, field := range type_.fields {
 			fields[i] = l.freshen(limit, field, rigidify, freshened)
 		}
