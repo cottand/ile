@@ -9,7 +9,7 @@ import (
 
 var logger = log.DefaultLogger.With("section", "typeExpr")
 
-func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[typeVariableID]simpleType) PolymorphicType {
+func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[typeVariableID]SimpleType) PolymorphicType {
 	res := ctx.nextLevel().typeExpr(body, vars)
 	return PolymorphicType{
 		_level: ctx.level,
@@ -24,7 +24,7 @@ func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) {
 // typeExpr infers the type of a ast.Expr
 //
 // it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]simpleType) simpleType {
+func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) SimpleType {
 	logger.Debug("typing expression", "expr", expr.ExprName())
 	ctx.currentPos = expr
 	prov := withProvenance{provenance: &typeProvenance{positioner: expr}}
@@ -39,7 +39,7 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]simpleType) 
 		// we will focus on the former for now
 	case *ast.Call:
 		fType := ctx.typeExpr(expr.Func, vars)
-		argTypes := make([]simpleType, 0, len(expr.Args))
+		argTypes := make([]SimpleType, 0, len(expr.Args))
 		for _, arg := range expr.Args {
 			argTypes = append(argTypes, ctx.typeExpr(arg, vars))
 		}
@@ -51,7 +51,7 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]simpleType) 
 		}, res, prov.provenance)
 	case *ast.ListLiteral:
 		tupleT := tupleType{
-			fields:         make([]simpleType, 0, len(expr.Args)),
+			fields:         make([]SimpleType, 0, len(expr.Args)),
 			withProvenance: withProvenance{provenance: newOriginProv(expr, "list literal", "")},
 		}
 		for _, tupleElement := range expr.Args {
@@ -64,7 +64,7 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]simpleType) 
 	}
 }
 
-func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res simpleType, prov *typeProvenance) simpleType {
+func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov *typeProvenance) SimpleType {
 	errCount := 0
 	ctx.Constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
 		errCount++
@@ -84,7 +84,7 @@ func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res simpleType, prov *typeProven
 	return res
 }
 
-func (ctx *TypeCtx) GetLowerBoundFunctionType(t simpleType) []funcType {
+func (ctx *TypeCtx) GetLowerBoundFunctionType(t SimpleType) []funcType {
 	switch t := unwrapProvenance(t).(type) {
 	case PolymorphicType:
 		//if ctx.typeIsAliasOf(t) {

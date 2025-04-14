@@ -26,6 +26,7 @@ const (
 	UnsupportedGoType
 	TypeUnifyComptimeConst
 	NameRedeclaration
+	TypeMismatch
 )
 
 type IleError interface {
@@ -231,10 +232,26 @@ func (e NewNameRedeclaration) Error() string {
 	// TODO ideally this should include Other
 	return fmt.Sprintf("name '%s' is already declared", e.Name)
 }
-func (e NewNameRedeclaration) Code() ErrCode { return NameRedeclaration }
+func (e NewNameRedeclaration) Code() ErrCode    { return NameRedeclaration }
 func (e NewNameRedeclaration) getStack() []byte { return e.stack }
 func (e NewNameRedeclaration) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }
 
+type NewTypeMismatch struct {
+	ast.Positioner
+	First, Second string
+	Reason        string
+	stack         []byte
+}
+
+func (e NewTypeMismatch) Error() string {
+	return fmt.Sprintf("type mismatch: types '%s' and '%s' do not match: %s", e.First, e.Second, e.Reason)
+}
+func (e NewTypeMismatch) Code() ErrCode    { return TypeMismatch }
+func (e NewTypeMismatch) getStack() []byte { return e.stack }
+func (e NewTypeMismatch) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}

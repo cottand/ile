@@ -8,19 +8,19 @@ import (
 
 type level uint16
 
-func (l level) freshTypeVar(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []simpleType) typeVariable {
+func (l level) freshTypeVar(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
 	panic("TODO implement me")
 }
 
-func (l level) freshenAbove(limit level, type_ simpleType) simpleType {
+func (l level) freshenAbove(limit level, type_ SimpleType) SimpleType {
 	return l.freshenAboveWithRigidify(limit, type_, false)
 }
 
-func (l level) freshenAboveWithRigidify(limit level, type_ simpleType, rigidify bool) simpleType {
-	return l.freshen(limit, type_, rigidify, make(map[typeVariableID]simpleType))
+func (l level) freshenAboveWithRigidify(limit level, type_ SimpleType, rigidify bool) SimpleType {
+	return l.freshen(limit, type_, rigidify, make(map[typeVariableID]SimpleType))
 }
 
-func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened map[typeVariableID]simpleType) simpleType {
+func (l level) freshen(limit level, type_ SimpleType, rigidify bool, freshened map[typeVariableID]SimpleType) SimpleType {
 	// Rigidification now also substitutes TypeBound-s with fresh vars;
 	// since these have the level of their bounds, when rigidifying
 	// we need to make sure to copy the whole type regardless of level...
@@ -73,14 +73,14 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 		//    where rv is the rigidified variables.
 		// Now, since there may be recursive bounds, we do the same
 		//    but through the indirection of a type variable tv2:
-		var currentLowerBound simpleType = topType // we use the fact that A & Top = A
+		var currentLowerBound SimpleType = topType // we use the fact that A & Top = A
 		for _, lb := range type_.lowerBounds {
 			freshLb := l.freshen(limit, lb, rigidify, freshened)
 			currentLowerBound = intersectionOf(currentLowerBound, freshLb, unionOpts{})
 		}
 		freshV.lowerBounds = append(freshV.lowerBounds, currentLowerBound)
 
-		var currentUpperBound simpleType = bottomType // we use the fact that A | Bot = A
+		var currentUpperBound SimpleType = bottomType // we use the fact that A | Bot = A
 		for _, up := range type_.upperBounds {
 			freshUp := l.freshen(limit, up, rigidify, freshened)
 			currentUpperBound = unionOf(currentUpperBound, freshUp, unionOpts{})
@@ -101,7 +101,7 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 		freshVar.upperBounds = append(freshVar.upperBounds, l.freshen(limit, type_.upperBound, rigidify, freshened))
 		return freshVar
 	case funcType:
-		var fields = make([]simpleType, len(type_.args))
+		var fields = make([]SimpleType, len(type_.args))
 		for i, field := range type_.args {
 			fields[i] = l.freshen(limit, field, rigidify, freshened)
 		}
@@ -126,7 +126,7 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 	case extremeType:
 		return type_
 	case tupleType:
-		var fields = make([]simpleType, len(type_.fields))
+		var fields = make([]SimpleType, len(type_.fields))
 		for i, field := range type_.fields {
 			fields[i] = l.freshen(limit, field, rigidify, freshened)
 		}
@@ -135,9 +135,9 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 			withProvenance: type_.withProvenance,
 		}
 	case namedTupleType:
-		var fields []util.Pair[ast.Var, simpleType] = make([]util.Pair[ast.Var, simpleType], len(type_.fields))
+		var fields []util.Pair[ast.Var, SimpleType] = make([]util.Pair[ast.Var, SimpleType], len(type_.fields))
 		for i, field := range type_.fields {
-			fields[i] = util.Pair[ast.Var, simpleType]{
+			fields[i] = util.Pair[ast.Var, SimpleType]{
 				Fst: field.Fst,
 				Snd: l.freshen(limit, field.Snd, rigidify, freshened),
 			}
@@ -155,7 +155,7 @@ func (l level) freshen(limit level, type_ simpleType, rigidify bool, freshened m
 		return type_
 
 	case typeRef:
-		var typeArgs []simpleType = make([]simpleType, len(type_.typeArgs))
+		var typeArgs []SimpleType = make([]SimpleType, len(type_.typeArgs))
 		for i, typeArg := range type_.typeArgs {
 			typeArgs[i] = l.freshen(limit, typeArg, rigidify, freshened)
 		}

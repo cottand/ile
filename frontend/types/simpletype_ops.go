@@ -6,11 +6,11 @@ type unionOpts struct {
 }
 
 // unionOf corresponds to the `|` operation in the scala mlstruct implementation
-func unionOf(this, other simpleType, opts unionOpts) simpleType {
+func unionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	panic("unimplemented")
 }
 
 // unionOf corresponds to the `&` operation in the scala mlstruct implementation
-func intersectionOf(this, other simpleType, opts unionOpts) simpleType {
+func intersectionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	panic("unimplemented")
 }

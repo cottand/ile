@@ -15,7 +15,7 @@ type TypeDefinition struct {
 	name          typeName
 	typeParamArgs []util.Pair[typeName, typeVariable]
 	typeVars      []typeVariable
-	bodyType      simpleType
+	bodyType      SimpleType
 	baseClasses   immutable.Set[typeName]
 	from          ast.Positioner
 }
@@ -39,8 +39,8 @@ func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed util.MSet[t
 	}
 }
 
-func (d *TypeDefinition) typeParameters() iter.Seq[simpleType] {
-	return func(yield func(simpleType) bool) {
+func (d *TypeDefinition) typeParameters() iter.Seq[SimpleType] {
+	return func(yield func(SimpleType) bool) {
 		for _, arg := range d.typeParamArgs {
 			if !yield(arg.Snd) {
 				return
@@ -95,7 +95,7 @@ func (ctx *TypeCtx) typeDefRightParents(typeDef TypeDefinition) bool {
 }
 
 // checkParents is called by typeDefRightParents
-func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ simpleType, parentsClasses []typeRef) bool {
+func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ SimpleType, parentsClasses []typeRef) bool {
 	switch typ := typ.(type) {
 	case objectTag:
 		return true
@@ -136,7 +136,7 @@ func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ simpleType,
 
 // checkCycle returns true when type_ has no cycles
 func (ctx *TypeCtx) checkCycle(
-	type_ simpleType,
+	type_ SimpleType,
 	traversedNames immutable.Set[typeName],
 	traversedVars immutable.Set[typeVariableID],
 ) bool {
@@ -190,9 +190,9 @@ func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
 }
 
 // implementation wise it is completed but TODO make a typeError to accumulate failures with their locations
-func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ simpleType, reached *immutable.Map[string, []simpleType], pos ast.Positioner) bool {
+func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ SimpleType, reached *immutable.Map[string, []SimpleType], pos ast.Positioner) bool {
 	if reached == nil {
-		reached = immutable.NewMap[string, []simpleType](immutable.NewHasher(""))
+		reached = immutable.NewMap[string, []SimpleType](immutable.NewHasher(""))
 	}
 	if typ, ok := typ.(typeRef); ok {
 		if existingTs, isPresent := reached.Get(typ.defName); isPresent {

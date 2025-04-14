@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func testType(t *testing.T, expr ast.Expr, expected simpleType) {
+func testType(t *testing.T, expr ast.Expr, expected SimpleType) {
 	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.String()), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
@@ -20,7 +20,7 @@ func testType(t *testing.T, expr ast.Expr, expected simpleType) {
 			}
 		}()
 		ctx := NewEmptyTypeCtx()
-		vars := make(map[typeVariableID]simpleType)
+		vars := make(map[typeVariableID]SimpleType)
 
 		typeScheme := ctx.TypeLetBody(expr, vars)
 		instance := typeScheme.instantiate(0)

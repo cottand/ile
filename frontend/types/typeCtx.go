@@ -84,7 +84,7 @@ func NewEmptyTypeCtx() *TypeCtx {
 	}
 }
 
-type ctxCache = map[util.Pair[simpleType, simpleType]]bool
+type ctxCache = map[util.Pair[SimpleType, SimpleType]]bool
 
 // assuming evaluates body assuming all entries in cache are true
 func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
@@ -96,12 +96,12 @@ func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
 }
 
 // TypesEquivalent carries the notation >:< in the scala implementation
-func (ctx *TypeCtx) TypesEquivalent(this, that simpleType) bool {
+func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
 	return this == that || ctx.SolveSubtype(this, that, nil) && ctx.SolveSubtype(that, this, nil)
 }
 
 // SolveSubtype carries the notation <:< in the scala implementation
-func (ctx *TypeCtx) SolveSubtype(this, that simpleType, cache ctxCache) bool {
+func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 	if this == that {
 		return true
 	}
@@ -156,7 +156,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 		}
 
 		// here, there reference implementation uses a lazy zip - we just for loops
-		typeParamsArgsMap := make(map[string]simpleType, len(td0.TypeParams))
+		typeParamsArgsMap := make(map[string]SimpleType, len(td0.TypeParams))
 		for _, arg := range td0.TypeParams {
 			fresh := (ctx.level + 1).freshTypeVar(newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
 			// invariant: all types in argTypes should be of type variable
@@ -247,9 +247,9 @@ func baseClassesOfType(typ ast.Type) util.MSet[typeName] {
 func (ctx *TypeCtx) typeType2(
 	typ ast.Type,
 	simplify bool,
-	vars map[string]simpleType,
+	vars map[string]SimpleType,
 	newDefsInfo map[string]util.Pair[ast.TypeDefKind, int],
-) (simpleType, []typeVariable) {
+) (SimpleType, []typeVariable) {
 	panic("TODO implement me")
 }
 
@@ -277,6 +277,6 @@ func (ctx *TypeCtx) nextLevel() *TypeCtx {
 	return &copied
 }
 
-func (ctx *TypeCtx) newTypeVariable(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []simpleType) typeVariable {
+func (ctx *TypeCtx) newTypeVariable(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
 	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
 }
