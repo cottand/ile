@@ -68,25 +68,25 @@ func (ctx *TypeCtx) newConstraintSolver(
 
 // --- Helper methods for the solver ---
 
-func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ constraintContext) bool {
 	cs.fuel--
 	cs.depth++
 	if cs.depth > defaultDepthLimit {
 		// Simplified error reporting
-		err := ilerr.NewTypeError(
-			fmt.Sprintf("Subtyping constraint %s <: %s exceeded recursion depth limit (%d)", currentLhs, currentRhs, defaultDepthLimit),
-			cs.prov.positioner,
-			nil, // TODO: Add more context like the stack trace
-		)
-		return cs.onErr(err) // Check if we should terminate
+		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
+			Positioner: cs.prov.positioner,
+			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
+			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
+			Reason:     "exceeded max depth limit",
+		})) // TODO Check if we should terminate
 	}
 	if cs.fuel <= 0 {
-		err := ilerr.NewTypeError(
-			fmt.Sprintf("Subtyping constraint %s <: %s ran out of fuel (%d)", currentLhs, currentRhs, defaultStartingFuel),
-			cs.prov.positioner,
-			nil, // TODO: Add context
-		)
-		return cs.onErr(err) // Check if we should terminate
+		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
+			Positioner: cs.prov.positioner,
+			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
+			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
+			Reason:     "ran out of fuel",
+		})) // TODO Check if we should terminate
 	}
 	return false // Continue
 }
@@ -237,7 +237,7 @@ func (cs *constraintSolver) rec(
 // prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
-	pair := constraintPair{lhs, rhs}
+	_ = constraintPair{lhs, rhs}
 	cs.push(lhs, rhs)
 	defer cs.pop() // Ensure stack is popped on return
 
@@ -645,7 +645,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		// Need cycle detection for expansion
 		expandedLhs := cs.ctx.expand(lhs)
 		expandedRhs := cs.ctx.expand(rhs)
-		if expandedLhs == lhs && expandedRhs == rhs { // Avoid infinite loop
+		if expandedLhs.Equivalent(lhs) && expandedRhs.Equivalent(rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error
 			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), lhs, rhs, cctx)
@@ -716,17 +716,17 @@ func (cs *constraintSolver) constrainClassRecord(
 		}
 
 		// Constrain upper bounds: memberTy.ub <: fldTy.ub
-		if cs.rec(memberTy.ub, fldTy.ub, false, cctx, shadows) {
+		if cs.rec(memberTy.ub, fldTy.upperBound, false, cctx, shadows) {
 			return true
 		}
 
 		// Constrain lower bounds: fldTy.lb <: memberTy.lb (recLb)
-		if fldTy.lb != nil {
+		if fldTy.lowerBound != nil {
 			if memberTy.lb == nil {
 				// Trying to assign to a non-mutable field
 				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name), lhs, rhs, cctx)
 			}
-			if cs.rec(fldTy.lb, memberTy.lb, false, cctx, shadows) {
+			if cs.rec(fldTy.lowerBound, memberTy.lb, false, cctx, shadows) {
 				return true
 			}
 		}
@@ -762,7 +762,7 @@ func (cs *constraintSolver) goToWork(
 // Needs careful implementation matching Scala's `extrude`.
 func (cs *constraintSolver) extrude(
 	ty SimpleType,
-	lowerLvl int,
+	lowerLvl level,
 	pol bool,               // Polarity: true for positive, false for negative
 	upperLvl level,         // Upper level limit for extrusion
 	cctx constraintContext, // Used for provenance/reason in Extruded type
@@ -798,7 +798,7 @@ func (ctx *TypeCtx) GetTypeDefinitionVariances(name typeName) ([]Variance, bool)
 	if !ok {
 		return nil, false
 	}
-	variances := make([]Variance, len(def.tparams))
+	variances := make([]Variance, len(def.typeParamArgs))
 	for i := range variances {
 		variances[i] = Invariant // Default to invariant
 		// TODO: Read actual variance from TypeDef
@@ -814,7 +814,7 @@ func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {
 		return true
 	}
 	// Check parent hierarchy
-	if c1, ok := tag1.(classTag); ok {
+	if _, ok := tag1.(classTag); ok {
 		// Check c1.parents against tag2.id
 		// Recursively check parents of parents
 	}
