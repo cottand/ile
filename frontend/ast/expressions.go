@@ -110,6 +110,10 @@ type Expr interface {
 	Transform(f func(Expr) Expr) Expr
 }
 
+func RangeOf(expr Positioner) Range {
+	return Range{expr.Pos(), expr.End()}
+}
+
 // AtomicExpr is an Expr which specifically represents
 // variables and literals only
 //
@@ -187,7 +191,7 @@ type Literal struct {
 	// token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
 	Kind token.Token
 
-	Positioner
+	Range
 	tAnnotationContainer
 }
 
@@ -218,9 +222,11 @@ func (e *Literal) BaseTypes() util.MSet[string] {
 	switch e.Kind {
 	case token.INT:
 		return util.NewSetOf(IntBuiltinType, NumberBuiltinType)
+	default:
+		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind)
+		// TODO add base types for each lit type (LitImpl in reference scala implementation)
+		return util.MSet[string]{}
 	}
-	// TODO add base types for each lit type (LitImpl in reference scala implementation)
-	return util.MSet[string]{}
 }
 func (e *Literal) Equivalent(other AtomicExpr) bool {
 	otherAsLiteral, ok := other.(*Literal)
@@ -459,13 +465,14 @@ func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied.Value = e.Value.Transform(f)
 	return f(&copied)
 }
+
 // ListLiteral can be used to represent lists as well as tuples of known width and subtypes (["aa", 1])
 type ListLiteral struct {
 	Args []Expr
 	Positioner
 }
 
-func (l *ListLiteral) ExprName() string  {return "list literal"}
+func (l *ListLiteral) ExprName() string { return "list literal" }
 
 func (l *ListLiteral) String() string {
 	var exprArgs = make([]string, len(l.Args))
@@ -475,7 +482,7 @@ func (l *ListLiteral) String() string {
 	return "[" + strings.Join(exprArgs, ", ") + "]"
 }
 
-func (l *ListLiteral) Transform(f func(expr Expr) Expr) Expr  {
+func (l *ListLiteral) Transform(f func(expr Expr) Expr) Expr {
 	copied := *l
 	copied.Args = make([]Expr, len(l.Args))
 	for i, arg := range l.Args {

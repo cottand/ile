@@ -1,5 +1,6 @@
 package ast
 
-var IntBuiltinType = "int"
-var NumberBuiltinType = "number"
-var StringBuiltinType = "string"
+const AnyBuiltinType = "any"
+const IntBuiltinType = "int"
+const NumberBuiltinType = "number"
+const StringBuiltinType = "string"

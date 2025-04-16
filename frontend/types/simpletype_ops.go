@@ -1,7 +1,7 @@
 package types
 
 type unionOpts struct {
-	prov    *typeProvenance
+	prov    typeProvenance
 	swapped bool
 }
 

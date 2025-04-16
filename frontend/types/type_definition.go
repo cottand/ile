@@ -64,11 +64,11 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]Ty
 		definitions[def] = t
 	}
 	for _, newDef := range newDefs {
-		prov := &typeProvenance{positioner: newDef.from, desc: "type definition"}
+		prov := &typeProvenance{Range: ast.RangeOf(newDef.from), desc: "type definition"}
 		name := newDef.name
-		ctx.currentPos = prov.positioner
+		ctx.currentPos = prov.Range
 		rightParents := ctx.typeDefRightParents(newDef)
-		regular := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil, prov.positioner)
+		regular := ctx.typeDefCheckRegular(newDef, newDef.bodyType, nil, prov.Range)
 		if rightParents && regular {
 			definitions[name] = newDef
 		}

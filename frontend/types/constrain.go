@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	set "github.com/hashicorp/go-set"
 	"go/token"
+	"reflect"
 	"slices"
 )
 
@@ -14,23 +16,42 @@ type constraintPair struct {
 	rhs SimpleType
 }
 
+func (p *constraintPair) Hash() uint64 {
+	return 31*p.lhs.Hash() ^ p.rhs.Hash()
+}
+
 // constraintContext tracks the chain of constraints for error reporting.
 type constraintContext struct {
 	lhsChain []SimpleType
 	rhsChain []SimpleType
+	hash     uint64
+}
+
+func (c *constraintContext) Hash() uint64 {
+	if c.hash == 0 {
+		c.hash = 33533
+		for _, lhs := range c.lhsChain {
+			c.hash = 31*c.hash ^ lhs.Hash()
+		}
+		for _, rhs := range c.rhsChain {
+			c.hash = 31*c.hash ^ rhs.Hash()
+		}
+
+	}
+	return c.hash
 }
 
 // constraintSolver holds the state for a single constrain call.
 type constraintSolver struct {
 	ctx   *TypeCtx                                       // Reference to the main typing context
-	prov  *typeProvenance                                // Provenance of the top-level constraint
+	prov  typeProvenance                                 // Provenance of the top-level constraint
 	onErr func(err ilerr.IleError) (terminateEarly bool) // Error callback
 	level level                                          // Current polymorphism level during solving
 
-	cache map[constraintPair]struct{} // Cache for subtyping checks
-	fuel  int                         // Fuel to prevent infinite loops
-	depth int                         // Current recursion depth
-	stack []constraintPair            // Stack for tracking recursion depth and path
+	cache *set.HashSet[*constraintPair, uint64]
+	fuel  int              // Fuel to prevent infinite loops
+	depth int              // Current recursion depth
+	stack []constraintPair // Stack for tracking recursion depth and path
 
 	// TODO: Implement Shadows for cycle detection
 	// shadows shadowsState
@@ -50,7 +71,7 @@ const (
 
 // newConstraintSolver initializes a solver instance.
 func (ctx *TypeCtx) newConstraintSolver(
-	prov *typeProvenance,
+	prov typeProvenance,
 	onErr func(err ilerr.IleError) (terminateEarly bool),
 ) *constraintSolver {
 	return &constraintSolver{
@@ -58,7 +79,7 @@ func (ctx *TypeCtx) newConstraintSolver(
 		prov:  prov,
 		onErr: onErr,
 		level: ctx.level, // Start at the context's current level
-		cache: make(map[constraintPair]struct{}),
+		cache: set.NewHashSet[*constraintPair, uint64](0),
 		fuel:  defaultStartingFuel,
 		depth: 0,
 		stack: make([]constraintPair, 0, defaultDepthLimit),
@@ -74,7 +95,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 	if cs.depth > defaultDepthLimit {
 		// Simplified error reporting
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
-			Positioner: cs.prov.positioner,
+			Positioner: cs.prov.Range,
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "exceeded max depth limit",
@@ -82,7 +103,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 	}
 	if cs.fuel <= 0 {
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
-			Positioner: cs.prov.positioner,
+			Positioner: cs.prov.Range,
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "ran out of fuel",
@@ -103,10 +124,10 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 		rhsProv = cctx.rhsChain[0].prov() // Use the start of the chain
 	}
 
-	// Use the most relevant positioner - often the top-level one
-	pos := cs.prov.positioner
-	if lhsProv.positioner != nil && lhsProv.positioner.Pos() != token.NoPos {
-		pos = lhsProv.positioner // Or maybe lhs? Needs refinement based on Scala logic
+	// Use the most relevant Range - often the top-level one
+	pos := cs.prov.Range
+	if lhsProv.Pos() != token.NoPos {
+		pos = lhsProv.Range // Or maybe lhs? Needs refinement based on Scala logic
 	}
 
 	err := ilerr.New(ilerr.NewTypeMismatch{
@@ -160,8 +181,8 @@ func (cs *constraintSolver) withSubLevel(action func(subSolver *constraintSolver
 
 // makeProxy wraps a type with provenance information from the constraint chain.
 // Simplified version.
-func makeProxy(ty SimpleType, prov *typeProvenance) SimpleType {
-	if prov == nil || prov.positioner == nil || prov.positioner.Pos() == token.NoPos {
+func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
+	if prov.Range.Pos() == token.NoPos {
 		return ty // Don't wrap with empty provenance
 	}
 	// In Go, we might need a dedicated ProxyType or use wrappingProvType
@@ -172,7 +193,7 @@ func makeProxy(ty SimpleType, prov *typeProvenance) SimpleType {
 }
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
-func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) addUpperBound(tv typeVariable, rhs SimpleType, cctx constraintContext) bool {
 	fmt.Printf("Adding UB %s to %s\n", rhs, tv)
 	// Simplified: Add bound and propagate. Scala version uses mkProxy.
 	// Need to handle potential duplicates and normalization.
@@ -189,7 +210,7 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 }
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
-func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) addLowerBound(tv typeVariable, lhs SimpleType, cctx constraintContext) bool {
 	fmt.Printf("Adding LB %s to %s\n", lhs, tv)
 	// Simplified: Add bound and propagate. Scala version uses mkProxy.
 	// Need to handle potential duplicates and normalization.
@@ -209,12 +230,13 @@ func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx
 // It returns true if constraint solving should terminate early due to an error.
 func (ctx *TypeCtx) Constrain(
 	lhs, rhs SimpleType,
-	prov *typeProvenance,
+	prov typeProvenance,
 	onErr func(err ilerr.IleError) (terminateEarly bool),
 ) bool {
 	solver := ctx.newConstraintSolver(prov, onErr)
 
-	fmt.Printf("CONSTRAIN %s <! %s\n", lhs, rhs)
+	logger.Debug("constrain: begin for", "lhs", lhs, "rhs", rhs)
+
 	// fmt.Printf("  where %s\n", functionType{args: []SimpleType{lhs}, ret: rhs}.String()) // Assuming functionType exists
 
 	// Start the recursive constraining process
@@ -275,6 +297,10 @@ func (cs *constraintSolver) rec(
 	return cs.recImpl(lhs, rhs, nextCctx, nextShadows)
 }
 
+func isErrorType(ty SimpleType) bool {
+	return ty.Equivalent(errorTypeInstance)
+}
+
 // recImpl contains the core subtyping logic based on type structure.
 // Returns true if constraint solving should terminate early.
 func (cs *constraintSolver) recImpl(
@@ -282,17 +308,16 @@ func (cs *constraintSolver) recImpl(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	fmt.Printf("%d. C %s <! %s (fuel: %d)\n", cs.level, lhs, rhs, cs.fuel)
+	logger.Debug("constrain", "level", cs.level, "lhs", lhs, "rhs", rhs, "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
-		fmt.Println(" -> Trivial: Equivalent types")
 		return false // Success
 	}
 
 	// 2. Cache Check
-	pair := constraintPair{lhs, rhs}
-	if _, found := cs.cache[pair]; found {
+	pair := &constraintPair{lhs, rhs}
+	if cs.cache.Contains(pair) {
 		fmt.Println(" -> Cached")
 		return false // Success (already processed)
 	}
@@ -300,7 +325,7 @@ func (cs *constraintSolver) recImpl(
 	// if shadows.detectCycle(lhs, rhs) { ... reportError ... return true }
 
 	// Add to cache *after* cycle check
-	cs.cache[pair] = struct{}{}
+	cs.cache.Insert(pair)
 	// TODO: Update shadows state here.
 
 	// 3. Unwrap Provenance Wrappers (like ProvType in Scala)
@@ -312,9 +337,9 @@ func (cs *constraintSolver) recImpl(
 	}
 
 	// 4. Handle specific type combinations (Switch statement mirroring Scala's match)
-	switch l := lhs.(type) {
+	switch lhs := lhs.(type) {
 	case extremeType: // Top or Bottom
-		if l.polarity == true { // Bottom <: Anything
+		if lhs.polarity == true { // Bottom <: Anything
 			return false // Success
 		}
 		// Top <: RHS only if RHS is Top
@@ -323,22 +348,22 @@ func (cs *constraintSolver) recImpl(
 		}
 		// Fall through to report error or handle Top <: X via goToWork
 
-	case *typeVariable:
-		return cs.constrainTypeVarLhs(l, rhs, cctx, shadows)
+	case typeVariable:
+		return cs.constrainTypeVarLhs(lhs, rhs, cctx, shadows)
 
 	case funcType:
 		if r, ok := rhs.(funcType); ok {
-			return cs.constrainFuncFunc(l, r, cctx, shadows)
+			return cs.constrainFuncFunc(lhs, r, cctx, shadows)
 		}
 		// funcType <: Other? -> goToWork or error
 
 	case tupleType:
 		if r, ok := rhs.(tupleType); ok {
-			return cs.constrainTupleTuple(l, r, cctx, shadows)
+			return cs.constrainTupleTuple(lhs, r, cctx, shadows)
 		}
 		if r, ok := rhs.(arrayType); ok {
 			// Array subtyping: Tuple<T1,..Tn> <: Array<U> if (T1|...|Tn) <: U
-			innerLhs := l.inner() // Needs implementation
+			innerLhs := lhs.inner() // Needs implementation
 			return cs.rec(innerLhs, r.innerT, false, cctx, shadows)
 			// TODO: Handle bounds correctly (recLb in Scala)
 		}
@@ -346,7 +371,7 @@ func (cs *constraintSolver) recImpl(
 
 	case namedTupleType: // Similar to tupleType
 		if r, ok := rhs.(namedTupleType); ok {
-			return cs.constrainNamedTupleNamedTuple(l, r, cctx, shadows)
+			return cs.constrainNamedTupleNamedTuple(lhs, r, cctx, shadows)
 		}
 		// namedTupleType <: Other? -> goToWork or error
 
@@ -354,16 +379,16 @@ func (cs *constraintSolver) recImpl(
 		if r, ok := rhs.(arrayType); ok {
 			// Array<T> <: Array<U> if T <: U (covariance)
 			// TODO: Handle bounds correctly (recLb in Scala for mutable arrays)
-			return cs.rec(l.innerT, r.innerT, false, cctx, shadows)
+			return cs.rec(lhs.innerT, r.innerT, false, cctx, shadows)
 		}
 		// arrayType <: Other? -> goToWork or error
 
 	case intersectionType:
 		// (L1 & L2) <: R  =>  L1 <: R AND L2 <: R
-		if cs.rec(l.lhs, rhs, true, cctx, shadows) {
+		if cs.rec(lhs.lhs, rhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.rec(l.rhs, rhs, true, cctx, shadows)
+		return cs.rec(lhs.rhs, rhs, true, cctx, shadows)
 
 	case unionType:
 		// L <: (R1 | R2) -> Requires DNF/CNF (goToWork)
@@ -372,7 +397,7 @@ func (cs *constraintSolver) recImpl(
 	case negType:
 		if r, ok := rhs.(negType); ok {
 			// ~L <: ~R  =>  R <: L
-			return cs.rec(r.negated, l.negated, true, cctx, shadows)
+			return cs.rec(r.negated, lhs.negated, true, cctx, shadows)
 		}
 		// ~L <: R -> Requires DNF/CNF (goToWork)
 		return cs.goToWork(lhs, rhs, cctx, shadows)
@@ -380,40 +405,59 @@ func (cs *constraintSolver) recImpl(
 	case typeRef:
 		// Expand LHS and retry
 		// Need a mechanism to prevent infinite expansion
-		expandedLhs := cs.ctx.expand(l) // Assuming expand exists
-		if expandedLhs == lhs {         // Avoid infinite loop if expansion didn't change anything
+		expandedLhs := cs.ctx.expand(lhs) // Assuming expand exists
+		// TODO this might need to be a Equiv rather than actual comparison
+		if expandedLhs == SimpleType(lhs) { // Avoid infinite loop if expansion didn't change anything
 			// Fall through to handle TypeRef vs RHS
 		} else {
 			return cs.rec(expandedLhs, rhs, true, cctx, shadows)
 		}
 		// Handle TypeRef vs TypeRef (variance check) or TypeRef vs Other
 		if r, ok := rhs.(typeRef); ok {
-			return cs.constrainTypeRefTypeRef(l, r, cctx, shadows)
+			return cs.constrainTypeRefTypeRef(lhs, r, cctx, shadows)
 		}
 		// Fall through
 
 	case *PolymorphicType:
 		// Instantiate LHS and retry
 		// Need to manage levels correctly
-		instantiatedLhs := l.instantiate(cs.level) // Instantiate at current solver level
+		instantiatedLhs := lhs.instantiate(nil, cs.level) // Instantiate at current solver level
 		// TODO: Pass previous contexts (prevCctxs) if needed for extrusion reasons
 		return cs.rec(instantiatedLhs, rhs, true, cctx, shadows)
 
 	case typeRange: // Equivalent to TypeBounds in Scala
 		// L..U <: R => U <: R
-		return cs.rec(l.upperBound, rhs, true, cctx, shadows)
+		return cs.rec(lhs.upperBound, rhs, true, cctx, shadows)
 
 	case classTag:
 		// Handle ClassTag <: RHS
 		if rTag, ok := rhs.(objectTag); ok {
 			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(l, rTag) { // Needs implementation
+			if cs.ctx.IsSubtypeTag(lhs, rTag) {
 				return false // Success
 			}
 		}
 		// Handle ClassTag <: RecordType (member checking)
 		if rRec, ok := rhs.(recordType); ok { // Assuming recordType exists
-			return cs.constrainClassRecord(l, rRec, cctx, shadows)
+			return cs.constrainClassRecord(lhs, rRec, cctx, shadows)
+		}
+
+		// special cases where lhs is the error type - we continue constraining so that we can get
+		// some info on the other types
+		if isErrorType(lhs) {
+			err := lhs
+			if rhs, rhsIsFunction := rhs.(funcType); rhsIsFunction {
+				for _, arg := range rhs.args {
+					cs.rec(arg, err, false, cctx, shadows)
+				}
+				cs.rec(err, rhs.ret, false, cctx, shadows)
+			}
+			if rhs, rhsIsRecordType := rhs.(recordType); rhsIsRecordType {
+				for _, field := range rhs.fields {
+					cs.rec(err, field.Snd.upperBound, false, cctx, shadows)
+				}
+			}
+			return false
 		}
 		// Fall through
 
@@ -421,7 +465,7 @@ func (cs *constraintSolver) recImpl(
 		// Handle TraitTag <: RHS
 		if rTag, ok := rhs.(objectTag); ok {
 			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(l, rTag) { // Needs implementation
+			if cs.ctx.IsSubtypeTag(lhs, rTag) { // Needs implementation
 				return false // Success
 			}
 		}
@@ -442,7 +486,7 @@ func (cs *constraintSolver) recImpl(
 		}
 		// Fall through to report error or handle X <: Bottom via goToWork
 
-	case *typeVariable:
+	case typeVariable:
 		return cs.constrainTypeVarRhs(lhs, r, cctx, shadows)
 
 	case unionType:
@@ -473,7 +517,7 @@ func (cs *constraintSolver) recImpl(
 	case *PolymorphicType:
 		// L <: forall V. R => Enter new level, rigidify R, and constrain L <: rigid R
 		return cs.withSubLevel(func(subSolver *constraintSolver) bool {
-			rigidRhs := r.rigidify(subSolver.level) // Rigidify at the *new* level
+			rigidRhs := r.rigidify(cs.ctx.fresher, subSolver.level) // Rigidify at the *new* level
 			fmt.Printf(" -> Rigidified RHS: %s\n", rigidRhs)
 			// Constrain LHS against the rigidified RHS in the sub-level
 			return subSolver.rec(lhs, rigidRhs, true, cctx, shadows) // Pass original cctx? Scala passes `true` for sameLevel
@@ -484,11 +528,30 @@ func (cs *constraintSolver) recImpl(
 		// L <: L'..U' => L <: L'
 		return cs.rec(lhs, r.lowerBound, true, cctx, shadows)
 
+	case classTag:
+		// special cases where rhs is the error type - we continue constraining so that we can get
+		// some info on the other types
+		if isErrorType(rhs) {
+			err := rhs
+			if lhs, lhsIsFunction := lhs.(funcType); lhsIsFunction {
+				for _, arg := range lhs.args {
+					cs.rec(err, arg, false, cctx, shadows)
+				}
+				cs.rec(lhs.ret, err, false, cctx, shadows)
+			}
+			if lhs, lhsIsRecordType := lhs.(recordType); lhsIsRecordType {
+				for _, field := range lhs.fields {
+					cs.rec(field.Snd.upperBound, err, false, cctx, shadows)
+				}
+			}
+			return false
+		}
+
 		// TODO: Add cases for RecordType on RHS, etc.
 	}
 
 	// 6. If no specific rule matched, report error or try complex solving
-	fmt.Printf(" -> No specific rule for %T <: %T\n", lhs, rhs)
+	logger.Debug("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
 	// Attempt goToWork for complex cases involving unions/intersections/negations
 	if requiresGoToWork(lhs, rhs) {
 		return cs.goToWork(lhs, rhs, cctx, shadows)
@@ -525,7 +588,7 @@ func isBottom(t SimpleType) bool {
 
 // constrainTypeVarLhs handles `TypeVariable <: Rhs`
 func (cs *constraintSolver) constrainTypeVarLhs(
-	lhs *typeVariable,
+	lhs typeVariable,
 	rhs SimpleType,
 	cctx constraintContext,
 	shadows *shadowsState,
@@ -548,7 +611,7 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 // constrainTypeVarRhs handles `Lhs <: TypeVariable`
 func (cs *constraintSolver) constrainTypeVarRhs(
 	lhs SimpleType,
-	rhs *typeVariable,
+	rhs typeVariable,
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
@@ -808,18 +871,14 @@ func (ctx *TypeCtx) GetTypeDefinitionVariances(name typeName) ([]Variance, bool)
 
 // IsSubtypeTag checks if tag1 is a subtype of tag2 (class/trait inheritance).
 func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {
-	// TODO: Implement based on class/trait definitions and parent information.
-	fmt.Printf("WARN: IsSubtypeTag not implemented for %s <: %s\n", tag1, tag2)
 	if tag1.Equivalent(tag2) {
 		return true
 	}
-	// Check parent hierarchy
-	if _, ok := tag1.(classTag); ok {
-		// Check c1.parents against tag2.id
-		// Recursively check parents of parents
+	asClassTag, ok := tag1.(classTag)
+	if !ok {
+		panic("IsSubtypeTag called with a trait not supported yet")
 	}
-	// Similar logic if tag1 is traitTag
-	return false // Placeholder
+	return asClassTag.parents.Contains(tag2.Id().CanonicalSyntax())
 }
 
 // LookupField finds the type of a field within a class or trait context.
@@ -847,7 +906,7 @@ const (
 type FieldType struct {
 	lb   SimpleType // Lower bound (for mutable fields, otherwise nil)
 	ub   SimpleType // Upper bound
-	prov *typeProvenance
+	prov typeProvenance
 }
 
 // --- Shadow State for Cycle Detection (Placeholder) ---

@@ -8,10 +8,14 @@ import (
 )
 
 func BinOp(t token.Token, in ast.Node) *Literal {
+	if in == nil {
+		in = Range{}
+	}
 	switch t {
 	case token.ADD, token.SUB, token.MUL, token.QUO, token.REM:
+
 		return &Literal{
-			Positioner: in,
+			Range: RangeOf(in),
 			Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 				tVar := env.NewVar(level)
 				return &hmtypes.Arrow{
@@ -29,7 +33,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 		// restrict to comparables only?
 	case token.GEQ, token.LEQ, token.GTR, token.LSS:
 		return &Literal{
-			Positioner: in,
+			Range: RangeOf(in),
 			Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 				tVar := env.NewVar(level)
 				return &hmtypes.Arrow{
@@ -46,7 +50,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 	case token.EQL, token.NEQ:
 		return &Literal{
-			Positioner: in,
+			Range: RangeOf(in),
 			Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 				tVar := env.NewVar(level)
 				return &hmtypes.Arrow{
@@ -63,7 +67,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 	case token.LAND, token.LOR:
 		return &Literal{
-			Positioner: in,
+			Range: RangeOf(in),
 			Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 				boolT := &hmtypes.Const{Name: "Bool"}
 				return &hmtypes.Arrow{
@@ -84,7 +88,7 @@ func BinOp(t token.Token, in ast.Node) *Literal {
 
 func StringLiteral(value string, in ast.Node) *Literal {
 	return &Literal{
-		Positioner: in,
+		Range: RangeOf(in),
 		Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 			return &hmtypes.Const{Name: "String"}, nil
 		},
@@ -100,7 +104,7 @@ func StringLiteral(value string, in ast.Node) *Literal {
 // Semantics for later converting to the appropriate type must follow Go's (see https://go.dev/ref/spec#Constants)
 func IntLiteral(value string, in ast.Node) *Literal {
 	return &Literal{
-		Positioner: in,
+		Range: RangeOf(in),
 		Construct: func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error) {
 			return &hmtypes.CompTimeConst{
 				Name: "comptime Int",

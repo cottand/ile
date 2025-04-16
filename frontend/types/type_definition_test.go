@@ -5,8 +5,8 @@ import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
 	"github.com/stretchr/testify/assert"
-	"go/token"
 	"runtime/debug"
+	"strings"
 	"testing"
 )
 
@@ -14,8 +14,8 @@ func testType(t *testing.T, expr ast.Expr, expected SimpleType) {
 	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.String()), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
-				t.Errorf("panic: %v\n", err)
-				debug.PrintStack()
+				stack := strings.Split(string(debug.Stack()), "\n")
+				t.Errorf("panic: %v\nlikely at %s\n full stack trace follows:\n%s\n", err, stack[10], string(debug.Stack()))
 				t.FailNow()
 			}
 		}()
@@ -23,7 +23,7 @@ func testType(t *testing.T, expr ast.Expr, expected SimpleType) {
 		vars := make(map[typeVariableID]SimpleType)
 
 		typeScheme := ctx.TypeLetBody(expr, vars)
-		instance := typeScheme.instantiate(0)
+		instance := typeScheme.instantiate(ctx.fresher, 0)
 		if len(ctx.failures) != 0 {
 			t.Fatalf("failures found: %s\n", "\n    "+util.JoinString(ctx.failures, "\n    "))
 		}
@@ -50,12 +50,14 @@ func TestInferSingleInt(t *testing.T) {
 
 func TestInferIntOps(t *testing.T) {
 	expr := &ast.Call{
-		Func: ast.BinOp(token.ADD, nil),
-		Args: []ast.Expr{ast.IntLiteral("1", nil), ast.IntLiteral("2", nil)},
+		Func: &ast.Var{
+			Name: "+",
+		},
+		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
 	}
 
 	testType(t, expr, classTag{
-		id:      ast.IntLiteral("3", nil),
+		id:      ast.IntLiteral("3", ast.Range{}),
 		parents: util.NewSetOf(ast.IntBuiltinType, ast.NumberBuiltinType),
 	})
 }

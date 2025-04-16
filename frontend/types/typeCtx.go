@@ -12,19 +12,6 @@ import (
 	"strings"
 )
 
-// anyClassTag is called Object in the reference scala implementation
-var anyClassTag = classTag{
-	id:             &ast.Var{Name: "Any"},
-	parents:        util.MSet[typeName]{},
-	withProvenance: withProvenance{},
-}
-
-// universe are the built-in bindings
-func universe() map[string]typeInfo {
-	m := make(map[string]typeInfo)
-	return m
-}
-
 type typeError struct {
 	message string
 	// Positioner may be nil
@@ -95,25 +82,62 @@ func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
 	return body(newCache)
 }
 
+func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
+	t, ok = ctx.env[name]
+
+	if !ok && ctx.parent != nil {
+		t, ok = ctx.parent.get(name)
+	}
+	return t, ok
+}
+
 // TypesEquivalent carries the notation >:< in the scala implementation
 func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
-	return this == that || ctx.SolveSubtype(this, that, nil) && ctx.SolveSubtype(that, this, nil)
+	return this.Equivalent(that) || ctx.SolveSubtype(this, that, nil) && ctx.SolveSubtype(that, this, nil)
 }
 
 // SolveSubtype carries the notation <:< in the scala implementation
 func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
-	if this == that {
+	if this.Equivalent(that) {
 		return true
 	}
 	if cache == nil {
 		cache = make(ctxCache)
 	}
-
-	switch this.(type) {
-	default:
-		panic("implement me for" + reflect.TypeOf(this).String())
-
+	// functypes
+	{
+		this, okThis := this.(funcType)
+		that, okThat := that.(funcType)
+		if okThis && okThat {
+			return assuming(cache, func(cache ctxCache) bool {
+				if len(this.args) != len(that.args) {
+					return false
+				}
+				for i, arg := range that.args {
+					// TODO args are inverted here in ref impl - is it a bug?
+					if !ctx.SolveSubtype(arg, this.args[i], cache) {
+						return false
+					}
+				}
+				return ctx.SolveSubtype(this.ret, that.ret, cache)
+			})
+		}
+		if okThis || okThat {
+			return false
+		}
 	}
+	// class tags
+	{
+		this, okThis := this.(classTag)
+		that, okThat := that.(classTag)
+		if okThis && okThat {
+			return this.id == that.id || this.containsParentST(that.id)
+		}
+		if okThis || okThat {
+			return false
+		}
+	}
+	panic("implement me for: " + reflect.TypeOf(this).String() + " and " + reflect.TypeOf(that).String())
 }
 
 func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
@@ -158,7 +182,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 		// here, there reference implementation uses a lazy zip - we just for loops
 		typeParamsArgsMap := make(map[string]SimpleType, len(td0.TypeParams))
 		for _, arg := range td0.TypeParams {
-			fresh := (ctx.level + 1).freshTypeVar(newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
+			fresh := ctx.fresher.newTypeVariable(ctx.level+1, newOriginProv(arg.Positioner, td0.Kind.String()+" type parameter", arg.Name), arg.Name, nil, nil)
 			// invariant: all types in argTypes should be of type variable
 			typeParamsArgsMap[arg.Name] = fresh
 		}
@@ -182,8 +206,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 				name:          td0.Name.Name,
 				typeParamArgs: typeParamsArgsAsSlice,
 				typeVars:      typeVars,
-				bodyType: intersectionType{lhs: anyClassTag, rhs: bodyType, withProvenance: withProvenance{&typeProvenance{
-					positioner: nil,
+				bodyType: intersectionType{lhs: anyClassTag, rhs: bodyType, withProvenance: withProvenance{typeProvenance{
 					desc:       "intersection type",
 					originName: "",
 					isType:     true,
@@ -277,6 +300,6 @@ func (ctx *TypeCtx) nextLevel() *TypeCtx {
 	return &copied
 }
 
-func (ctx *TypeCtx) newTypeVariable(prov *typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
+func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
 	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
 }

@@ -29,6 +29,10 @@ var LoggerOpts = &slog.HandlerOptions{
 
 var DefaultLogger = slog.New(&filteringHandler{underlying: slog.NewTextHandler(os.Stdout, LoggerOpts)})
 
+func init() {
+	slog.SetDefault(DefaultLogger)
+}
+
 var _ slog.Handler = &filteringHandler{}
 
 type filteringHandler struct {

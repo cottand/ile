@@ -5,6 +5,7 @@ import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
 	"go/token"
+	"hash/fnv"
 	"iter"
 	"slices"
 	"strconv"
@@ -15,15 +16,15 @@ type typeName = string
 
 type TypeScheme interface {
 	uninstantiatedBody() SimpleType
-	instantiate(level level) SimpleType
-	prov() *typeProvenance
+	instantiate(fresher *Fresher, level level) SimpleType
+	prov() typeProvenance
 }
 
 type withProvenance struct {
-	provenance *typeProvenance
+	provenance typeProvenance
 }
 
-func (w withProvenance) prov() *typeProvenance {
+func (w withProvenance) prov() typeProvenance {
 	return w.provenance
 }
 
@@ -34,22 +35,29 @@ type positioner interface {
 
 // typeProvenance tracks the origin and description of types
 type typeProvenance struct {
-	positioner positioner
+	Range      ast.Range
 	desc       string // Description
 	originName string // Optional origin name
 	isType     bool   // Whether this represents a type
 }
 
+var errorTypeInstance = classTag{
+	id:      &ast.Var{Name: "Error"},
+	parents: util.MSet[typeName]{},
+	withProvenance: withProvenance{
+		provenance: typeProvenance{
+			desc: "Error",
+		},
+	},
+}
+
 func errorType() SimpleType {
-	return classTag{
-		id:      &ast.Var{Name: "Error"},
-		parents: util.MSet[typeName]{},
-	}
+	return errorTypeInstance
 }
 
 func (tp *typeProvenance) embed() withProvenance {
 	return withProvenance{
-		provenance: tp,
+		provenance: *tp,
 	}
 
 }
@@ -59,16 +67,30 @@ func (tp *typeProvenance) IsOrigin() bool {
 }
 
 func (tp *typeProvenance) Wrapping(new typeProvenance) *typeProvenance {
-	new.positioner = tp.positioner
+	new.Range = tp.Range
 	return &new
+}
+func (tp *typeProvenance) Pos() token.Pos {
+	if tp == nil {
+		return token.NoPos
+	}
+	return tp.Range.Pos()
+}
+func (tp *typeProvenance) End() token.Pos {
+	if tp == nil {
+		return token.NoPos
+	}
+	return tp.Range.End()
 }
 
 // SimpleType is a type without universally quantified type variables
 type SimpleType interface {
 	TypeScheme
-	typeInfo
-	util.Equivalenceable[SimpleType]
+	// Equivalent implements Equivalencable
+	// meant to emulate equality for our structs
+	Equivalent(other SimpleType) bool
 	fmt.Stringer
+	Hash() uint64
 	level() level
 	children(includeBounds bool) iter.Seq[SimpleType]
 }
@@ -98,12 +120,12 @@ var (
 // wrappingProvType encapsulates another SimpleType but contains different provenance info
 type wrappingProvType struct {
 	SimpleType
-	proxyProvenance *typeProvenance
+	proxyProvenance typeProvenance
 }
 
 func (t wrappingProvType) underlying() SimpleType { return t.SimpleType }
 func (t wrappingProvType) String() string         { return "[" + t.SimpleType.String() + "]" }
-func (t wrappingProvType) prov() *typeProvenance  { return t.proxyProvenance }
+func (t wrappingProvType) prov() typeProvenance   { return t.proxyProvenance }
 
 // arrayBase is implemented by types which wrap other types
 type arrayBase interface {
@@ -111,8 +133,10 @@ type arrayBase interface {
 	inner() SimpleType
 }
 
-type typeInfo interface {
-}
+// typeInfo is what we store in TypeCtx.env to store info about the current scope
+// in the reference scala implementation, it can be a TypeScheme or an
+// AbstractConstructor. We are not implementing the latter until we implement traits.
+type typeInfo = TypeScheme
 
 type extremeType struct {
 	// polarity = true means bottom, = false means extremeType
@@ -124,10 +148,10 @@ var bottomType = extremeType{polarity: true}
 var topType = extremeType{polarity: true}
 var emptySeqSimpleType iter.Seq[SimpleType] = func(_ func(SimpleType) bool) { return }
 
-func (extremeType) level() level                         { return 0 }
-func (t extremeType) uninstantiatedBody() SimpleType     { return t }
-func (t extremeType) instantiate(level level) SimpleType { return t }
-func (t extremeType) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
+func (extremeType) level() level                                           { return 0 }
+func (t extremeType) uninstantiatedBody() SimpleType                       { return t }
+func (t extremeType) instantiate(fresher *Fresher, level level) SimpleType { return t }
+func (t extremeType) children(bool) iter.Seq[SimpleType]                   { return emptySeqSimpleType }
 
 // equivalent is true when two types are equal except for ProvType, which is equivalent
 // to the underlying type, which is necessary for recursive types to associate type provenances to
@@ -144,14 +168,46 @@ func (t extremeType) String() string {
 	}
 }
 
+// Hash generates a hash for wrappingProvType using its underlying SimpleType
+func (t wrappingProvType) Hash() uint64 {
+	return t.SimpleType.Hash()
+}
+
+// Hash generates a hash for extremeType using its polarity
+func (t extremeType) Hash() uint64 {
+	if t.polarity {
+		return 16777619 // FNV-1a prime for true/bottom
+	}
+	return 1099511628211 // FNV-1a prime for false/top
+}
+
+// Hash generates a hash for unionType using its lhs and rhs
+func (t unionType) Hash() uint64 {
+	lhsHash := t.lhs.Hash()
+	rhsHash := t.rhs.Hash()
+	return lhsHash*31 + rhsHash*37
+}
+
+// Hash generates a hash for intersectionType using its lhs and rhs
+func (t intersectionType) Hash() uint64 {
+	lhsHash := t.lhs.Hash()
+	rhsHash := t.rhs.Hash()
+	return lhsHash*41 + rhsHash*43
+}
+
+// Hash generates a hash for negType using its negated type
+func (t negType) Hash() uint64 {
+	return t.negated.Hash() * 53
+}
+
 type unionType struct {
 	lhs, rhs SimpleType
 	withProvenance
 }
 
-func (t unionType) uninstantiatedBody() SimpleType     { return t }
-func (t unionType) instantiate(level level) SimpleType { return t }
-func (t unionType) level() level                       { return max(t.lhs.level(), t.rhs.level()) }
+func (t unionType) uninstantiatedBody() SimpleType                       { return t }
+func (t unionType) instantiate(fresher *Fresher, level level) SimpleType { return t }
+func (t unionType) level() level                                         { return max(t.lhs.level(), t.rhs.level()) }
 func (t unionType) String() string {
 	return "(" + t.String() + "|" + t.rhs.String() + ")"
 }
@@ -172,9 +228,9 @@ type intersectionType struct {
 	withProvenance
 }
 
-func (t intersectionType) uninstantiatedBody() SimpleType     { return t }
-func (t intersectionType) instantiate(level level) SimpleType { return t }
-func (t intersectionType) level() level                       { return max(t.lhs.level(), t.rhs.level()) }
+func (t intersectionType) uninstantiatedBody() SimpleType                       { return t }
+func (t intersectionType) instantiate(fresher *Fresher, level level) SimpleType { return t }
+func (t intersectionType) level() level                                         { return max(t.lhs.level(), t.rhs.level()) }
 func (t intersectionType) String() string {
 	return "(" + t.String() + "&" + t.rhs.String() + ")"
 }
@@ -195,10 +251,10 @@ type negType struct {
 	negated SimpleType
 }
 
-func (t negType) uninstantiatedBody() SimpleType     { return t }
-func (t negType) instantiate(level level) SimpleType { return t }
-func (t negType) level() level                       { return t.negated.level() }
-func (t negType) String() string                     { return "~(" + t.negated.String() + ")" }
+func (t negType) uninstantiatedBody() SimpleType                       { return t }
+func (t negType) instantiate(fresher *Fresher, level level) SimpleType { return t }
+func (t negType) level() level                                         { return t.negated.level() }
+func (t negType) String() string                                       { return "~(" + t.negated.String() + ")" }
 func (t negType) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(negType)
 	return ok && t.negated.Equivalent(otherT.negated)
@@ -221,8 +277,8 @@ type typeRef struct {
 	withProvenance
 }
 
-func (t typeRef) uninstantiatedBody() SimpleType     { return t }
-func (t typeRef) instantiate(level level) SimpleType { return t }
+func (t typeRef) uninstantiatedBody() SimpleType                       { return t }
+func (t typeRef) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t typeRef) String() string {
 	displayName := t.defName
 	if len(t.typeArgs) == 0 {
@@ -253,36 +309,20 @@ func (ctx *TypeCtx) expandWith(t typeRef, withParamTags bool) SimpleType {
 func (t typeRef) children(bool) iter.Seq[SimpleType] {
 	return slices.Values(t.typeArgs)
 }
-
-// Fresher keeps track of new variable IDs
-// it us mutable and not suitable for concurrent use
-type Fresher struct {
-	freshCount uint
-}
-
-func (t *Fresher) newTypeVariable(
-	level level,
-	prov *typeProvenance,
-	nameHint string,
-	lowerBounds,
-	upperBounds []SimpleType,
-) typeVariable {
-	defer func() {
-		t.freshCount++
-	}()
-	return typeVariable{
-		id:             t.freshCount,
-		level_:         level,
-		lowerBounds:    lowerBounds,
-		upperBounds:    upperBounds,
-		nameHint:       nameHint,
-		withProvenance: prov.embed(),
+func (t typeRef) Hash() uint64 {
+	const prime1 uint64 = 14695981039346656037
+	var hash = prime1
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(t.defName))
+	for _, arg := range t.typeArgs {
+		hash = hash*31 + arg.Hash()
 	}
+	return h.Sum64() ^ hash
 }
 
-func newOriginProv(pos ast.Positioner, description string, name string) *typeProvenance {
-	return &typeProvenance{
-		positioner: pos,
+func newOriginProv(pos ast.Positioner, description string, name string) typeProvenance {
+	return typeProvenance{
+		Range:      ast.RangeOf(pos),
 		desc:       description,
 		originName: name,
 		isType:     true,
@@ -304,8 +344,8 @@ type typeVariable struct {
 	withProvenance
 }
 
-func (t typeVariable) uninstantiatedBody() SimpleType     { return t }
-func (t typeVariable) instantiate(level level) SimpleType { return t }
+func (t typeVariable) uninstantiatedBody() SimpleType                       { return t }
+func (t typeVariable) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t typeVariable) String() string {
 	name := t.nameHint
 	if name == "" {
@@ -333,6 +373,7 @@ func (t typeVariable) children(includeBounds bool) iter.Seq[SimpleType] {
 type objectTag interface {
 	SimpleType
 	Compare(other objectTag) int
+	Id() ast.AtomicExpr
 }
 type classTag struct {
 	id      ast.AtomicExpr
@@ -340,9 +381,10 @@ type classTag struct {
 	withProvenance
 }
 
-func (t classTag) level() level                       { return 0 }
-func (t classTag) uninstantiatedBody() SimpleType     { return t }
-func (t classTag) instantiate(level level) SimpleType { return t }
+func (t classTag) Id() ast.AtomicExpr                                   { return t.id }
+func (t classTag) level() level                                         { return 0 }
+func (t classTag) uninstantiatedBody() SimpleType                       { return t }
+func (t classTag) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t classTag) String() string {
 	return fmt.Sprintf("#%s<%s>", t.id.CanonicalSyntax(), strings.Join(t.parents.AsSlice(), ","))
 }
@@ -357,14 +399,20 @@ func (t classTag) Equivalent(other SimpleType) bool {
 	return ok && t.id.Equivalent(otherT.id) && t.parents.Equals(otherT.parents)
 }
 
+func (t classTag) containsParentST(other ast.AtomicExpr) bool {
+	asVar, isVar := other.(*ast.Var)
+	return isVar && t.parents.Contains(asVar.Name)
+}
+
 type traitTag struct {
 	id ast.AtomicExpr
 	withProvenance
 }
 
-func (t traitTag) level() level                       { return 0 }
-func (t traitTag) uninstantiatedBody() SimpleType     { return t }
-func (t traitTag) instantiate(level level) SimpleType { return t }
+func (t traitTag) Id() ast.AtomicExpr                                   { return t.id }
+func (t traitTag) level() level                                         { return 0 }
+func (t traitTag) uninstantiatedBody() SimpleType                       { return t }
+func (t traitTag) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t traitTag) String() string {
 	return fmt.Sprintf("#%s", t.id.CanonicalSyntax())
 }
@@ -399,10 +447,10 @@ type typeRange struct {
 	withProvenance
 }
 
-func (t typeRange) uninstantiatedBody() SimpleType { return t }
-func (t typeRange) instantiate(level) SimpleType   { return t }
-func (t typeRange) String() string                 { return t.lowerBound.String() + ".." + t.upperBound.String() }
-func (t typeRange) level() level                   { return 0 }
+func (t typeRange) uninstantiatedBody() SimpleType         { return t }
+func (t typeRange) instantiate(*Fresher, level) SimpleType { return t }
+func (t typeRange) String() string                         { return t.lowerBound.String() + ".." + t.upperBound.String() }
+func (t typeRange) level() level                           { return 0 }
 func (t typeRange) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(typeRange)
 	return ok && otherT.upperBound.Equivalent(otherT.upperBound) && otherT.lowerBound.Equivalent(otherT.lowerBound)
@@ -414,7 +462,7 @@ func (t typeRange) children(bool) iter.Seq[SimpleType] {
 		}
 	}
 }
-func (ctx *TypeCtx) makeTypeRange(lowerBound, upperBound SimpleType, provenance *typeProvenance) SimpleType {
+func (ctx *TypeCtx) makeTypeRange(lowerBound, upperBound SimpleType, provenance typeProvenance) SimpleType {
 	if ctx.TypesEquivalent(lowerBound, upperBound) {
 		return lowerBound
 	}
@@ -430,6 +478,9 @@ func (ctx *TypeCtx) makeTypeRange(lowerBound, upperBound SimpleType, provenance 
 		withProvenance: withProvenance{provenance},
 	}
 }
+func (t typeRange) Hash() uint64 {
+	return 31*t.upperBound.Hash() + 91*t.lowerBound.Hash()
+}
 
 type funcType struct {
 	args []SimpleType
@@ -437,8 +488,8 @@ type funcType struct {
 	withProvenance
 }
 
-func (t funcType) uninstantiatedBody() SimpleType { return t }
-func (t funcType) instantiate(level) SimpleType   { return t }
+func (t funcType) uninstantiatedBody() SimpleType         { return t }
+func (t funcType) instantiate(*Fresher, level) SimpleType { return t }
 func (t funcType) level() level {
 	maxArgLevel := level(0)
 	for _, arg := range t.args {
@@ -473,8 +524,8 @@ type tupleType struct {
 	withProvenance
 }
 
-func (t tupleType) uninstantiatedBody() SimpleType { return t }
-func (t tupleType) instantiate(level) SimpleType   { return t }
+func (t tupleType) uninstantiatedBody() SimpleType         { return t }
+func (t tupleType) instantiate(*Fresher, level) SimpleType { return t }
 func (t tupleType) level() level {
 	l := level(0)
 	for _, field := range t.fields {
@@ -524,8 +575,8 @@ type namedTupleType struct {
 	withProvenance
 }
 
-func (t namedTupleType) uninstantiatedBody() SimpleType { return t }
-func (t namedTupleType) instantiate(level) SimpleType   { return t }
+func (t namedTupleType) uninstantiatedBody() SimpleType         { return t }
+func (t namedTupleType) instantiate(*Fresher, level) SimpleType { return t }
 func (t namedTupleType) level() level {
 	l := level(0)
 	for _, field := range t.fields {
@@ -570,8 +621,8 @@ type recordType struct {
 	withProvenance
 }
 
-func (t recordType) uninstantiatedBody() SimpleType { return t }
-func (t recordType) instantiate(level) SimpleType   { return t }
+func (t recordType) uninstantiatedBody() SimpleType         { return t }
+func (t recordType) instantiate(*Fresher, level) SimpleType { return t }
 func (t recordType) level() level {
 	l := level(0)
 	for _, field := range t.fields {
@@ -641,11 +692,11 @@ type arrayType struct {
 	withProvenance
 }
 
-func (t arrayType) uninstantiatedBody() SimpleType { return t }
-func (t arrayType) instantiate(level) SimpleType   { return t }
-func (t arrayType) level() level                   { return t.innerT.level() }
-func (t arrayType) String() string                 { return "Array<" + t.innerT.String() + ">" }
-func (t arrayType) inner() SimpleType              { return t.innerT }
+func (t arrayType) uninstantiatedBody() SimpleType         { return t }
+func (t arrayType) instantiate(*Fresher, level) SimpleType { return t }
+func (t arrayType) level() level                           { return t.innerT.level() }
+func (t arrayType) String() string                         { return "Array<" + t.innerT.String() + ">" }
+func (t arrayType) inner() SimpleType                      { return t.innerT }
 func (t arrayType) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(arrayType)
 	return ok && t.innerT.Equivalent(otherT.innerT)
@@ -679,19 +730,121 @@ func (p PolymorphicType) children(includeBounds bool) iter.Seq[SimpleType] {
 	panic("implement me")
 }
 
-func (p PolymorphicType) prov() *typeProvenance {
+func (p PolymorphicType) prov() typeProvenance {
 	return p.Body.prov()
 }
 func (p PolymorphicType) End() token.Pos {
-	return p.Body.prov().positioner.End()
+	return p.Body.prov().Range.End()
 }
 func (p PolymorphicType) Pos() token.Pos {
-	return p.Body.prov().positioner.Pos()
+	return p.Body.prov().Range.Pos()
 }
-func (p PolymorphicType) instantiate(level level) SimpleType {
-	return level.freshenAbove(p._level, p.Body)
+func (p PolymorphicType) instantiate(fresher *Fresher, level level) SimpleType {
+	return fresher.freshenAbove(level, p._level, p.Body)
 }
 func (p PolymorphicType) uninstantiatedBody() SimpleType { return p.Body }
-func (p PolymorphicType) rigidify(level level) SimpleType {
-	return level.freshenAboveWithRigidify(p._level, p.Body, true)
+func (p PolymorphicType) rigidify(fresher *Fresher, level level) SimpleType {
+	return fresher.freshenAboveWithRigidify(level, p._level, p.Body, true)
+}
+
+func (p PolymorphicType) Hash() uint64 {
+	// Use prime numbers for mixing
+	const prime1 uint64 = 16777619
+	const prime2 uint64 = 2166136261
+
+	// Hash the body and level, excluding provenance
+	bodyHash := p.Body.Hash()
+	levelHash := uint64(p._level)
+
+	// Combine hashes using FNV-like mixing
+	hash := prime2
+	hash = hash*prime1 ^ bodyHash
+	hash = hash*prime1 ^ levelHash
+
+	return hash
+}
+
+func (t arrayType) Hash() uint64 {
+	return 2166136261*16777619 ^ t.innerT.Hash()
+}
+func (t funcType) Hash() uint64 {
+	var hash uint64 = 2166136261
+	for _, arg := range t.args {
+		hash = hash*16777619 ^ arg.Hash()
+	}
+	hash = hash*16777619 ^ t.ret.Hash()
+	return hash
+}
+
+func (t typeVariable) Hash() uint64 {
+	const prime1 uint64 = 31
+	const prime2 uint64 = 7919
+
+	hash := prime2
+	hash = hash*prime1 ^ uint64(t.id)
+	hash = hash*prime1 ^ uint64(t.level_)
+
+	for _, lb := range t.lowerBounds {
+		hash = hash*prime1 ^ lb.Hash()
+	}
+	for _, ub := range t.upperBounds {
+		hash = hash*prime1 ^ ub.Hash()
+	}
+
+	return hash
+}
+
+func (t classTag) Hash() uint64 {
+	const prime1 uint64 = 1299709
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(t.id.CanonicalSyntax()))
+	return prime1 ^ hasher.Sum64()
+}
+
+func (t traitTag) Hash() uint64 {
+	const prime1 uint64 = 104729
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(t.id.CanonicalSyntax()))
+	return prime1 ^ hasher.Sum64()
+}
+
+func (t tupleType) Hash() uint64 {
+	const prime1 uint64 = 433
+	const prime2 uint64 = 9973
+
+	hash := prime2
+	for _, elem := range t.fields {
+		hash = hash*prime1 ^ elem.Hash()
+	}
+
+	return hash
+}
+
+func (t namedTupleType) Hash() uint64 {
+	const prime1 uint64 = 10007
+	const prime2 uint64 = 104729
+	hasher := fnv.New64a()
+
+	hash := prime2
+	for _, elem := range t.fields {
+		hash = hash*prime1 ^ elem.Snd.Hash()
+		_, _ = hasher.Write([]byte(elem.Fst.Name))
+	}
+
+	return hash * hasher.Sum64()
+}
+
+func (t recordType) Hash() uint64 {
+	const prime1 uint64 = 15487469
+	const prime2 uint64 = 32452843
+
+	hasher := fnv.New64a()
+	hash := prime2
+	for _, field := range t.fields {
+		hash = hash*prime1 ^ field.Snd.lowerBound.Hash()
+		hash = hash*prime1 ^ field.Snd.upperBound.Hash()
+		_, _ = hasher.Write([]byte(field.Fst.Name))
+	}
+
+	return hash * hasher.Sum64()
 }

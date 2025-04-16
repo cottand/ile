@@ -3,10 +3,13 @@ package ast
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/hmtypes"
+	"github.com/cottand/ile/internal/log"
 	"go/token"
 	"unicode"
 	"unicode/utf8"
 )
+
+var logger = log.DefaultLogger.With("section", "ast")
 
 // Positioner allows finding the location in the original source file.
 // The easiest way to be a Positioner is to embed a Range

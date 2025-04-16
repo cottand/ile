@@ -7,7 +7,7 @@ import (
 	"reflect"
 )
 
-var logger = log.DefaultLogger.With("section", "typeExpr")
+var logger = log.DefaultLogger.With("section", "inference")
 
 func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[typeVariableID]SimpleType) PolymorphicType {
 	res := ctx.nextLevel().typeExpr(body, vars)
@@ -24,11 +24,25 @@ func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) {
 // typeExpr infers the type of a ast.Expr
 //
 // it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) SimpleType {
+func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) (ret SimpleType) {
 	logger.Debug("typing expression", "expr", expr.ExprName())
+	defer func() {
+		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret)
+	}()
 	ctx.currentPos = expr
-	prov := withProvenance{provenance: &typeProvenance{positioner: expr}}
+	prov := withProvenance{provenance: typeProvenance{Range: ast.RangeOf(expr)}}
 	switch expr := expr.(type) {
+	case *ast.Var:
+		known, ok := ctx.get(expr.Name)
+		if !ok {
+			ctx.addError(ilerr.New(ilerr.NewUndefinedVariable{
+				Positioner: expr,
+				Name:       expr.Name,
+			}))
+			known = errorType()
+		}
+		instance := known.instantiate(ctx.fresher, ctx.level)
+		return makeProxy(instance, prov.prov())
 	case *ast.Literal:
 		return classTag{
 			id:             expr,
@@ -64,11 +78,11 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) 
 	}
 }
 
-func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov *typeProvenance) SimpleType {
+func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvenance) SimpleType {
 	errCount := 0
 	ctx.Constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
 		errCount++
-		if errCount == 0 {
+		if errCount == 1 {
 			// so that we can get error types leak into the result
 			ctx.addError(err)
 			ctx.Constrain(errorType(), res, prov, func(err ilerr.IleError) (terminateEarly bool) { return false })
