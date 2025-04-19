@@ -120,13 +120,6 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 			return // TODO append an errorDecl node here?
 		}
-		if ctx.Type_() != nil {
-			tAnnotation, ok := l.typeStack.Pop()
-			if !ok {
-				l.visitErrors = append(l.visitErrors, fmt.Errorf("type stack is empty"))
-			}
-			expr.SetTAnnotation(tAnnotation)
-		}
 		declaration := ast.Declaration{
 			Range:    declPos,
 			Name:     identNameText,
@@ -181,7 +174,7 @@ func (l *listener) ExitBlockExpr(ctx *parser.BlockExprContext) {
 			return
 		}
 		fullExpr = &ast.Unused{
-			Range: ast.GetRange(remainderExpr),
+			Range: ast.RangeOf(remainderExpr),
 			Value: latestExpr,
 			Body:  remainderExpr,
 		}

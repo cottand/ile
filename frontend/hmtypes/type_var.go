@@ -128,10 +128,10 @@ func (tv *Var) Restrict(restrictedLevel uint) {
 // Level returns the masked level of tv, with only the restricted level included (if any).
 func (tv *Var) RestrictedLevel() uint { return uint(tv.level & RestrictedVarLevelsMask) }
 
-// Constrain the type-variable to types which implement a set of type-classes.
+// constrain the type-variable to types which implement a set of type-classes.
 func (tv *Var) SetConstraints(constraints []InstanceConstraint) { tv.constraints = constraints }
 
-// Constrain the type-variable to types which implement a type-class.
+// constrain the type-variable to types which implement a type-class.
 func (tv *Var) AddConstraint(constraint InstanceConstraint) {
 	for i, existing := range tv.constraints {
 		if existing.TypeClass.Id == constraint.TypeClass.Id || existing.TypeClass.HasSuperClass(constraint.TypeClass) {

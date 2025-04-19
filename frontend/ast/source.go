@@ -30,8 +30,8 @@ type Range struct {
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }
 
-func GetRange(e Expr) Range {
-	return Range{e.Pos(), e.End()}
+func RangeBetween(fst, snd Positioner) Range {
+	return Range{fst.Pos(), snd.End()}
 }
 
 var _ Positioner = (*File)(nil)

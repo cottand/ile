@@ -538,7 +538,7 @@ func (ti *InferenceContext) inferCases(env *TypeEnv, level uint, retType, rowTyp
 			// todo encode type error where the subject is a variant but the pattern looks for a literal -
 			//   something that will never succeed. At the same time, we need to encode success for matching
 			//   random Exprs to literals
-			//   I think the solution is a new Any type!
+			//   I think the solution is a new AnyType type!
 		case *ast.ValueLiteralPattern:
 			t, err := ti.infer(env, level, c.Value)
 			if err != nil {

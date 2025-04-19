@@ -111,6 +111,12 @@ type Expr interface {
 }
 
 func RangeOf(expr Positioner) Range {
+	if asRange, ok := expr.(*Range); ok {
+		return *asRange
+	}
+	if asRange, ok := expr.(Range); ok {
+		return asRange
+	}
 	return Range{expr.Pos(), expr.End()}
 }
 

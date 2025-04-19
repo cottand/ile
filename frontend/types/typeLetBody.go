@@ -80,12 +80,12 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) 
 
 func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvenance) SimpleType {
 	errCount := 0
-	ctx.Constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
+	ctx.constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
 		errCount++
 		if errCount == 1 {
 			// so that we can get error types leak into the result
 			ctx.addError(err)
-			ctx.Constrain(errorType(), res, prov, func(err ilerr.IleError) (terminateEarly bool) { return false })
+			ctx.constrain(errorType(), res, prov, func(err ilerr.IleError) (terminateEarly bool) { return false })
 			return false
 		} else if errCount < 3 {
 			// silence further errors
@@ -106,7 +106,7 @@ func (ctx *TypeCtx) GetLowerBoundFunctionType(t SimpleType) []funcType {
 		panic("TODO implement type refs unapply")
 	case funcType:
 		return []funcType{t}
-	case typeVariable:
+	case *typeVariable:
 		var funcTypes = make([]funcType, 0)
 		for _, lowerBound := range t.lowerBounds {
 			for _, lBoundFuncType := range ctx.GetLowerBoundFunctionType(lowerBound) {

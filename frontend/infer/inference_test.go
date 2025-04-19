@@ -607,7 +607,7 @@ func TestAnyTypeReturn(t *testing.T) {
 
 	ifExpr := Call(Var("if"), Var("somebool"), Var("someint"), Var("somebool"))
 
-	mustInfer(t, env, ctx, ifExpr, "Any")
+	mustInfer(t, env, ctx, ifExpr, "AnyType")
 }
 
 func TestValueLiteralMatch(t *testing.T) {

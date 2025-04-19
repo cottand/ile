@@ -41,6 +41,8 @@ type typeProvenance struct {
 	isType     bool   // Whether this represents a type
 }
 
+var emptyProv = typeProvenance{}
+
 var errorTypeInstance = classTag{
 	id:      &ast.Var{Name: "Error"},
 	parents: util.MSet[typeName]{},
@@ -344,9 +346,9 @@ type typeVariable struct {
 	withProvenance
 }
 
-func (t typeVariable) uninstantiatedBody() SimpleType                       { return t }
-func (t typeVariable) instantiate(fresher *Fresher, level level) SimpleType { return t }
-func (t typeVariable) String() string {
+func (t *typeVariable) uninstantiatedBody() SimpleType                       { return t }
+func (t *typeVariable) instantiate(fresher *Fresher, level level) SimpleType { return t }
+func (t *typeVariable) String() string {
 	name := t.nameHint
 	if name == "" {
 		name = "α"
@@ -354,16 +356,16 @@ func (t typeVariable) String() string {
 	return name + strconv.FormatUint(uint64(t.id), 10) + strings.Repeat("'", int(t.level_))
 }
 
-func (t typeVariable) level() level {
+func (t *typeVariable) level() level {
 	return t.level_
 }
 
 // Equivalent only compares id for typeVariable
-func (t typeVariable) Equivalent(other SimpleType) bool {
-	otherT, ok := other.(typeVariable)
+func (t *typeVariable) Equivalent(other SimpleType) bool {
+	otherT, ok := other.(*typeVariable)
 	return ok && t.id == otherT.id
 }
-func (t typeVariable) children(includeBounds bool) iter.Seq[SimpleType] {
+func (t *typeVariable) children(includeBounds bool) iter.Seq[SimpleType] {
 	if !includeBounds {
 		return emptySeqSimpleType
 	}
@@ -776,7 +778,7 @@ func (t funcType) Hash() uint64 {
 	return hash
 }
 
-func (t typeVariable) Hash() uint64 {
+func (t *typeVariable) Hash() uint64 {
 	const prime1 uint64 = 31
 	const prime2 uint64 = 7919
 

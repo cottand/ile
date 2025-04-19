@@ -1,6 +1,7 @@
 package ast
 
-const AnyBuiltinType = "any"
+const AnyTypeName = "any"
+const NothingTypeName = "nothing"
 const IntBuiltinType = "int"
 const NumberBuiltinType = "number"
 const StringBuiltinType = "string"

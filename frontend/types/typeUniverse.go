@@ -9,14 +9,14 @@ var builtinProv = newOriginProv(ast.Range{}, "builtin", "builtin")
 
 // anyClassTag is called Object in the reference scala implementation
 var anyClassTag = classTag{
-	id:             &ast.Var{Name: ast.AnyBuiltinType},
+	id:             &ast.Var{Name: ast.AnyTypeName},
 	parents:        util.MSet[typeName]{},
 	withProvenance: withProvenance{builtinProv},
 }
 
 var intType = classTag{
 	id:             &ast.Var{Name: ast.IntBuiltinType},
-	parents:        util.NewSetOf(ast.AnyBuiltinType),
+	parents:        util.NewSetOf(ast.AnyTypeName),
 	withProvenance: withProvenance{builtinProv},
 }
 

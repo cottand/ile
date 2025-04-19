@@ -189,13 +189,13 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 		bodyType, typeVars := ctx.typeType2(td0.Body, false, typeParamsArgsMap, defsInfo)
 		baseClasses := baseClassesOfDef(td0)
 		var td1 TypeDefinition
-		typeParamsArgsAsSlice := make([]util.Pair[typeName, typeVariable], 0, len(typeParamsArgsMap))
+		typeParamsArgsAsSlice := make([]util.Pair[typeName, *typeVariable], 0, len(typeParamsArgsMap))
 		for argName, argType := range typeParamsArgsMap {
-			argType, ok := argType.(typeVariable)
+			argType, ok := argType.(*typeVariable)
 			if !ok {
 				panic("all types in argTypes should be of type variable")
 			}
-			td1.typeParamArgs = append(typeParamsArgsAsSlice, util.Pair[string, typeVariable]{
+			td1.typeParamArgs = append(typeParamsArgsAsSlice, util.Pair[string, *typeVariable]{
 				Fst: argName,
 				Snd: argType,
 			})
@@ -212,7 +212,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 					isType:     true,
 				}}},
 				// this is Object in the reference implementation
-				baseClasses: emptySetTypeName.Add("Any"),
+				baseClasses: emptySetTypeName.Add("AnyType"),
 			}
 		} else {
 			td1 = TypeDefinition{
@@ -300,6 +300,6 @@ func (ctx *TypeCtx) nextLevel() *TypeCtx {
 	return &copied
 }
 
-func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
+func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) *typeVariable {
 	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
 }

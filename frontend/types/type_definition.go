@@ -13,7 +13,7 @@ import (
 type TypeDefinition struct {
 	defKind       ast.TypeDefKind
 	name          typeName
-	typeParamArgs []util.Pair[typeName, typeVariable]
+	typeParamArgs []util.Pair[typeName, *typeVariable]
 	typeVars      []typeVariable
 	bodyType      SimpleType
 	baseClasses   immutable.Set[typeName]
@@ -155,7 +155,7 @@ func (ctx *TypeCtx) checkCycle(
 	case typeRange:
 		return ctx.checkCycle(typ.upperBound, traversedNames, traversedVars) &&
 			ctx.checkCycle(typ.lowerBound, traversedNames, traversedVars)
-	case typeVariable:
+	case *typeVariable:
 		if traversedVars.Has(typ.id) {
 			return true
 		}

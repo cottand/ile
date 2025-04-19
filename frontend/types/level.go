@@ -18,8 +18,8 @@ func (t *Fresher) newTypeVariable(
 	nameHint string,
 	lowerBounds,
 	upperBounds []SimpleType,
-) typeVariable {
-	variable := typeVariable{
+) *typeVariable {
+	variable := &typeVariable{
 		id:             t.freshCount,
 		level_:         level,
 		lowerBounds:    lowerBounds,
@@ -49,7 +49,7 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool,
 		return type_
 	}
 	switch type_ := type_.(type) {
-	case typeVariable:
+	case *typeVariable:
 		found, ok := freshened[type_.id]
 		if ok {
 			return found

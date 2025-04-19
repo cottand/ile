@@ -10,8 +10,15 @@ import (
 	"testing"
 )
 
-func testType(t *testing.T, expr ast.Expr, expected SimpleType) {
-	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.String()), func(t *testing.T) {
+type MapShowCtx map[string]*ast.TypeVar
+
+func (m MapShowCtx) NameOf(t *ast.TypeVar) string {
+	return t.Identifier
+}
+
+func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
+	typeMap := new(MapShowCtx)
+	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.ShowIn(typeMap)), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := strings.Split(string(debug.Stack()), "\n")
@@ -30,22 +37,16 @@ func testType(t *testing.T, expr ast.Expr, expected SimpleType) {
 		if len(ctx.errors) != 0 {
 			t.Fatalf("errors found: %v\n", ctx.errors)
 		}
-		assert.True(t, expected.Equivalent(instance), "unexpected type for `%s`: %s (expected %s)", expr.ExprName(), instance, expected)
+		asAst := ctx.GetType(instance)
+		finalTypeStr := asAst.ShowIn(typeMap)
+		assert.Equal(t, expected.ShowIn(typeMap), finalTypeStr, "unexpected type for `%s`: %s (a %T, %s where %s) (expected %s)", expr.ExprName(), finalTypeStr, asAst, instance, boundsString(instance), expected.ShowIn(typeMap))
 	})
 }
 
 func TestInferSingleInt(t *testing.T) {
-	expr := ast.IntLiteral("1", nil)
+	expr := ast.IntLiteral("1", ast.Range{})
 
-	testType(t, expr, classTag{
-		id:             ast.IntLiteral("1", nil),
-		parents:        util.NewSetOf(ast.IntBuiltinType, ast.NumberBuiltinType),
-		withProvenance: withProvenance{},
-	})
-	testType(t, ast.IntLiteral("2", nil), classTag{
-		id:      ast.IntLiteral("2", nil),
-		parents: util.NewSetOf(ast.IntBuiltinType, ast.NumberBuiltinType),
-	})
+	testType(t, expr, expr)
 }
 
 func TestInferIntOps(t *testing.T) {
@@ -56,8 +57,12 @@ func TestInferIntOps(t *testing.T) {
 		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
 	}
 
-	testType(t, expr, classTag{
-		id:      ast.IntLiteral("3", ast.Range{}),
-		parents: util.NewSetOf(ast.IntBuiltinType, ast.NumberBuiltinType),
-	})
+	testType(t, expr, ast.IntLiteral("3", ast.Range{}))
+}
+func TestInferPlusFunc(t *testing.T) {
+	expr := &ast.Var{
+		Name: "+",
+	}
+
+	testType(t, expr, ast.IntLiteral("3", ast.Range{}))
 }

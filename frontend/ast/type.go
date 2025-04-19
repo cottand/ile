@@ -5,6 +5,42 @@ import (
 	"strings"
 )
 
+type TypeDefKind uint8
+
+const (
+	_ TypeDefKind = iota
+	// KindClass ('class') is a whole new type in Go and ile semantics
+	KindClass
+	KindAlias
+	KindTrait
+)
+
+func (k TypeDefKind) String() string {
+	switch k {
+	case KindClass:
+		return "class"
+	case KindAlias:
+		return "type alias"
+	case KindTrait:
+		return "trait"
+	default:
+		return "invalid"
+	}
+}
+
+type TypeDefinition struct {
+	Kind       TypeDefKind
+	Name       TypeName
+	TypeParams []TypeName
+	Body       Type
+	Positioner
+}
+type Field struct {
+	// In may be nil, but not Out
+	In, Out Type
+	Positioner
+}
+
 // Type is not the same as a hmtypes.Type (legacy HM type system)
 // it can be found in the source (provided by the user) or inferred
 type Type interface {
@@ -22,11 +58,14 @@ var (
 	_ Type = (*UnionType)(nil)
 	//_ Type = (*Record)(nil)
 	_ Type = (*AppliedType)(nil)
+	_ Type = (*TypeBounds)(nil)
+	_ Type = (*ConstrainedType)(nil)
+	_ Type = (*FnType)(nil)
 
 	_ NullaryType = (*TypeVar)(nil)
 	_ NullaryType = (*Literal)(nil)
-	_ NullaryType = (*Any)(nil)
-	_ NullaryType = (*Nothing)(nil)
+	_ NullaryType = (*AnyType)(nil)
+	_ NullaryType = (*NothingType)(nil)
 	_ NullaryType = (*TypeName)(nil)
 	_ NullaryType = (*TypeTag)(nil)
 )
@@ -75,10 +114,10 @@ type TypeVar struct {
 	Positioner
 }
 
-func (TypeVar) ShowIn(ctx ShowCtx) string {
-	panic("")
+func (t *TypeVar) ShowIn(ctx ShowCtx) string {
+	return ctx.NameOf(t)
 }
-func (TypeVar) isNullaryType() {}
+func (*TypeVar) isNullaryType() {}
 
 func (t *Literal) ShowIn(ctx ShowCtx) string {
 	switch t.Kind {
@@ -92,20 +131,24 @@ func (t *Literal) ShowIn(ctx ShowCtx) string {
 }
 func (*Literal) isNullaryType() {}
 
-type Nothing struct{ Positioner }
+// NothingType corresponds to Bottom in the type lattice
+// no value ever is the NothingType type
+type NothingType struct{ Positioner }
 
-func (*Nothing) ShowIn(ShowCtx) string { return "Nothing" }
-func (*Nothing) isNullaryType()        {}
+func (*NothingType) ShowIn(ShowCtx) string { return NothingTypeName }
+func (*NothingType) isNullaryType()        {}
 
-type Any struct {
+// AnyType corresponds to Top in the type lattice
+// all values have the AnyType type
+type AnyType struct {
 	Positioner
 }
 
-func (*Any) ShowIn(ShowCtx) string { return "Any" }
-func (*Any) isNullaryType()        {}
+func (*AnyType) ShowIn(ShowCtx) string { return AnyTypeName }
+func (*AnyType) isNullaryType()        {}
 
 type ShowCtx interface {
-	NameOf(typeVar TypeVar) string
+	NameOf(typeVar *TypeVar) string
 }
 
 type TypeName struct {
@@ -117,40 +160,84 @@ func (n *TypeName) ShowIn(ShowCtx) string { return n.Name }
 func (n *TypeName) isNullaryType()        {}
 
 type TypeTag struct {
-	name string
+	Name string
 	Positioner
 }
 
-func (n *TypeTag) ShowIn(ShowCtx) string { return "#" + n.name }
+func (n *TypeTag) ShowIn(ShowCtx) string { return "#" + n.Name }
 func (n *TypeTag) isNullaryType()        {}
 
-type TypeDefKind uint8
-
-const (
-	_ TypeDefKind = iota
-	// KindClass ('class') is a whole new type in Go and ile semantics
-	KindClass
-	KindAlias
-	KindTrait
-)
-
-func (k TypeDefKind) String() string {
-	switch k {
-	case KindClass:
-		return "class"
-	case KindAlias:
-		return "type alias"
-	case KindTrait:
-		return "trait"
-	default:
-		return "invalid"
-	}
+type TypeBounds struct {
+	Lower, Upper Type
+	Range
 }
 
-type TypeDefinition struct {
-	Kind       TypeDefKind
-	Name       TypeName
-	TypeParams []TypeName
-	Body       Type
-	Positioner
+func (n *TypeBounds) ShowIn(ctx ShowCtx) string {
+	lowerStr := n.Lower.ShowIn(ctx)
+	upperStr := n.Upper.ShowIn(ctx)
+
+	if lowerStr == upperStr {
+		return lowerStr
+	}
+	if _, ok := n.Lower.(*NothingType); ok {
+		if _, ok := n.Upper.(*AnyType); ok {
+			return "?"
+		}
+		return ".. " + upperStr
+	}
+	if _, ok := n.Upper.(*AnyType); ok {
+		return lowerStr + " .."
+	}
+	return lowerStr + " .. " + upperStr
+}
+
+type ConstrainedEntry = struct {
+	Var    *TypeVar
+	Bounds *TypeBounds
+}
+type ConstrainedType struct {
+	Base  Type
+	Where []ConstrainedEntry
+	Range
+}
+
+func (t *ConstrainedType) ShowIn(ctx ShowCtx) string {
+	entries := make([]string, 0, len(t.Where))
+	for _, entry := range t.Where {
+
+		var lhs, rhs string
+
+		v := ctx.NameOf(entry.Var)
+		if _, isNothing := entry.Bounds.Lower.(*NothingType); isNothing {
+			lhs = ""
+		} else {
+			lhs = entry.Bounds.Lower.ShowIn(ctx) + " <: "
+		}
+
+		if _, isAny := entry.Bounds.Upper.(*AnyType); isAny {
+			rhs = ""
+			// the reference scala implementation chooses to use :> here,
+			// but we simply invert the symbol here (personal preference)
+		} else {
+			rhs = " <: " + entry.Bounds.Upper.ShowIn(ctx)
+		}
+		entries = append(entries, lhs+v+rhs)
+	}
+	return t.Base.ShowIn(ctx) + " where " + strings.Join(entries, ", ")
+
+}
+
+type FnType struct {
+	Args   []Type
+	Return Type
+	Range
+}
+
+func (t *FnType) ShowIn(ctx ShowCtx) string {
+	argShow := make([]string, 0, len(t.Args))
+	for _, arg := range t.Args {
+		argShow = append(argShow, arg.ShowIn(ctx))
+	}
+
+	return "fn " + strings.Join(argShow, ", ") + " -> " + t.Return.ShowIn(ctx)
 }

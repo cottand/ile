@@ -8,6 +8,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/benbjohnson/immutable v0.4.3
 	github.com/hashicorp/go-set v0.1.14
+	github.com/hashicorp/go-set/v3 v3.0.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/traefik/yaegi v0.16.1

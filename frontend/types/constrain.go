@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/util"
 	set "github.com/hashicorp/go-set"
 	"go/token"
 	"reflect"
@@ -193,7 +194,7 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 }
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
-func (cs *constraintSolver) addUpperBound(tv typeVariable, rhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
 	fmt.Printf("Adding UB %s to %s\n", rhs, tv)
 	// Simplified: Add bound and propagate. Scala version uses mkProxy.
 	// Need to handle potential duplicates and normalization.
@@ -210,11 +211,15 @@ func (cs *constraintSolver) addUpperBound(tv typeVariable, rhs SimpleType, cctx 
 }
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
-func (cs *constraintSolver) addLowerBound(tv typeVariable, lhs SimpleType, cctx constraintContext) bool {
-	fmt.Printf("Adding LB %s to %s\n", lhs, tv)
-	// Simplified: Add bound and propagate. Scala version uses mkProxy.
-	// Need to handle potential duplicates and normalization.
-	newBound := lhs // TODO: Apply makeProxy based on cctx
+func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
+	logger.Debug("adding lower bound", "lhs", lhs, "tv", tv)
+	newBound := lhs
+	for c := range util.ConcatIter(slices.Values(cctx.lhsChain), util.Reverse(cctx.rhsChain)) {
+		if c.prov() != emptyProv {
+			newBound = makeProxy(newBound, c.prov())
+		}
+	}
+
 	tv.lowerBounds = append(tv.lowerBounds, newBound)
 
 	// Propagate constraints: new_lhs <: U for all U in upperBounds
@@ -226,9 +231,9 @@ func (cs *constraintSolver) addLowerBound(tv typeVariable, lhs SimpleType, cctx 
 	return false
 }
 
-// Constrain enforces a subtyping relationship `lhs` <: `rhs`.
+// constrain enforces a subtyping relationship `lhs` <: `rhs`.
 // It returns true if constraint solving should terminate early due to an error.
-func (ctx *TypeCtx) Constrain(
+func (ctx *TypeCtx) constrain(
 	lhs, rhs SimpleType,
 	prov typeProvenance,
 	onErr func(err ilerr.IleError) (terminateEarly bool),
@@ -256,7 +261,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-// prevCctxs []constraintContext, // If needed for extrusion reasons
+	// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -348,7 +353,7 @@ func (cs *constraintSolver) recImpl(
 		}
 		// Fall through to report error or handle Top <: X via goToWork
 
-	case typeVariable:
+	case *typeVariable:
 		return cs.constrainTypeVarLhs(lhs, rhs, cctx, shadows)
 
 	case funcType:
@@ -430,16 +435,16 @@ func (cs *constraintSolver) recImpl(
 		return cs.rec(lhs.upperBound, rhs, true, cctx, shadows)
 
 	case classTag:
-		// Handle ClassTag <: RHS
-		if rTag, ok := rhs.(objectTag); ok {
+		switch rhs := rhs.(type) {
+		// Handle ClassTag <: RecordType (member checking)
+		case objectTag:
 			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(lhs, rTag) {
+			if cs.ctx.IsSubtypeTag(lhs, rhs) {
 				return false // Success
 			}
-		}
-		// Handle ClassTag <: RecordType (member checking)
-		if rRec, ok := rhs.(recordType); ok { // Assuming recordType exists
-			return cs.constrainClassRecord(lhs, rRec, cctx, shadows)
+		// Handle ClassTag <: RHS
+		case recordType:
+			return cs.constrainClassRecord(lhs, rhs, cctx, shadows)
 		}
 
 		// special cases where lhs is the error type - we continue constraining so that we can get
@@ -474,7 +479,7 @@ func (cs *constraintSolver) recImpl(
 		// TODO: Add cases for RecordType, other specific types as needed
 	}
 
-	// 5. Handle RHS structure (if LHS didn't match a specific case)
+	// Handle RHS structure (if LHS didn't match a specific case)
 	switch r := rhs.(type) {
 	case extremeType: // Bottom or Top
 		if r.polarity == false { // Anything <: Top
@@ -486,7 +491,7 @@ func (cs *constraintSolver) recImpl(
 		}
 		// Fall through to report error or handle X <: Bottom via goToWork
 
-	case typeVariable:
+	case *typeVariable:
 		return cs.constrainTypeVarRhs(lhs, r, cctx, shadows)
 
 	case unionType:
@@ -519,7 +524,7 @@ func (cs *constraintSolver) recImpl(
 		return cs.withSubLevel(func(subSolver *constraintSolver) bool {
 			rigidRhs := r.rigidify(cs.ctx.fresher, subSolver.level) // Rigidify at the *new* level
 			fmt.Printf(" -> Rigidified RHS: %s\n", rigidRhs)
-			// Constrain LHS against the rigidified RHS in the sub-level
+			// constrain LHS against the rigidified RHS in the sub-level
 			return subSolver.rec(lhs, rigidRhs, true, cctx, shadows) // Pass original cctx? Scala passes `true` for sameLevel
 			// Unstashing happens automatically when withSubLevel returns (if implemented)
 		})
@@ -588,46 +593,46 @@ func isBottom(t SimpleType) bool {
 
 // constrainTypeVarLhs handles `TypeVariable <: Rhs`
 func (cs *constraintSolver) constrainTypeVarLhs(
-	lhs typeVariable,
+	lhs *typeVariable,
 	rhs SimpleType,
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
 	// Check levels
-	if rhs.level() > lhs.level() {
-		// Extrusion needed for RHS
-		fmt.Printf(" -> Extruding RHS for TV LHS (%d > %d)\n", rhs.level(), lhs.level())
-		extrudedRhs := cs.extrude(rhs, lhs.level(), false, cs.level /*?*/, cctx) // Needs extrude implementation
-		if extrudedRhs == nil {                                                  // Extrusion failed or reported error
-			return true
-		}
-		return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
+	if rhs.level() <= lhs.level() {
+		return cs.addUpperBound(lhs, rhs, cctx)
 	}
 
+	// Extrusion needed for RHS
+	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
+	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
+	if extrudedRhs == nil {                            // Extrusion failed or reported error
+		return true
+	}
+	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
+
 	// Levels match or RHS is lower: Add upper bound
-	return cs.addUpperBound(lhs, rhs, cctx)
 }
 
-// constrainTypeVarRhs handles `Lhs <: TypeVariable`
+// constrainTypeVarRhs handles LHS <: TypeVariable
 func (cs *constraintSolver) constrainTypeVarRhs(
 	lhs SimpleType,
-	rhs typeVariable,
+	rhs *typeVariable,
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	// Check levels
-	if lhs.level() > rhs.level() {
-		// Extrusion needed for LHS
-		fmt.Printf(" -> Extruding LHS for TV RHS (%d > %d)\n", lhs.level(), rhs.level())
-		extrudedLhs := cs.extrude(lhs, rhs.level(), true, cs.level /*?*/, cctx) // Needs extrude implementation
-		if extrudedLhs == nil {                                                 // Extrusion failed or reported error
-			return true
-		}
-		return cs.rec(extrudedLhs, rhs, true, cctx, shadows) // Retry with extruded LHS
-	}
-
 	// Levels match or LHS is lower: Add lower bound
-	return cs.addLowerBound(rhs, lhs, cctx)
+	if lhs.level() <= rhs.level() {
+		return cs.addLowerBound(rhs, lhs, cctx)
+	}
+	// Extrusion needed for LHS
+	fmt.Printf(" -> Extruding LHS for TV RHS (%d > %d)\n", lhs.level(), rhs.level())
+	extrudedLhs := cs.extrude(lhs, rhs.level(), true) // Needs extrude implementation
+	if extrudedLhs == nil {                           // Extrusion failed or reported error
+		return true
+	}
+	return cs.rec(extrudedLhs, rhs, true, cctx, shadows) // Retry with extruded LHS
+
 }
 
 // constrainFuncFunc handles `FunctionType <: FunctionType`
@@ -641,14 +646,14 @@ func (cs *constraintSolver) constrainFuncFunc(
 		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), lhs, rhs, cctx)
 	}
 
-	// Constrain arguments contravariantly: rhs.arg <: lhs.arg
+	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
 		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) { // Note: sameLevel = false
 			return true // Terminate early
 		}
 	}
 
-	// Constrain return type covariantly: lhs.ret <: rhs.ret
+	// constrain return type covariantly: lhs.ret <: rhs.ret
 	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows) // Note: sameLevel = false
 }
 
@@ -662,7 +667,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), lhs, rhs, cctx)
 	}
 
-	// Constrain fields covariantly: lhs.field <: rhs.field
+	// constrain fields covariantly: lhs.field <: rhs.field
 	// TODO: Handle named tuples correctly if names differ.
 	// TODO: Handle bounds correctly (recLb in Scala).
 	for i := range lhs.fields {
@@ -778,12 +783,12 @@ func (cs *constraintSolver) constrainClassRecord(
 			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name), lhs, rhs, cctx)
 		}
 
-		// Constrain upper bounds: memberTy.ub <: fldTy.ub
+		// constrain upper bounds: memberTy.ub <: fldTy.ub
 		if cs.rec(memberTy.ub, fldTy.upperBound, false, cctx, shadows) {
 			return true
 		}
 
-		// Constrain lower bounds: fldTy.lb <: memberTy.lb (recLb)
+		// constrain lower bounds: fldTy.lb <: memberTy.lb (recLb)
 		if fldTy.lowerBound != nil {
 			if memberTy.lb == nil {
 				// Trying to assign to a non-mutable field
@@ -823,14 +828,8 @@ func (cs *constraintSolver) goToWork(
 
 // extrude handles type variable extrusion. Complex logic based on levels and polarity.
 // Needs careful implementation matching Scala's `extrude`.
-func (cs *constraintSolver) extrude(
-	ty SimpleType,
-	lowerLvl level,
-	pol bool,               // Polarity: true for positive, false for negative
-	upperLvl level,         // Upper level limit for extrusion
-	cctx constraintContext, // Used for provenance/reason in Extruded type
-) SimpleType {
-	fmt.Printf(" -> extrude: %s (level %d) below %d, pol: %t (NOT IMPLEMENTED)\n", ty, ty.level(), lowerLvl, pol)
+func (cs *constraintSolver) extrude(ty SimpleType, lowerLvl level, pol bool) SimpleType {
+	panic("constraint: extrude: not implemented")
 	// 1. Check base case: ty.level <= lowerLvl -> return ty
 	// 2. Handle recursion using a cache (map[typeVariableID][bool]typeVariableID ?)
 	// 3. Recursively extrude children based on type structure and polarity.
