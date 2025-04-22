@@ -1,6 +1,7 @@
 package util
 
 import (
+	"github.com/hashicorp/go-set/v3"
 	"iter"
 	"slices"
 )
@@ -48,4 +49,25 @@ func Reverse[A any](slice []A) iter.Seq[A] {
 			}
 		}
 	}
+}
+
+
+func SetFromSeq[V comparable](s iter.Seq[V], size int) *set.Set[V] {
+	newSet := set.New[V](size)
+	for item := range s {
+		newSet.Insert(item)
+	}
+	return newSet
+}
+
+func CopySet[V comparable](s set.Collection[V]) *set.Set[V] {
+	return SetFromSeq(s.Items(), s.Size())
+}
+
+func CopyHashSet[T set.Hasher[H], H set.Hash](s set.Collection[T]) *set.HashSet[T, H]  {
+	newSet := set.NewHashSet[T, H](s.Size())
+	for item := range s.Items() {
+		newSet.Insert(item)
+	}
+	return newSet
 }

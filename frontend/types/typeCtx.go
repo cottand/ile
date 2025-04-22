@@ -33,6 +33,10 @@ type TypeCtx struct {
 	level     level
 	inPattern bool
 
+	// variancesStore is called variancesStore in the scala reference
+	// should be accessed via variancesForTypeDef
+	variancesStore map[typeVariableID]varianceInfo
+
 	//typeDefs  map[types.Type]typeDef
 
 	// here to avoid passing a position on every function call.
@@ -302,4 +306,33 @@ func (ctx *TypeCtx) nextLevel() *TypeCtx {
 
 func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) *typeVariable {
 	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
+}
+
+// variancesForTypeDef corresponds to getTypeDefinitionVariances in the scala reference implementation
+func (ctx *TypeCtx) variancesForTypeDef(defName string, id typeVariableID) varianceInfo {
+	_, ok := ctx.typeDefs[defName]
+	if !ok {
+		return varianceInvariant
+	}
+	variance, ok := ctx.variancesStore[id]
+	if !ok {
+		return varianceInvariant
+	}
+	return variance
+}
+
+// getTypeDefinitionVariances retrieves variance information for type parameters.
+func (ctx *TypeCtx) getTypeDefinitionVariances(name typeName) ([]Variance, bool) {
+	fmt.Printf("WARN: getTypeDefinitionVariances not implemented for %s\n", name)
+	// Placeholder: Assume invariant for now
+	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
+	if !ok {
+		return nil, false
+	}
+	variances := make([]Variance, len(def.typeParamArgs))
+	for i := range variances {
+		variances[i] = Invariant // Default to invariant
+		// TODO: Read actual variance from TypeDef
+	}
+	return variances, true
 }

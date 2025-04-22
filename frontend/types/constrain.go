@@ -728,7 +728,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 	}
 
 	// Fetch variance info for the definition (needs Ctx support)
-	variances, ok := cs.ctx.GetTypeDefinitionVariances(lhs.defName) // Needs implementation
+	variances, ok := cs.ctx.getTypeDefinitionVariances(lhs.defName) // Needs implementation
 	if !ok {
 		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName), lhs, rhs, cctx)
 	}
@@ -850,23 +850,6 @@ func (cs *constraintSolver) extrude(ty SimpleType, lowerLvl level, pol bool) Sim
 }
 
 // --- Type Definition Lookup Helpers (Need implementation in TypeCtx) ---
-
-// GetTypeDefinitionVariances retrieves variance information for type parameters.
-func (ctx *TypeCtx) GetTypeDefinitionVariances(name typeName) ([]Variance, bool) {
-	// TODO: Implement lookup in ctx.tyDefs or ctx.tyDefs2
-	fmt.Printf("WARN: GetTypeDefinitionVariances not implemented for %s\n", name)
-	// Placeholder: Assume invariant for now
-	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
-	if !ok {
-		return nil, false
-	}
-	variances := make([]Variance, len(def.typeParamArgs))
-	for i := range variances {
-		variances[i] = Invariant // Default to invariant
-		// TODO: Read actual variance from TypeDef
-	}
-	return variances, true
-}
 
 // IsSubtypeTag checks if tag1 is a subtype of tag2 (class/trait inheritance).
 func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {

@@ -57,12 +57,19 @@ func TestInferIntOps(t *testing.T) {
 		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
 	}
 
-	testType(t, expr, ast.IntLiteral("3", ast.Range{}))
+	testType(t, expr, &ast.TypeTag{Name: "int"})
 }
+
 func TestInferPlusFunc(t *testing.T) {
 	expr := &ast.Var{
 		Name: "+",
 	}
 
-	testType(t, expr, ast.IntLiteral("3", ast.Range{}))
+	testType(t, expr, &ast.FnType{
+		Args: []ast.Type{
+			&ast.TypeTag{Name: "int"},
+			&ast.TypeTag{Name: "int"},
+		},
+		Return: &ast.TypeTag{Name: "int"},
+	})
 }

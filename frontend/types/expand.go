@@ -23,9 +23,9 @@ type expanderState struct {
 func (ctx *TypeCtx) GetType(t SimpleType) ast.Type {
 	// Note: The Scala version calls uninstantiatedBody() first.
 	uninstantiated := t.uninstantiatedBody()
-	simple := ctx.simplify(uninstantiated) // Simplify first
+	simple := ctx.simplifyPipeline(uninstantiated) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
-	logger.Debug("simplifying type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded)
+	logger.Debug("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded)
 	return expanded
 }
 
@@ -377,7 +377,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		}
 
 	case *PolymorphicType:
-		// This case should ideally not be hit if simplify/uninstantiateBody was called first.
+		// This case should ideally not be hit if simplifyPipeline/uninstantiateBody was called first.
 		// If it occurs, expand the body, but the level information is lost in the AST.
 		fmt.Printf("Warning: Expanding PolymorphicType directly: %s\n", ty)
 		// Return the expanded body, potentially losing the polymorphic nature in the AST representation.
@@ -434,7 +434,3 @@ func (ctx *TypeCtx) IsPrimitive(name string) bool {
 		return false
 	}
 }
-
-
-
-

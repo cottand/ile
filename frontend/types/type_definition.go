@@ -15,6 +15,7 @@ type TypeDefinition struct {
 	name          typeName
 	typeParamArgs []util.Pair[typeName, *typeVariable]
 	typeVars      []typeVariable
+	typeVarVariances map[typeVariableID]varianceInfo
 	bodyType      SimpleType
 	baseClasses   immutable.Set[typeName]
 	from          ast.Positioner
