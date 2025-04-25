@@ -18,7 +18,7 @@ func (m MapShowCtx) NameOf(t *ast.TypeVar) string {
 
 func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 	typeMap := new(MapShowCtx)
-	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.ShowIn(typeMap)), func(t *testing.T) {
+	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.ShowIn(typeMap, 0)), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := strings.Split(string(debug.Stack()), "\n")
@@ -27,19 +27,19 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 			}
 		}()
 		ctx := NewEmptyTypeCtx()
-		vars := make(map[typeVariableID]SimpleType)
+		vars := make(map[TypeVarID]SimpleType)
 
-		typeScheme := ctx.TypeLetBody(expr, vars)
-		instance := typeScheme.instantiate(ctx.fresher, 0)
-		if len(ctx.failures) != 0 {
-			t.Fatalf("failures found: %s\n", "\n    "+util.JoinString(ctx.failures, "\n    "))
+		_ = ctx.TypeLetBody(expr, vars)
+		if len(ctx.Failures) != 0 {
+			t.Fatalf("Failures found: %s\n", "\n    "+util.JoinString(ctx.Failures, "\n    "))
 		}
-		if len(ctx.errors) != 0 {
-			t.Fatalf("errors found: %v\n", ctx.errors)
+		if len(ctx.Errors) != 0 {
+			t.Fatalf("Errors found: %v\n", ctx.Errors)
 		}
-		asAst := ctx.GetType(instance)
-		finalTypeStr := asAst.ShowIn(typeMap)
-		assert.Equal(t, expected.ShowIn(typeMap), finalTypeStr, "unexpected type for `%s`: %s (a %T, %s where %s) (expected %s)", expr.ExprName(), finalTypeStr, asAst, instance, boundsString(instance), expected.ShowIn(typeMap))
+		asAst, ok := ctx.TypeOf(expr)
+		assert.True(t, ok, "expected type for %s", expr.ExprName())
+		finalTypeStr := asAst.ShowIn(typeMap, 0)
+		assert.Equal(t, expected.ShowIn(typeMap, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T, %s where %s) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(typeMap, 0))
 	})
 }
 
@@ -50,14 +50,25 @@ func TestInferSingleInt(t *testing.T) {
 }
 
 func TestInferIntOps(t *testing.T) {
-	expr := &ast.Call{
+	onePlusTwo := &ast.Call{
 		Func: &ast.Var{
 			Name: "+",
 		},
 		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
 	}
 
-	testType(t, expr, &ast.TypeTag{Name: "int"})
+	testType(t, onePlusTwo, &ast.TypeTag{Name: "int"})
+
+	plusThree := &ast.Call{
+		Func: &ast.Var{
+			Name: "+",
+		},
+		Args: []ast.Expr{
+			ast.IntLiteral("3", ast.Range{}),
+			onePlusTwo,
+		},
+	}
+	testType(t, plusThree, &ast.TypeTag{Name: "int"})
 }
 
 func TestInferPlusFunc(t *testing.T) {

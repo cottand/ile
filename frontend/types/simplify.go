@@ -148,7 +148,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	logger.Debug("simplifyType: occurrences " + coOccsStr.String())
 
 	// --- Processing: Determine Substitutions ---
-	allVars := getVariables(st)                             // Get all unique variables
+	allVars := getVariables(st)                             // getCached all unique variables
 	slices.SortFunc(allVars, func(a, b *typeVariable) int { // Sort for deterministic processing
 		if a.id < b.id {
 			return -1
@@ -162,7 +162,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	// Substitution map: tv -> replacement (*typeVariable or nil for removal)
 	varSubst := make(map[*typeVariable]*typeVariable)
 	// Set of variables considered recursive (might change during processing)
-	recVars := set.New[typeVariableID](0)
+	recVars := set.New[TypeVarID](0)
 	for _, tv := range allVars {
 		if tv.isRecursive() { // Assuming isRecursive exists
 			recVars.Insert(tv.id)
@@ -655,7 +655,7 @@ func (a2 *analysis2State) processVarOcc(st SimpleType, pol polarity, currentCoOc
 
 type transformerState struct {
 	varSubst          map[*typeVariable]*typeVariable
-	recVars           set.Collection[typeVariableID]
+	recVars           set.Collection[TypeVarID]
 	occursInvariantly *set.Set[*typeVariable]
 	renewals          map[*typeVariable]*typeVariable // Map from old TV to renewed fresh TV
 	inlineBounds      bool
@@ -702,7 +702,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		// Check if we should inline bounds (non-rec, non-invariant, config enabled)
 		shouldInline := ts.inlineBounds && !isRec && !isInv && pol != invariant
 
-		// Get or create the renewed variable
+		// getCached or create the renewed variable
 		renewedVar, wasDefined := ts.renewals[ty]
 		if !wasDefined {
 			// Create a fresh variable, preserving level and name hint
@@ -868,7 +868,7 @@ func mergeBounds(bounds []SimpleType, lower bool) SimpleType {
 // This is a placeholder.
 func (tv *typeVariable) isRecursive() bool {
 	// Placeholder implementation: Needs graph traversal
-	visited := *set.New[typeVariableID](0)
+	visited := *set.New[TypeVarID](0)
 	var check func(SimpleType) bool
 	check = func(st SimpleType) bool {
 		st = unwrapProvenance(st)

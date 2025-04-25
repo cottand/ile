@@ -1,6 +1,6 @@
 //ile:compilerTest test.IntId(1) | int64(42)
 package test
 
-fn IntId(a Int) Int {
+fn IntId(a: Int): Int {
   a + 10 * 4 + 1
 }

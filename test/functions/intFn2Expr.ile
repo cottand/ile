@@ -1,7 +1,7 @@
 //ile:compilerTest test.MakeInt(2) | int64(2)
 package test
 
-fn MakeInt(a Int) Int {
+fn MakeInt(a: Int): Int {
   1
   a
 }

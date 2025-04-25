@@ -31,7 +31,7 @@ declaration
     ;
 
 varDecl
-    : IDENTIFIER (type_ (ASSIGN expression) | ASSIGN expression)
+    : VAL IDENTIFIER (COLON type_)? ASSIGN expression
     ;
 
 block
@@ -100,7 +100,7 @@ parameters
     ;
 
 parameterDecl
-    : IDENTIFIER type_?
+    : IDENTIFIER (COLON type_)?
 //    : identifierList? ELLIPSIS? type_
     ;
 

@@ -56,6 +56,10 @@ type Declaration struct {
 	Range // of the LHS including '='
 	Name  string
 	E     Expr
+	// Type is the type annotation for the declaration, derived from inference, not from
+	// the type annotation in the declaration. This should be set by the type-checker only.
+	// For the optional type annotation in the declaration, use Ascribe inside E
+	Type Type
 	// Comments keeps a list of lines for comments immediately preceding a declaration.
 	// It may be nil if the declaration was not adjacent to any comments.
 	Comments []string

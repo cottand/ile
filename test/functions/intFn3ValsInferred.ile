@@ -1,8 +1,8 @@
 //ile:compilerTest test.MakeInt(1, 2, 3) | int64(60)
 package test
 
-fn MakeInt(a Int, b Int, c Int) Int {
-  x = a + b + c
-  y = x
+fn MakeInt(a: Int, b: Int, c: Int): Int {
+  val x = a + b + c
+  val y = x
   10 * x
 }

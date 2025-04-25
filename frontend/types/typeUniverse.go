@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 var builtinProv = newOriginProv(ast.Range{}, "builtin", "builtin")
@@ -10,13 +10,13 @@ var builtinProv = newOriginProv(ast.Range{}, "builtin", "builtin")
 // anyClassTag is called Object in the reference scala implementation
 var anyClassTag = classTag{
 	id:             &ast.Var{Name: ast.AnyTypeName},
-	parents:        util.MSet[typeName]{},
+	parents:        set.New[typeName](0),
 	withProvenance: withProvenance{builtinProv},
 }
 
 var intType = classTag{
-	id:             &ast.Var{Name: ast.IntBuiltinType},
-	parents:        util.NewSetOf(ast.AnyTypeName),
+	id:             &ast.Var{Name: ast.IntBuiltinTypeName},
+	parents:        set.From([]typeName{ast.AnyTypeName}),
 	withProvenance: withProvenance{builtinProv},
 }
 
@@ -29,4 +29,14 @@ func universe() map[string]typeInfo {
 			withProvenance: withProvenance{builtinProv},
 		},
 	}
+}
+
+var errorTypeInstance = classTag{
+	id:      &ast.Var{Name: "Error"},
+	parents: set.New[typeName](0),
+	withProvenance: withProvenance{
+		provenance: typeProvenance{
+			desc: "Error",
+		},
+	},
 }

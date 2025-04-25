@@ -58,7 +58,7 @@ type constraintSolver struct {
 	// shadows shadowsState
 
 	// TODO: Implement ExtrCtx for stashing constraints during extrusion
-	// extrCtx map[typeVariableID][]*stashedConstraint
+	// extrCtx map[TypeVarID][]*stashedConstraint
 
 	// Counters for stats (optional)
 	constrainCalls int
@@ -280,7 +280,7 @@ func (cs *constraintSolver) rec(
 		if len(cctx.lhsChain) == 0 || cctx.lhsChain[0] != lhs { // Avoid duplicates
 			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
 		}
-		if len(cctx.rhsChain) == 0 || cctx.rhsChain[0] != rhs { // Avoid duplicates
+		if len(cctx.rhsChain) == 0 || cctx.rhsChain[0].Equivalent(rhs) { // Avoid duplicates
 			nextCctx.rhsChain = slices.Insert(cctx.rhsChain, 0, rhs)
 		}
 	} else {
@@ -831,7 +831,7 @@ func (cs *constraintSolver) goToWork(
 func (cs *constraintSolver) extrude(ty SimpleType, lowerLvl level, pol bool) SimpleType {
 	panic("constraint: extrude: not implemented")
 	// 1. Check base case: ty.level <= lowerLvl -> return ty
-	// 2. Handle recursion using a cache (map[typeVariableID][bool]typeVariableID ?)
+	// 2. Handle recursion using a cache (map[TypeVarID][bool]TypeVarID ?)
 	// 3. Recursively extrude children based on type structure and polarity.
 	// 4. Handle TypeVariable:
 	//    - If tv.level > upperLvl: Copy the variable (freshen).

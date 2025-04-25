@@ -120,7 +120,7 @@ func (b *TypeMapBuilder) EnsureInitialized() {
 	panic("type map builder is not initialized")
 }
 
-// Get the number of entries in the builder.
+// getCached the number of entries in the builder.
 func (b TypeMapBuilder) Len() int {
 	if b.b == nil {
 		return 0
@@ -151,7 +151,7 @@ func (b TypeMapBuilder) Build() TypeMap {
 // Merge entries into the builder.
 func (a TypeMapBuilder) Merge(b TypeMap) TypeMapBuilder {
 	//b.Range(func(label string, bts TypeList) bool {
-	//	ts, ok := a.b.Get(label)
+	//	ts, ok := a.b.getCached(label)
 	//	if !ok {
 	//		a.Set(label, bts)
 	//		return true

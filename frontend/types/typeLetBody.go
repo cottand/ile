@@ -9,25 +9,31 @@ import (
 
 var logger = log.DefaultLogger.With("section", "inference")
 
-func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[typeVariableID]SimpleType) PolymorphicType {
-	res := ctx.nextLevel().typeExpr(body, vars)
+func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[TypeVarID]SimpleType) PolymorphicType {
+	res := ctx.nextLevel().TypeExpr(body, vars)
 	return PolymorphicType{
 		_level: ctx.level,
 		Body:   res,
 	}
 }
 
-func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) {
-
+func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
+	panic("TODO implement me")
 }
 
-// typeExpr infers the type of a ast.Expr
+// TypeExpr infers the type of a ast.Expr
 //
 // it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) (ret SimpleType) {
+func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret SimpleType) {
+	if cached, ok := ctx.cache.getCached(expr); ok && cached.at == ctx.level {
+		return cached.t
+	}
+
 	logger.Debug("typing expression", "expr", expr.ExprName())
 	defer func() {
 		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret)
+
+		ctx.putCache(expr, ret)
 	}()
 	ctx.currentPos = expr
 	prov := withProvenance{provenance: typeProvenance{Range: ast.RangeOf(expr)}}
@@ -52,10 +58,10 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) 
 		// the reference implementation has two matches here: one without Var (param names) and another with
 		// we will focus on the former for now
 	case *ast.Call:
-		fType := ctx.typeExpr(expr.Func, vars)
+		fType := ctx.TypeExpr(expr.Func, vars)
 		argTypes := make([]SimpleType, 0, len(expr.Args))
 		for _, arg := range expr.Args {
-			argTypes = append(argTypes, ctx.typeExpr(arg, vars))
+			argTypes = append(argTypes, ctx.TypeExpr(arg, vars))
 		}
 		res := ctx.newTypeVariable(prov.provenance, "", nil, nil)
 		return ctx.typeExprConstrain(fType, funcType{
@@ -69,7 +75,7 @@ func (ctx *TypeCtx) typeExpr(expr ast.Expr, vars map[typeVariableID]SimpleType) 
 			withProvenance: withProvenance{provenance: newOriginProv(expr, "list literal", "")},
 		}
 		for _, tupleElement := range expr.Args {
-			typed := ctx.typeExpr(tupleElement, vars)
+			typed := ctx.TypeExpr(tupleElement, vars)
 			tupleT.fields = append(tupleT.fields, typed)
 		}
 		return tupleT
@@ -88,7 +94,7 @@ func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvena
 			ctx.constrain(errorType(), res, prov, func(err ilerr.IleError) (terminateEarly bool) { return false })
 			return false
 		} else if errCount < 3 {
-			// silence further errors
+			// silence further Errors
 			return false
 		} else {
 			// stop constraining stack this point in order to avoid explosive badly behaved error cases

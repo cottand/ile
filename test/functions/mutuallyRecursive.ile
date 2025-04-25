@@ -2,7 +2,7 @@
 
 package test
 
-fn DecrementOne(n Int) Int {
+fn DecrementOne(n: Int): Int {
   when n {
     0 -> 0
     1 -> 1 + DecrementOne(n - 1)
@@ -11,7 +11,7 @@ fn DecrementOne(n Int) Int {
 }
 
 
-fn DecrementTwo(n Int) Int {
+fn DecrementTwo(n: Int): Int {
   when n {
     0 -> 0
     _ -> 2 + DecrementOne(n - 2)

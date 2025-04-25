@@ -1,6 +1,6 @@
 //ile:compilerTest test.IntId(923) | int64(923)
 package test
 
-fn IntId(a Int) Int {
+fn IntId(a: Int): Int {
   a
 }

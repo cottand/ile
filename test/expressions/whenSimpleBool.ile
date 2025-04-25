@@ -1,7 +1,7 @@
 //ile:compilerTest test.match | "yay"
 package test
 
-match = when {
+val match = when {
     2 == 2 -> "yay"
     _ -> "false"
 }

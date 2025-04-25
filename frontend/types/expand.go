@@ -11,11 +11,11 @@ import (
 // expanderState holds the state during the recursive expansion of a SimpleType to an ast.Type.
 type expanderState struct {
 	ctx          *TypeCtx
-	bounds       map[typeVariableID]ast.TypeBounds // Stores non-trivial bounds discovered for type variables.
-	seenVars     *set.Set[typeVariableID]          // Tracks visited type variables to prevent infinite loops during bound expansion.
-	stopAtTyVars bool                              // If true, stops expansion at type variables.
+	bounds       map[TypeVarID]ast.TypeBounds // Stores non-trivial bounds discovered for type variables.
+	seenVars     *set.Set[TypeVarID]          // Tracks visited type variables to prevent infinite loops during bound expansion.
+	stopAtTyVars bool                         // If true, stops expansion at type variables.
 	// Store the created ast.TypeVar nodes to easily associate bounds later
-	createdVars map[typeVariableID]*ast.TypeVar
+	createdVars map[TypeVarID]*ast.TypeVar
 }
 
 // GetType converts a SimpleType into its corresponding ast.Type representation,
@@ -34,10 +34,10 @@ func (ctx *TypeCtx) GetType(t SimpleType) ast.Type {
 func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
 	state := &expanderState{
 		ctx:          ctx,
-		bounds:       make(map[typeVariableID]ast.TypeBounds),
-		seenVars:     set.New[typeVariableID](0), // Initialize the set
+		bounds:       make(map[TypeVarID]ast.TypeBounds),
+		seenVars:     set.New[TypeVarID](0), // Initialize the set
 		stopAtTyVars: stopAtTyVars,
-		createdVars:  make(map[typeVariableID]*ast.TypeVar),
+		createdVars:  make(map[TypeVarID]*ast.TypeVar),
 	}
 
 	res := state.expandRec(t)
@@ -95,7 +95,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		// Keep the outer provenance range if the inner one is invalid
 		innerProv := pt.underlying().prov()
 		res := st.expandRec(pt.underlying())
-		resRange := res // Get current range
+		resRange := res // getCached current range
 
 		// If result range is invalid, try using the wrapper's range
 		if resRange.Pos() == token.NoPos && pt.proxyProvenance.Pos() != token.NoPos {
@@ -398,7 +398,7 @@ func (st *expanderState) expandFieldType(ft fieldType) ast.Field {
 	// if ft.lowerBound != nil && !isBottom(ft.lowerBound) {
 	// 	lbExpanded := st.expandRec(ft.lowerBound)
 	// 	lb = lbExpanded        // Assign the expanded type
-	// 	lbRange = lb.RangeOf() // Get its range
+	// 	lbRange = lb.RangeOf() // getCached its range
 	// } else {
 	// 	// If lb is nil or Bot, use field's provenance range as approximation for merging
 	// 	lbRange = ft.prov().Range

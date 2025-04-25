@@ -1,6 +1,6 @@
 //ile:compilerTest test.OneInt() | int64(42)
 package test
 
-fn OneInt() Int {
+fn OneInt(): Int {
   40 + 1 + 1
 }

@@ -44,7 +44,7 @@ type Field struct {
 // Type is not the same as a hmtypes.Type (legacy HM type system)
 // it can be found in the source (provided by the user) or inferred
 type Type interface {
-	ShowIn(ShowCtx) string
+	ShowIn(ctx ShowCtx, outerPrecedence uint16) string
 	Positioner
 }
 
@@ -75,8 +75,9 @@ type IntersectionType struct {
 	Positioner
 }
 
-func (t *IntersectionType) ShowIn(ctx ShowCtx) string {
-	return t.Left.ShowIn(ctx) + " & " + t.Right.ShowIn(ctx)
+func (t *IntersectionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	var thisPrecedence uint16 = 25
+	return t.Left.ShowIn(ctx, thisPrecedence) + " & " + t.Right.ShowIn(ctx, thisPrecedence)
 }
 
 type UnionType struct {
@@ -84,8 +85,9 @@ type UnionType struct {
 	Positioner
 }
 
-func (t *UnionType) ShowIn(ctx ShowCtx) string {
-	return t.Left.ShowIn(ctx) + " | " + t.Right.ShowIn(ctx)
+func (t *UnionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	var thisPrecedence uint16 = 20
+	return t.Left.ShowIn(ctx, thisPrecedence) + " | " + t.Right.ShowIn(ctx, thisPrecedence)
 }
 
 type AppliedType struct {
@@ -94,12 +96,12 @@ type AppliedType struct {
 	Positioner
 }
 
-func (t *AppliedType) ShowIn(ctx ShowCtx) string {
+func (t *AppliedType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	sb := strings.Builder{}
-	sb.WriteString(t.Base.ShowIn(ctx))
+	sb.WriteString(t.Base.ShowIn(ctx, 0))
 	sb.WriteString("<")
 	for _, arg := range t.Args {
-		sb.WriteString(arg.ShowIn(ctx) + ", ")
+		sb.WriteString(arg.ShowIn(ctx, 0) + ", ")
 	}
 	sb.WriteString(">")
 	return sb.String()
@@ -114,12 +116,12 @@ type TypeVar struct {
 	Positioner
 }
 
-func (t *TypeVar) ShowIn(ctx ShowCtx) string {
+func (t *TypeVar) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return ctx.NameOf(t)
 }
 func (*TypeVar) isNullaryType() {}
 
-func (t *Literal) ShowIn(ctx ShowCtx) string {
+func (t *Literal) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	switch t.Kind {
 	case token.INT, token.FLOAT:
 		return t.Syntax
@@ -135,8 +137,8 @@ func (*Literal) isNullaryType() {}
 // no value ever is the NothingType type
 type NothingType struct{ Positioner }
 
-func (*NothingType) ShowIn(ShowCtx) string { return NothingTypeName }
-func (*NothingType) isNullaryType()        {}
+func (*NothingType) ShowIn(ShowCtx, uint16) string { return NothingTypeName }
+func (*NothingType) isNullaryType()                {}
 
 // AnyType corresponds to Top in the type lattice
 // all values have the AnyType type
@@ -144,37 +146,41 @@ type AnyType struct {
 	Positioner
 }
 
-func (*AnyType) ShowIn(ShowCtx) string { return AnyTypeName }
-func (*AnyType) isNullaryType()        {}
+func (*AnyType) ShowIn(ShowCtx, uint16) string { return AnyTypeName }
+func (*AnyType) isNullaryType()                {}
 
 type ShowCtx interface {
 	NameOf(typeVar *TypeVar) string
 }
+
+type dumbShowCtx struct{}
+var DumbShowCtx ShowCtx = (*dumbShowCtx)(nil)
+func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return typeVar.Identifier }
 
 type TypeName struct {
 	Name string
 	Positioner
 }
 
-func (n *TypeName) ShowIn(ShowCtx) string { return n.Name }
-func (n *TypeName) isNullaryType()        {}
+func (n *TypeName) ShowIn(ShowCtx, uint16) string { return n.Name }
+func (n *TypeName) isNullaryType()                {}
 
 type TypeTag struct {
 	Name string
 	Positioner
 }
 
-func (n *TypeTag) ShowIn(ShowCtx) string { return "#" + n.Name }
-func (n *TypeTag) isNullaryType()        {}
+func (n *TypeTag) ShowIn(ShowCtx, uint16) string { return "#" + n.Name }
+func (n *TypeTag) isNullaryType()                {}
 
 type TypeBounds struct {
 	Lower, Upper Type
 	Range
 }
 
-func (n *TypeBounds) ShowIn(ctx ShowCtx) string {
-	lowerStr := n.Lower.ShowIn(ctx)
-	upperStr := n.Upper.ShowIn(ctx)
+func (n *TypeBounds) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	lowerStr := n.Lower.ShowIn(ctx, 0)
+	upperStr := n.Upper.ShowIn(ctx, 0)
 
 	if lowerStr == upperStr {
 		return lowerStr
@@ -201,7 +207,7 @@ type ConstrainedType struct {
 	Range
 }
 
-func (t *ConstrainedType) ShowIn(ctx ShowCtx) string {
+func (t *ConstrainedType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	entries := make([]string, 0, len(t.Where))
 	for _, entry := range t.Where {
 
@@ -211,7 +217,7 @@ func (t *ConstrainedType) ShowIn(ctx ShowCtx) string {
 		if _, isNothing := entry.Bounds.Lower.(*NothingType); isNothing {
 			lhs = ""
 		} else {
-			lhs = entry.Bounds.Lower.ShowIn(ctx) + " <: "
+			lhs = entry.Bounds.Lower.ShowIn(ctx, 0) + " <: "
 		}
 
 		if _, isAny := entry.Bounds.Upper.(*AnyType); isAny {
@@ -219,11 +225,11 @@ func (t *ConstrainedType) ShowIn(ctx ShowCtx) string {
 			// the reference scala implementation chooses to use :> here,
 			// but we simply invert the symbol here (personal preference)
 		} else {
-			rhs = " <: " + entry.Bounds.Upper.ShowIn(ctx)
+			rhs = " <: " + entry.Bounds.Upper.ShowIn(ctx, 0)
 		}
 		entries = append(entries, lhs+v+rhs)
 	}
-	return t.Base.ShowIn(ctx) + " where " + strings.Join(entries, ", ")
+	return t.Base.ShowIn(ctx, 0) + " where " + strings.Join(entries, ", ")
 
 }
 
@@ -233,11 +239,26 @@ type FnType struct {
 	Range
 }
 
-func (t *FnType) ShowIn(ctx ShowCtx) string {
+func withParensIf(when bool, str string) string {
+	if when {
+		return "(" + str + ")"
+	}
+	return str
+}
+
+func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	argShow := make([]string, 0, len(t.Args))
 	for _, arg := range t.Args {
-		argShow = append(argShow, arg.ShowIn(ctx))
+		argShow = append(argShow, arg.ShowIn(ctx, 20))
 	}
 
-	return "fn " + strings.Join(argShow, ", ") + " -> " + t.Return.ShowIn(ctx)
+	return withParensIf(outerPrecedence > 30, "fn "+strings.Join(argShow, ", ")+" -> "+t.Return.ShowIn(ctx, 30))
+}
+
+type RecordType struct {
+	Range
+}
+
+func (*RecordType) ShowIn(ShowCtx, uint16) string {
+	return "record"
 }

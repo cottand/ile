@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
 	"iter"
@@ -42,16 +43,6 @@ type typeProvenance struct {
 }
 
 var emptyProv = typeProvenance{}
-
-var errorTypeInstance = classTag{
-	id:      &ast.Var{Name: "Error"},
-	parents: util.MSet[typeName]{},
-	withProvenance: withProvenance{
-		provenance: typeProvenance{
-			desc: "Error",
-		},
-	},
-}
 
 func errorType() SimpleType {
 	return errorTypeInstance
@@ -375,14 +366,14 @@ func newOriginProv(pos ast.Positioner, description string, name string) typeProv
 	}
 }
 
-type typeVariableID = uint
+type TypeVarID = uint
 
 // typeVariable living stack a certain polymorphism level, with mutable bounds.
 // Invariant: Types appearing in the bounds never have a level higher than this variable's `level`
 //
 // Construct with Fresher.newTypeVariable
 type typeVariable struct {
-	id                       typeVariableID
+	id                       TypeVarID
 	level_                   level
 	lowerBounds, upperBounds []SimpleType
 	// may be "" when not set
@@ -423,7 +414,7 @@ type objectTag interface {
 }
 type classTag struct {
 	id      ast.AtomicExpr
-	parents util.MSet[typeName]
+	parents set.Collection[typeName]
 	withProvenance
 }
 
@@ -432,7 +423,7 @@ func (t classTag) level() level                                         { return
 func (t classTag) uninstantiatedBody() SimpleType                       { return t }
 func (t classTag) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t classTag) String() string {
-	return fmt.Sprintf("#%s<%s>", t.id.CanonicalSyntax(), strings.Join(t.parents.AsSlice(), ","))
+	return fmt.Sprintf("#%s<%s>", t.id.CanonicalSyntax(), strings.Join(t.parents.Slice(), ","))
 }
 func (t classTag) Compare(other objectTag) int {
 	panic("implement me")
@@ -442,7 +433,7 @@ func (t classTag) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleTyp
 // TODO unclear whether equivalent requires more than the ID to be equal for classTag
 func (t classTag) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(classTag)
-	return ok && t.id.Equivalent(otherT.id) && t.parents.Equals(otherT.parents)
+	return ok && t.id.Equivalent(otherT.id) && t.parents.EqualSet(otherT.parents)
 }
 
 func (t classTag) containsParentST(other ast.AtomicExpr) bool {

@@ -35,7 +35,7 @@ type TypeCtx struct {
 
 	// variancesStore is called variancesStore in the scala reference
 	// should be accessed via variancesForTypeDef
-	variancesStore map[typeVariableID]varianceInfo
+	variancesStore map[TypeVarID]varianceInfo
 
 	//typeDefs  map[types.Type]typeDef
 
@@ -46,6 +46,23 @@ type TypeCtx struct {
 	*TypeState
 }
 
+type nodesToSimpletypeCache map[uint64]nodeCacheEntry
+type nodeCacheEntry struct {
+	t  SimpleType
+	at level
+}
+
+func (ctx *TypeCtx) putCache(expr ast.Expr, typ SimpleType) {
+	ctx.cache[expr.Hash()] = nodeCacheEntry{t: typ, at: ctx.level}
+}
+
+func (n nodesToSimpletypeCache) getCached(expr ast.Expr) (nodeCacheEntry, bool) {
+	st, ok := n[expr.Hash()]
+	return st, ok
+}
+
+type expandedTypeCache = map[uint64]ast.Type
+
 // TypeState is part of TypeCtx and is shared across all copies of it during a single inference.
 // It is not concurrency safe and is not present on the scala implementation
 type TypeState struct {
@@ -54,15 +71,23 @@ type TypeState struct {
 	// there the same functionality is implemented by keeping global state
 	fresher *Fresher
 
-	// failures are irrecoverable unexpected scenarios
+	// Failures are irrecoverable unexpected scenarios
 	// that a normal program should never hit
-	failures []typeError
-	// errors are language problems that a malformed program could cause
-	errors []ilerr.IleError
+	Failures []typeError
+	// Errors are language problems that a malformed program could cause
+	Errors []ilerr.IleError
+
+	// cache keeps hashes of ast elements to already-simplified ast.Type
+	cache             nodesToSimpletypeCache
+	expandedTypeCache expandedTypeCache
 
 	dontRecordProvenance bool
 }
 
+// NewEmptyTypeCtx should be the entry point to get a TypeCtx, but not how you
+// produce a TypeCtx from another one. For that use copy
+//
+// TypeState is shared across nested levels of TypeCtx
 func NewEmptyTypeCtx() *TypeCtx {
 	return &TypeCtx{
 		parent:    nil,
@@ -70,7 +95,9 @@ func NewEmptyTypeCtx() *TypeCtx {
 		level:     0,
 		inPattern: false,
 		TypeState: &TypeState{
-			fresher: &Fresher{},
+			fresher:           NewFresher(),
+			cache:             make(map[uint64]nodeCacheEntry, 1),
+			expandedTypeCache: make(map[uint64]ast.Type, 1),
 		},
 	}
 }
@@ -216,7 +243,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 					isType:     true,
 				}}},
 				// this is Object in the reference implementation
-				baseClasses: emptySetTypeName.Add("AnyType"),
+				baseClasses: emptySetTypeName.Add(ast.AnyTypeName),
 			}
 		} else {
 			td1 = TypeDefinition{
@@ -291,11 +318,32 @@ func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
 }
 
 func (ctx *TypeState) addFailure(message string, pos ast.Positioner) {
-	ctx.failures = append(ctx.failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
+	ctx.Failures = append(ctx.Failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
 }
 
 func (ctx *TypeState) addError(ileError ilerr.IleError) {
-	ctx.errors = append(ctx.errors, ileError)
+	ctx.Errors = append(ctx.Errors, ileError)
+}
+
+// TypeOf must be called after running inference
+func (ctx *TypeCtx) TypeOf(expr ast.Expr) ast.Type {
+	// check if simplified before
+	expanded, ok := ctx.expandedTypeCache[expr.Hash()]
+	if ok {
+		return expanded
+	}
+
+	// check if traversed before
+	typeScheme, ok := ctx.cache.getCached(expr)
+	if !ok {
+		logger.Warn("TypeState: tried to access type for unknown AST node", "expr", expr.ExprName())
+		return  &ast.NothingType{Positioner: expr}
+	}
+	instantiated := typeScheme.t.instantiate(ctx.fresher, typeScheme.at)
+	typ := ctx.GetType(instantiated)
+	// save in map
+	ctx.expandedTypeCache[expr.Hash()] = typ
+	return typ
 }
 
 func (ctx *TypeCtx) nextLevel() *TypeCtx {
@@ -309,7 +357,7 @@ func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerB
 }
 
 // variancesForTypeDef corresponds to getTypeDefinitionVariances in the scala reference implementation
-func (ctx *TypeCtx) variancesForTypeDef(defName string, id typeVariableID) varianceInfo {
+func (ctx *TypeCtx) variancesForTypeDef(defName string, id TypeVarID) varianceInfo {
 	_, ok := ctx.typeDefs[defName]
 	if !ok {
 		return varianceInvariant

@@ -114,7 +114,7 @@ type Unit struct {
 // Pointer to the unit type
 var UnitPointer *Unit = &Unit{}
 
-// Get a pointer to the unit type.
+// getCached a pointer to the unit type.
 func NewUnit() *Unit { return UnitPointer }
 
 // Any is the supertype of all types
@@ -337,7 +337,7 @@ func (t *RowEmpty) IsGeneric() bool { return false }
 // RowEmpty never contains mutable reference-types.
 func (t *RowEmpty) HasRefs() bool { return false }
 
-// Get the underlying type for a chain of linked type-variables, when applicable.
+// getCached the underlying type for a chain of linked type-variables, when applicable.
 func RealType(t Type) Type {
 	for {
 		tv, ok := t.(*Var)
