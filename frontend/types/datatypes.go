@@ -138,7 +138,7 @@ type extremeType struct {
 }
 
 var bottomType = extremeType{polarity: true}
-var topType = extremeType{polarity: true}
+var topType = extremeType{polarity: false}
 var emptySeqSimpleType iter.Seq[SimpleType] = func(_ func(SimpleType) bool) { return }
 
 func (extremeType) level() level                                           { return 0 }
@@ -202,7 +202,7 @@ func (t unionType) uninstantiatedBody() SimpleType                       { retur
 func (t unionType) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t unionType) level() level                                         { return max(t.lhs.level(), t.rhs.level()) }
 func (t unionType) String() string {
-	return "(" + t.String() + "|" + t.rhs.String() + ")"
+	return "(" + t.lhs.String() + "|" + t.rhs.String() + ")"
 }
 func (t unionType) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(unionType)
@@ -817,18 +817,20 @@ func (t *typeVariable) Hash() uint64 {
 	const prime1 uint64 = 31
 	const prime2 uint64 = 7919
 
-	hash := prime2
-	hash = hash*prime1 ^ uint64(t.id)
-	hash = hash*prime1 ^ uint64(t.level_)
+	// it is unclear to me if two type vars with the same ID but different
+	// bounds are possible or can be compared, for now using the ID as hash
+	//hash := prime2
+	//hash = hash*prime1 ^ uint64(t.id)
+	//hash = hash*prime1 ^ uint64(t.level_)
+	//
+	//for _, lb := range t.lowerBounds {
+	//	hash = hash*prime1 ^ lb.Hash()
+	//}
+	//for _, ub := range t.upperBounds {
+	//	hash = hash*prime1 ^ ub.Hash()
+	//}
 
-	for _, lb := range t.lowerBounds {
-		hash = hash*prime1 ^ lb.Hash()
-	}
-	for _, ub := range t.upperBounds {
-		hash = hash*prime1 ^ ub.Hash()
-	}
-
-	return hash
+	return prime1 * prime2 * uint64(t.id)
 }
 
 func (t classTag) Hash() uint64 {

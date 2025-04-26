@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
 	"github.com/stretchr/testify/assert"
 	"runtime/debug"
@@ -29,17 +30,21 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 		ctx := NewEmptyTypeCtx()
 		vars := make(map[TypeVarID]SimpleType)
 
-		_ = ctx.TypeLetBody(expr, vars)
+		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {
 			t.Fatalf("Failures found: %s\n", "\n    "+util.JoinString(ctx.Failures, "\n    "))
 		}
 		if len(ctx.Errors) != 0 {
-			t.Fatalf("Errors found: %v\n", ctx.Errors)
+			t.Errorf("Errors found:\n")
+			for _, err := range ctx.Errors {
+				t.Errorf("  %s\n", ilerr.FormatWithCode(err))
+			}
+			t.FailNow()
 		}
-		asAst, ok := ctx.TypeOf(expr)
-		assert.True(t, ok, "expected type for %s", expr.ExprName())
+		asAst := ctx.TypeOf(expr)
 		finalTypeStr := asAst.ShowIn(typeMap, 0)
-		assert.Equal(t, expected.ShowIn(typeMap, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T, %s where %s) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(typeMap, 0))
+		assert.Equal(t, expected.ShowIn(typeMap, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(typeMap, 0))
+		println("inferred: ", finalTypeStr)
 	})
 }
 
@@ -75,7 +80,6 @@ func TestInferPlusFunc(t *testing.T) {
 	expr := &ast.Var{
 		Name: "+",
 	}
-
 	testType(t, expr, &ast.FnType{
 		Args: []ast.Type{
 			&ast.TypeTag{Name: "int"},
@@ -83,4 +87,140 @@ func TestInferPlusFunc(t *testing.T) {
 		},
 		Return: &ast.TypeTag{Name: "int"},
 	})
+}
+
+func TestAssign(t *testing.T) {
+	expr := &ast.Assign{
+		// x = 1
+		// x + 1
+		Var:   "x",
+		Value: ast.IntLiteral("1", ast.Range{}),
+		Body: &ast.Call{
+			Func:  &ast.Var{Name: "+"},
+			Args:  []ast.Expr{ast.IntLiteral("10", ast.Range{}), &ast.Var{Name: "x"}},
+			Range: ast.Range{},
+		},
+	}
+	testType(t, expr, &ast.TypeTag{Name: "int"})
+}
+
+func TestIdentityFunc(t *testing.T) {
+	expr := &ast.Assign{
+		// fn f(x) = x
+		// f
+		Var: "f",
+		Value: &ast.Func{
+			ArgNames: []string{"x"},
+			Body:     &ast.Var{Name: "x"},
+			Range:    ast.Range{},
+		},
+		Body:      &ast.Var{Name: "f"},
+		Recursive: false,
+	}
+
+	testType(t, expr, &ast.FnType{
+		Args:   []ast.Type{&ast.TypeVar{Identifier: "α2"}},
+		Return: &ast.TypeVar{Identifier: "α2"},
+		Range:  ast.Range{},
+	})
+}
+
+func TestRecFunc(t *testing.T) {
+	expr := &ast.Assign{
+		// fn f(x) = f(x)
+		// f
+		Var: "f",
+		Value: &ast.Func{
+			ArgNames: []string{"x"},
+			Body: &ast.Call{
+				Func: &ast.Var{Name: "f"},
+				Args: []ast.Expr{
+					&ast.Var{Name: "x"},
+				},
+			},
+			Range: ast.Range{},
+		},
+		Body:      &ast.Var{Name: "f"},
+		Recursive: true,
+	}
+	testType(t, expr, &ast.FnType{
+		Args:   []ast.Type{&ast.AnyType{}},
+		Return: &ast.NothingType{},
+		Range:  ast.Range{},
+	})
+}
+
+func TestLetGroup(t *testing.T) {
+	expr := &ast.LetGroup{
+		// v = 1
+		// fn f(x) = x + v
+		// in: f
+		Vars: []ast.LetBinding{
+			{
+				// v = 1
+				Var:   "v",
+				Value: ast.IntLiteral("1", nil),
+			},
+			{
+				// fn f(x) = x + v
+				Var: "f",
+				Value: &ast.Func{
+					ArgNames: []string{"x"},
+					Body: &ast.Call{
+						Func: &ast.Var{Name: "+"},
+						Args: []ast.Expr{
+							&ast.Var{Name: "x"},
+							&ast.Var{Name: "v"},
+						},
+					},
+				},
+			},
+		},
+		Body: &ast.Var{Name: "f"},
+	}
+
+	testType(t, expr, &ast.FnType{Args: []ast.Type{ast.IntType}, Return: ast.IntType})
+}
+
+func TestMutuallyRecursive(t *testing.T) {
+	expr := &ast.LetGroup{
+		Vars: []ast.LetBinding{
+			{
+				// fn rec1(x) = rec2(x)
+				Var: "rec1",
+				Value: &ast.Func{
+					ArgNames: []string{"x"},
+					Body: &ast.Call{
+						Func: &ast.Var{Name: "rec2"},
+						Args: []ast.Expr{&ast.Var{Name: "x"}},
+					},
+				},
+			},
+			{
+				// fn rec2(x) = rec1(x + x)
+				Var: "rec2",
+				Value: &ast.Func{
+					ArgNames: []string{"x"},
+					Body: &ast.Call{
+						Func: &ast.Var{Name: "rec1"},
+						Args: []ast.Expr{
+							&ast.Call{Func: &ast.Var{Name: "+"},
+								Args: []ast.Expr{
+									&ast.Var{Name: "x"},
+									&ast.Var{Name: "x"},
+								}},
+						},
+					},
+				},
+			},
+		},
+		Body:
+		//&ast.Call{
+		//Func:
+		&ast.Var{Name: "rec2"},
+		//Args: []ast.Expr{ast.IntLiteral("2", ast.Range{})},
+		//},
+	}
+
+	testType(t, expr, &ast.TypeTag{Name: "int"})
 }

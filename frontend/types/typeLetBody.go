@@ -9,14 +9,6 @@ import (
 
 var logger = log.DefaultLogger.With("section", "inference")
 
-func (ctx *TypeCtx) TypeLetBody(body ast.Expr, vars map[TypeVarID]SimpleType) PolymorphicType {
-	res := ctx.nextLevel().TypeExpr(body, vars)
-	return PolymorphicType{
-		_level: ctx.level,
-		Body:   res,
-	}
-}
-
 func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
 	panic("TODO implement me")
 }
@@ -31,10 +23,19 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret 
 
 	logger.Debug("typing expression", "expr", expr.ExprName())
 	defer func() {
+		// for types not implemented, note ret might be nil at this stage
 		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret)
 
 		ctx.putCache(expr, ret)
 	}()
+
+	constrainOnErr := func(err ilerr.IleError) (terminateEarly bool) {
+		if err != nil {
+			ctx.addError(err)
+		}
+		return false
+	}
+
 	ctx.currentPos = expr
 	prov := withProvenance{provenance: typeProvenance{Range: ast.RangeOf(expr)}}
 	switch expr := expr.(type) {
@@ -79,6 +80,70 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret 
 			tupleT.fields = append(tupleT.fields, typed)
 		}
 		return tupleT
+	case *ast.Assign:
+		var valueResult SimpleType
+		if !expr.Recursive {
+			valueResult = ctx.nextLevel().TypeExpr(expr.Value, vars)
+		} else {
+			nameVar := ctx.fresher.newTypeVariable(ctx.level+1, typeProvenance{}, expr.Var, nil, nil)
+			ctx := ctx.nest()
+			ctx.env[expr.Var] = nameVar
+			bodyType := ctx.nextLevel().TypeExpr(expr.Value, vars)
+			ctx.constrain(bodyType, nameVar, newOriginProv(expr.Value, "binding of "+expr.Describe(), ""), constrainOnErr)
+			valueResult = nameVar
+		}
+		typeScheme := PolymorphicType{
+			_level: ctx.level,
+			Body:   valueResult,
+		}
+		ctx := ctx.nest()
+		ctx.env[expr.Var] = typeScheme
+		return ctx.TypeExpr(expr.Body, vars)
+	case *ast.LetGroup:
+		bindingVars := make([]*typeVariable, len(expr.Vars))
+		for i, binding := range expr.Vars {
+			bindingVars[i] = ctx.fresher.newTypeVariable(ctx.level+1, typeProvenance{}, binding.Var, nil, nil)
+			ctx.env[binding.Var] = bindingVars[i]
+		}
+		for i, binding := range expr.Vars {
+			typed := ctx.TypeExpr(binding.Value, vars)
+			bindingProv := newOriginProv(binding.Value, "binding of "+binding.Value.Describe(), "")
+			ctx.constrain(typed, bindingVars[i], bindingProv, constrainOnErr)
+		}
+
+		nested := ctx.nest()
+		for i, binding := range expr.Vars {
+			typeScheme := PolymorphicType{
+				_level: ctx.level,
+				Body:   bindingVars[i],
+			}
+			nested.env[binding.Var] = typeScheme
+		}
+		return nested.TypeExpr(expr.Body, vars)
+
+	case *ast.Unused:
+		_ = ctx.nextLevel().TypeExpr(expr.Value, vars)
+		return ctx.TypeExpr(expr.Body, vars)
+
+	case *ast.Func:
+		nested := ctx.nest()
+		argTypes := make([]SimpleType, 0, len(expr.ArgNames))
+		for _, arg := range expr.ArgNames {
+			//val res = new TypeVariable(lvl, Nil, Nil, N, Option.when(dbg)(nme))(prov)
+			//v.uid = S(nextUid)
+			//ctx += nme -> VarSymbol(res, v)
+			//res
+			// scala reference allows using a pattern as a function argument, but we only support normal variables
+			argType := ctx.newTypeVariable(newOriginProv(expr, "function parameter", ""), "", nil, nil)
+			nested.env[arg] = argType
+			argTypes = append(argTypes, argType)
+		}
+		bodyType := nested.TypeExpr(expr.Body, vars)
+		return funcType{
+			args:           argTypes,
+			ret:            bodyType,
+			withProvenance: withProvenance{newOriginProv(expr, expr.Describe(), "")},
+		}
 	default:
 		panic("not implemented: unexpected expression type for " + reflect.TypeOf(expr).String())
 	}

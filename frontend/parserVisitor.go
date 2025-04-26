@@ -32,8 +32,8 @@ type listener struct {
 
 	blockExprStack          util.Stack[ast.Expr]
 	paramDeclStack          util.Stack[stringTypePair]
-	functionReturnTypeStack util.Stack[ast.TypeAnnotation]
-	typeStack               util.Stack[ast.TypeAnnotation]
+	functionReturnTypeStack util.Stack[ast.Type]
+	typeStack               util.Stack[ast.Type]
 
 	pendingScopedExprStack util.Stack[pendingScoped]
 
@@ -42,7 +42,7 @@ type listener struct {
 
 type stringTypePair struct {
 	str string
-	typ ast.TypeAnnotation
+	typ ast.Type
 }
 
 type pendingScoped interface {
@@ -392,12 +392,12 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 	}
 
 	var paramNames = make([]string, len(params))
-	var tAnnotations = make([]ast.TypeAnnotation, len(params))
+	var tAnnotations = make([]ast.Type, len(params))
 	for i, param := range params {
 		paramNames[i] = param.str
 		tAnnotations[i] = param.typ
 	}
-	var retT ast.TypeAnnotation = nil
+	var retT ast.Type = nil
 	if ctx.Signature().Result() != nil {
 		var ok bool
 		retT, ok = l.functionReturnTypeStack.Pop()
@@ -411,15 +411,15 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 		Body:     nil,
 		Range:    pos,
 	}
-	fn.SetTAnnotation(&ast.TArrow{
+	type_ := &ast.FnType{
 		Args:   tAnnotations,
 		Return: retT,
 		Range:  pos,
-	})
+	}
 	decl := ast.Declaration{
 		Range:    intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
 		Name:     ctx.IDENTIFIER().GetText(),
-		E:        fn,
+		E:        &ast.Ascribe{Expr: fn, Type_: type_},
 		Comments: l.findCommentsPreceding(ctx.GetParser().GetTokenStream(), ctx.FN().GetSymbol()),
 	}
 	defer func() {
@@ -435,7 +435,7 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 }
 
 func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
-	var typ ast.TypeAnnotation = nil
+	var typ ast.Type = nil
 	if ctx.Type_() != nil {
 		var ok bool
 		typ, ok = l.typeStack.Pop()
@@ -543,14 +543,16 @@ func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPat
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	typeName := ctx.TypeName()
 	if typeName != nil {
-		typeLit := &ast.TConst{
-			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+		typeLit := &ast.TypeVar{
+			Identifier: typeName.GetText(),
+			Range:      intervalTo2Pos(ctx.GetSourceInterval()),
 		}
 		if typeName.QualifiedIdent() != nil {
-			typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
-			typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
+			panic("qualified type names not implemented")
+			//typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
+			//typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
 		} else {
-			typeLit.Name = typeName.GetText()
+			//typeLit.Name = typeName.GetText()
 		}
 
 		l.typeStack.Push(typeLit)

@@ -3,7 +3,6 @@ package backend
 import (
 	"bytes"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/interp"
 	goast "go/ast"
@@ -104,15 +103,16 @@ func TestFunctionDecl(t *testing.T) {
 		Declarations: []ast.Declaration{
 			{
 				Name: "OneInt",
-				E:    &fn,
+				E: &ast.Ascribe{
+					Expr: &fn,
+					Type_: &ast.FnType{
+						Args:   []ast.Type{ast.IntType},
+						Return: ast.IntType,
+					},
+				},
 			},
 		},
 	}
-	fn.SetType(&hmtypes.Arrow{
-		Args:   []hmtypes.Type{&hmtypes.Const{Name: "Int"}},
-		Return: &hmtypes.Const{Name: "Int"},
-	})
-
 	tp := Transpiler{}
 	g, err := tp.TranspileFile(f)
 	assert.NoError(t, err)

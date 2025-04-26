@@ -15,8 +15,31 @@ var anyClassTag = classTag{
 }
 
 var intType = classTag{
-	id:             &ast.Var{Name: ast.IntBuiltinTypeName},
+	id:             &ast.Var{Name: ast.IntTypeName},
 	parents:        set.From([]typeName{ast.AnyTypeName}),
+	withProvenance: withProvenance{builtinProv},
+}
+
+var trueType = classTag{
+	id:             &ast.Var{Name: ast.TrueName},
+	parents:        set.From([]typeName{ast.AnyTypeName}),
+	withProvenance: withProvenance{builtinProv},
+}
+var falseType = classTag{
+	id:             &ast.Var{Name: ast.FalseName},
+	parents:        set.From([]typeName{ast.AnyTypeName}),
+	withProvenance: withProvenance{builtinProv},
+}
+
+var boolType = unionType{
+	lhs:            trueType,
+	rhs:            falseType,
+	withProvenance: withProvenance{builtinProv},
+}
+
+var comparisonBinOp = funcType{
+	args:           []SimpleType{intType, intType},
+	ret:            boolType,
 	withProvenance: withProvenance{builtinProv},
 }
 
@@ -28,6 +51,12 @@ func universe() map[string]typeInfo {
 			ret:            intType,
 			withProvenance: withProvenance{builtinProv},
 		},
+		"true":  trueType,
+		"false": falseType,
+		">":     comparisonBinOp,
+		"<":     comparisonBinOp,
+		"==":    comparisonBinOp,
+		"!=":    comparisonBinOp,
 	}
 }
 

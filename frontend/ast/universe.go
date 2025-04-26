@@ -2,17 +2,28 @@ package ast
 
 const AnyTypeName = "any"
 const NothingTypeName = "nothing"
-const IntBuiltinTypeName = "int"
-const BoolBuiltinTypeName = "bool"
-const NumberBuiltinTypeName = "number"
+const IntTypeName = "int"
+const BoolTypeName = "bool"
+const NumberTypeName = "number"
 const UnitTypeName = "unit"
+const TrueName = "true"
+const FalseName = "false"
 
 var IntType = &TypeTag{
-	Name: IntBuiltinTypeName,
+	Name: IntTypeName,
 }
-var BoolType = &TypeTag{
-	Name: BoolBuiltinTypeName,
+var BoolType = &UnionType{
+	Left:       TrueType,
+	Right:      FalseType,
+	Positioner: Range{},
 }
+var TrueType = &TypeTag{
+	Name: TrueName,
+}
+var FalseType = &TypeTag{
+	Name: FalseName,
+}
+
 var NilType = &TypeTag{
 	Name: "Nil",
 }

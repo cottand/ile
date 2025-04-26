@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -19,7 +19,8 @@ func (ctx *TypeCtx) typeIsAliasOf(t SimpleType) bool {
 }
 
 func getVariables(t SimpleType) []*typeVariable {
-	found := set.New[*typeVariable](1)
+	//found := set.New[*typeVariable](1)
+	found := make(map[TypeVarID]*typeVariable, 0)
 	remaining := []SimpleType{t}
 	for {
 		if len(remaining) == 0 {
@@ -30,22 +31,23 @@ func getVariables(t SimpleType) []*typeVariable {
 
 		typeVar, ok := first.(*typeVariable)
 		if ok {
-			if found.Contains(typeVar) {
+			if _, ok := found[typeVar.id]; ok {
+				remaining = rest
 				continue
 			}
-			found.Insert(typeVar)
+			found[typeVar.id] = typeVar
 			remaining = append(slices.Collect(typeVar.children(true)), rest...)
 			continue
 		}
 		remaining = append(slices.Collect(first.children(true)), rest...)
 	}
-	return found.Slice()
+	return slices.Collect(maps.Values(found))
 }
 
 func boundsString(t SimpleType) string {
 	vars := getVariables(t)
 	sb := strings.Builder{}
-	for _, variable := range vars {
+	for i, variable := range vars {
 		if len(variable.lowerBounds) == 0 && len(variable.upperBounds) == 0 {
 			continue
 		}
@@ -57,6 +59,9 @@ func boundsString(t SimpleType) string {
 		if len(variable.upperBounds) > 0 {
 			sb.WriteString(" <: ")
 			sb.WriteString(util.JoinString(variable.upperBounds, " & "))
+		}
+		if len(vars) > 1 && i < len(vars)-1 {
+			sb.WriteString("; ")
 		}
 	}
 	return sb.String()

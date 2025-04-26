@@ -18,14 +18,14 @@ type expanderState struct {
 	createdVars map[TypeVarID]*ast.TypeVar
 }
 
-// GetType converts a SimpleType into its corresponding ast.Type representation,
+// GetAstTypeFor converts a SimpleType into its corresponding ast.Type representation,
 // simplifying it first.
-func (ctx *TypeCtx) GetType(t SimpleType) ast.Type {
+func (ctx *TypeCtx) GetAstTypeFor(t SimpleType) ast.Type {
 	// Note: The Scala version calls uninstantiatedBody() first.
 	uninstantiated := t.uninstantiatedBody()
 	simple := ctx.simplifyPipeline(uninstantiated) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
-	logger.Debug("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded)
+	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded)
 	return expanded
 }
 
@@ -128,7 +128,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 			Identifier: ty.String(), // Use the string representation as identifier? Or just UID?
 			NameHint:   ty.nameHint, // Use hint if available
 			// UID:   ty.id, // Assuming ast.TypeVar has UID
-			Positioner: rng,
+			Range: rng,
 		}
 		st.createdVars[ty.id] = tv // Store it
 

@@ -24,10 +24,10 @@ func typeTagToGoType(t *ast.TypeTag) (goType string, err error) {
 }
 
 var ileToGoTypes = map[string]string{
-	ast.IntBuiltinTypeName: "int64",
-	"String":               "string",
-	"Float":                "float64",
-	"Bool":                 "bool",
+	ast.IntTypeName: "int64",
+	"String":        "string",
+	"Float":         "float64",
+	"Bool":          "bool",
 }
 
 var ileToGoVars = map[string]string{

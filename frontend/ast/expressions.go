@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
+	"strconv"
 	"strings"
 )
 
@@ -37,6 +38,37 @@ var (
 	_ AtomicExpr = (*Literal)(nil)
 )
 
+func (e *Literal) Describe() string {
+	var kindStr string
+	switch e.Kind {
+	case token.INT:
+		kindStr = "int"
+	case token.FLOAT:
+		kindStr = "float"
+	default:
+		panic("unhandled default case")
+	}
+	return kindStr + " literal"
+}
+
+func (e *Var) Describe() string            { return "variable" }
+func (e *Deref) Describe() string          { return "dereference" }
+func (e *Pipe) Describe() string           { return "pipeline" }
+func (e *Call) Describe() string           { return "function call" }
+func (e *Ascribe) Describe() string        { return "type annotation" }
+func (e *Func) Describe() string           { return "function" }
+func (e *Assign) Describe() string         { return "declaration" }
+func (e *LetGroup) Describe() string       { return "let group" }
+func (e *RecordSelect) Describe() string   { return "record select" }
+func (e *RecordExtend) Describe() string   { return "record extend" }
+func (e *RecordRestrict) Describe() string { return "record restrict" }
+func (e *RecordEmpty) Describe() string    { return "empty record" }
+func (e *Variant) Describe() string        { return "variant" }
+func (e *WhenMatch) Describe() string      { return "variant-matching switch" }
+func (e *Unused) Describe() string         { return "expression" }
+func (e *ListLiteral) Describe() string    { return "list literal" }
+func (e *ErrorExpr) Describe() string      { return "error expression" }
+
 // Expr is the base for all expressions.
 //
 // The following expressions are supported:
@@ -61,6 +93,8 @@ type Expr interface {
 	Positioner
 	// ExprName is the Name of the syntax-type of the expression.
 	ExprName() string
+	// Describe is what to call this expression in error messages
+	Describe() string
 
 	// Transform should, in order:
 	//  - copy the expression
@@ -83,6 +117,9 @@ type InferrableExpr interface {
 }
 
 func RangeOf(expr Positioner) Range {
+	if expr == nil {
+		return Range{}
+	}
 	if asRange, ok := expr.(*Range); ok {
 		return *asRange
 	}
@@ -129,7 +166,6 @@ type Literal struct {
 	inferred Type
 
 	// Kind indicates what literal this is originally
-	// this is useful for the transpiling phase, and is not used during type inference.
 	//
 	// Should be one of
 	// token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
@@ -164,9 +200,10 @@ func (e *Literal) CanonicalSyntax() string { return e.Syntax }
 func (e *Literal) BaseTypes() set.Collection[string] {
 	switch e.Kind {
 	case token.INT:
-		return set.From([]string{IntBuiltinTypeName, NumberBuiltinTypeName})
+		return set.From([]string{IntTypeName, NumberTypeName})
+
 	default:
-		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind)
+		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
 		// TODO add base types for each lit type (LitImpl in reference scala implementation)
 		return set.New[string](0)
 	}
@@ -229,43 +266,6 @@ func (e *Var) Hash() uint64 {
 	_, _ = h.Write([]byte(e.Name))
 	return h.Sum64()
 }
-
-// We might not need QualifiedIdent after all if we represent packages as records!
-/*// QualifiedIdent is a Qualified variable or Identifier
-type QualifiedIdent struct {
-	Qualifier string
-	Name      string
-	inferred  types.Type
-	scope     *Scope
-	Range
-	tAnnotationContainer
-}
-
-func (e *QualifiedIdent) ExprName() string { return "QualifiedIdent" }
-
-func (e *QualifiedIdent) Type() types.Type { return types.RealType(e.inferred) }
-
-func (e *QualifiedIdent) Scope() *Scope { return e.scope }
-
-func (e *QualifiedIdent) SetType(t types.Type) { e.inferred = t }
-
-func (e *QualifiedIdent) SetScope(scope *Scope) { e.scope = scope }
-
-func (e *QualifiedIdent) Copy() Expr {
-	copied := *e
-	return &copied
-}
-func (e *QualifiedIdent) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	return f(&copied)
-}
-
-// FormattedName is just Qualifier . Name
-// Qualifier may contain `.`, but not Name
-func (e *QualifiedIdent) FormattedName() string {
-	return e.Qualifier + "." + e.Name
-}
-*/
 
 // Dereference: `*x`
 type Deref struct {
@@ -344,7 +344,7 @@ func (e *Call) Hash() uint64 {
 type Ascribe struct {
 	Expr  Expr
 	Type_ Type
-	Range  // of the type annotating operator (':')
+	Range // of the type annotating operator (':')
 }
 
 func (e *Ascribe) ExprName() string { return "Ascribe" }
@@ -395,6 +395,8 @@ type Assign struct {
 	Var   string
 	Value Expr
 	Body  Expr
+	// Recursive can be true for functions only
+	Recursive bool
 	Range
 }
 
@@ -408,7 +410,7 @@ func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
 }
 func (e *Assign) Hash() uint64 {
 	h := fnv.New64a()
-	arr := []byte("Assign" + e.Var)
+	arr := []byte("Assign" + e.Var + strconv.FormatBool(e.Recursive))
 	arr = binary.LittleEndian.AppendUint64(arr, e.Body.Hash())
 	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
 	_, _ = h.Write(arr)

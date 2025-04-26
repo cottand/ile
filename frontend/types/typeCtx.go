@@ -9,6 +9,7 @@ import (
 	"maps"
 	"reflect"
 	"runtime/debug"
+	"slices"
 	"strings"
 )
 
@@ -102,7 +103,28 @@ func NewEmptyTypeCtx() *TypeCtx {
 	}
 }
 
-type ctxCache = map[util.Pair[SimpleType, SimpleType]]bool
+func (ctx *TypeCtx) nest() *TypeCtx {
+	copied := *ctx
+	copied.parent = ctx
+	copied.env = make(map[string]typeInfo, len(ctx.env))
+	return &copied
+
+}
+
+// ctxCache stores a map of pairs of types' hashes to whether they are subtypes
+type ctxCache map[uint64]bool
+
+func (c ctxCache) get(l, r SimpleType) (sub bool, ok bool) {
+	sub, ok = c[l.Hash()*r.Hash()]
+	return sub, ok
+}
+func (c ctxCache) put(l, r SimpleType, sub bool) {
+	c[l.Hash()*r.Hash()] = sub
+}
+func (c ctxCache) contains(l, t SimpleType) bool {
+	_, ok := c[l.Hash()*t.Hash()]
+	return ok
+}
 
 // assuming evaluates body assuming all entries in cache are true
 func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
@@ -115,8 +137,10 @@ func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
 
 func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 	t, ok = ctx.env[name]
-
-	if !ok && ctx.parent != nil {
+	if ok {
+		return t, true
+	}
+	if ctx.parent != nil {
 		t, ok = ctx.parent.get(name)
 	}
 	return t, ok
@@ -166,6 +190,37 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 		}
 		if okThis || okThat {
 			return false
+		}
+	}
+	// type variables
+	{
+		this, okThis := this.(*typeVariable)
+		that, okThat := that.(*typeVariable)
+		if okThis || okThat {
+			sub, ok := cache.get(this, that)
+			if ok {
+				return sub
+			}
+		}
+		if okThis {
+			cache.put(this, that, false)
+			tmp := slices.ContainsFunc(this.upperBounds, func(t SimpleType) bool {
+				return ctx.SolveSubtype(t, that, cache)
+			})
+			if tmp {
+				cache.put(this, that, true)
+			}
+			return tmp
+		}
+		if okThat {
+			cache.put(this, that, false)
+			tmp := slices.ContainsFunc(that.lowerBounds, func(t SimpleType) bool {
+				return ctx.SolveSubtype(this, t, cache)
+			})
+			if tmp {
+				cache.put(this, that, true)
+			}
+			return tmp
 		}
 	}
 	panic("implement me for: " + reflect.TypeOf(this).String() + " and " + reflect.TypeOf(that).String())
@@ -337,10 +392,10 @@ func (ctx *TypeCtx) TypeOf(expr ast.Expr) ast.Type {
 	typeScheme, ok := ctx.cache.getCached(expr)
 	if !ok {
 		logger.Warn("TypeState: tried to access type for unknown AST node", "expr", expr.ExprName())
-		return  &ast.NothingType{Positioner: expr}
+		return &ast.NothingType{Positioner: expr}
 	}
 	instantiated := typeScheme.t.instantiate(ctx.fresher, typeScheme.at)
-	typ := ctx.GetType(instantiated)
+	typ := ctx.GetAstTypeFor(instantiated)
 	// save in map
 	ctx.expandedTypeCache[expr.Hash()] = typ
 	return typ

@@ -113,7 +113,7 @@ type TypeVar struct {
 	Identifier string
 	// NameHint may be ""
 	NameHint string
-	Positioner
+	Range
 }
 
 func (t *TypeVar) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {

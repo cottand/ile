@@ -85,7 +85,7 @@ const simplifyInlineBounds = true // Controls bound inlining for non-rec, non-in
 // simplifyPipeline orchestrates the type simplification process.
 // Corresponds to the SimplifyPipeline class in Scala.
 func (ctx *TypeCtx) simplifyPipeline(st SimpleType) SimpleType {
-	logger.Info("Begin simplification for", "simpleType", st, "bounds", boundsString(st))
+	logger.Info("begin simplification for", "simpleType", st, "bounds", boundsString(st))
 
 	// Corresponds to the first simplifyType call in Scala
 	cur := ctx.simplifyType(st, positive, simplifyRemovePolarVars, simplifyInlineBounds)
@@ -663,7 +663,10 @@ type transformerState struct {
 }
 
 // transform applies the substitutions and simplifications.
-func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeVariable) SimpleType {
+func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeVariable) (ret SimpleType) {
+	defer func() {
+		logger.Debug("simplify: transformed", "type", st, "polarity", pol, "result", ret)
+	}()
 	st = unwrapProvenance(st)
 
 	switch ty := st.(type) {
@@ -679,7 +682,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		// Apply substitution if exists
 		if replacement, exists := ts.varSubst[ty]; exists {
 			if replacement == nil { // Remove variable -> inline bounds
-				logger.Debug("  Transform: Inlining bounds for removed var", "var", ty)
+				logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty)
 				boundsToInline := ty.lowerBounds
 				boundPol := true
 				if pol == negative { // Negative polarity
@@ -690,7 +693,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 				// Need to pass parent variable to recursive call to handle cycles during inlining
 				return ts.transform(mergedBound, pol, ty) // Pass 'ty' as parent
 			}
-			logger.Debug("  Transform: Substituting var", "from", ty, "to", replacement)
+			logger.Debug("simplify: transform: Substituting var", "from", ty, "to", replacement)
 			// Replace with another variable, recurse on the replacement
 			return ts.transform(replacement, pol, parent)
 		}
@@ -709,7 +712,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			// Use a temporary provenance; final provenance comes from usage context
 			renewedVar = ts.ctx.fresher.newTypeVariable(ty.level_, emptyProv, ty.nameHint, nil, nil)
 			ts.renewals[ty] = renewedVar
-			logger.Debug("  Transform: Renewed", "from", ty, "to", renewedVar)
+			logger.Debug("simplify: transform: renewed", "from", ty, "to", renewedVar)
 
 			// Set bounds on the renewed variable *after* creating it to handle recursion
 			// Pass the *renewedVar* as the parent for bound transformation
@@ -724,24 +727,26 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			renewedVar.lowerBounds = newLowerBounds
 			renewedVar.upperBounds = newUpperBounds
 
-			logger.Debug("  Transform: Set bounds for", "var", renewedVar, "LB", renewedVar.lowerBounds, "UB", renewedVar.upperBounds)
+			logger.Debug("simplify: transform: set bounds for", "var", renewedVar, "LB", renewedVar.lowerBounds, "UB", renewedVar.upperBounds)
 		}
 
-		if shouldInline {
+		if shouldInline { // pol != invariant here
 			// Inline bounds and include the renewed variable itself
-			logger.Debug("  Transform: Inlining non-rec bounds for", "var", ty, "renewed", renewedVar)
-			boundsToInline := renewedVar.lowerBounds
-			boundPol := true
-			if pol == negative { // Negative polarity
-				boundsToInline = renewedVar.upperBounds
-				boundPol = false
+			logger.Debug("simplify: transform: inlining non-rec bounds for", "var", ty, "renewed", renewedVar)
+			var mergedTransform SimpleType
+			var boundsToInline []SimpleType
+			if pol == positive {
+				boundsToInline = ty.lowerBounds
+			} else {
+				boundsToInline = ty.upperBounds
 			}
-			mergedBound := mergeBounds(boundsToInline, boundPol)
-
-			if boundPol { // Positive polarity: MergedLowerBound | RenewedVar
-				return unionOf(mergedBound, renewedVar, unionOpts{})
-			} else { // Negative polarity: MergedUpperBound & RenewedVar
-				return intersectionOf(mergedBound, renewedVar, unionOpts{})
+			mergedTransform = ts.transform(mergeBounds(boundsToInline, pol == positive), pol, renewedVar)
+			if pol == positive {
+				// Positive polarity: MergedLowerBound | RenewedVar
+				return unionOf(mergedTransform, renewedVar, unionOpts{})
+			} else {
+				// Negative polarity: MergedUpperBound & RenewedVar
+				return intersectionOf(mergedTransform, renewedVar, unionOpts{})
 			}
 		} else {
 			// Keep the variable (recursive, invariant, or inlining disabled)
@@ -827,7 +832,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		newBody := ts.transform(ty.Body, pol, parent)
 		return &PolymorphicType{Body: newBody, _level: ty._level, withProvenance: ty.withProvenance}
 	default:
-		panic(fmt.Sprintf("transform: unhandled type %T", st))
+		panic(fmt.Sprintf("simplify: transform: unhandled type %T", st))
 	}
 }
 
@@ -845,6 +850,7 @@ func (ts *transformerState) transformFieldType(ft fieldType, pol polarity, paren
 }
 
 // mergeBounds combines bounds with | (for lower) or & (for upper).
+// it is called mergeTransform in the scala reference.
 func mergeBounds(bounds []SimpleType, lower bool) SimpleType {
 	if len(bounds) == 0 {
 		if lower {

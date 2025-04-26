@@ -37,7 +37,7 @@ type Package struct {
 	// declarations contains the public top-level declarations of this Package.
 	// For a well-formed Package, you can expect them all to have a ast.TypeAnnotation,
 	// but incomplete packages may have type-less identifiers
-	declarations map[string]ast.TypeAnnotation
+	declarations map[string]ast.Type
 	syntax       []ast.File
 	fSet         *token.FileSet
 	errors       *ilerr.Errors
@@ -85,7 +85,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		name:         "ilePackageNameless",
 		imports:      make(map[string]*Package),
 		goImports:    make(map[string]*gopackages.Package),
-		declarations: make(map[string]ast.TypeAnnotation),
+		declarations: make(map[string]ast.Type),
 	}
 	fSet := token.NewFileSet()
 	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
@@ -105,7 +105,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 	pkg.syntax = append(pkg.syntax, astFile)
 	for _, decl := range astFile.Declarations {
 		if decl.IsPublic() {
-			pkg.declarations[decl.Name] = decl.E.GetTAnnotation()
+			pkg.declarations[decl.Name] = decl.Type
 		}
 	}
 

@@ -195,7 +195,7 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
 func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
-	fmt.Printf("Adding UB %s to %s\n", rhs, tv)
+	logger.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
 	// Simplified: Add bound and propagate. Scala version uses mkProxy.
 	// Need to handle potential duplicates and normalization.
 	newBound := rhs // TODO: Apply makeProxy based on cctx
@@ -277,7 +277,7 @@ func (cs *constraintSolver) rec(
 	if sameLevel {
 		nextCctx = cctx
 		// Prepend without reallocating if possible (optimization)
-		if len(cctx.lhsChain) == 0 || cctx.lhsChain[0] != lhs { // Avoid duplicates
+		if len(cctx.lhsChain) == 0 || cctx.lhsChain[0].Equivalent(lhs) { // Avoid duplicates
 			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
 		}
 		if len(cctx.rhsChain) == 0 || cctx.rhsChain[0].Equivalent(rhs) { // Avoid duplicates
