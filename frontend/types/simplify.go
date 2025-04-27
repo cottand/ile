@@ -14,13 +14,13 @@ import (
 type polarVariableKey struct {
 	// should always be one of positive, negative, not none
 	pol polarity
-	tv  *typeVariable
+	tv  TypeVarID
 }
 
 // analysis1State takes care of polarity and occurrence Counts
 type analysis1State struct {
 	occNums           map[polarVariableKey]int
-	occursInvariantly *set.Set[*typeVariable]
+	occursInvariantly *set.Set[TypeVarID]
 	analyzed          *set.Set[polarVariableKey] // Tracks (TV -> Polarity) already processed for bounds
 }
 
@@ -116,7 +116,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	// --- Analysis 1: Polarity and Occurrence Counts ---
 	analyzer1 := &analysis1State{
 		occNums:           make(map[polarVariableKey]int),
-		occursInvariantly: set.New[*typeVariable](0),
+		occursInvariantly: set.New[TypeVarID](0),
 		analyzed:          set.New[polarVariableKey](0),
 	}
 	analyzer1.analyze1(st, pol) // Start with the given polarity
@@ -124,7 +124,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	logger.Debug("simplifyType: inv", "analyzer1", analyzer1.occursInvariantly.Slice())
 	occNumsStr := &strings.Builder{}
 	for k, v := range analyzer1.occNums {
-		_, _ = fmt.Fprintf(occNumsStr, "%s%s:%d; ", k.pol, k.tv, v)
+		_, _ = fmt.Fprintf(occNumsStr, "%s%v:%d; ", k.pol, k.tv, v)
 	}
 
 	// --- Analysis 2: Polar Co-occurrences ---
@@ -139,7 +139,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 	coOccsStr := &strings.Builder{}
 	for k, v := range analyzer2.coOccurrences {
-		_, _ = fmt.Fprintf(coOccsStr, "%s%s:{", k.pol.String(), k.tv)
+		_, _ = fmt.Fprintf(coOccsStr, "%s%v:{", k.pol.String(), k.tv)
 		for item := range v.Items() {
 			_, _ = fmt.Fprintf(coOccsStr, "%s,", item)
 		}
@@ -160,7 +160,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	})
 
 	// Substitution map: tv -> replacement (*typeVariable or nil for removal)
-	varSubst := make(map[*typeVariable]*typeVariable)
+	varSubst := make(map[TypeVarID]*typeVariable)
 	// Set of variables considered recursive (might change during processing)
 	recVars := set.New[TypeVarID](0)
 	for _, tv := range allVars {
@@ -192,16 +192,16 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 			if recVars.Contains(tv.id) {
 				continue // Skip recursive vars for this rule
 			}
-			if _, exists := varSubst[tv]; exists {
+			if _, exists := varSubst[tv.id]; exists {
 				continue // Already marked
 			}
 
-			_, hasPos := analyzer1.occNums[polarVariableKey{pol: positive, tv: tv}]
-			_, hasNeg := analyzer1.occNums[polarVariableKey{pol: negative, tv: tv}]
+			_, hasPos := analyzer1.occNums[polarVariableKey{pol: positive, tv: tv.id}]
+			_, hasNeg := analyzer1.occNums[polarVariableKey{pol: negative, tv: tv.id}]
 
 			if hasPos != hasNeg { // If strictly polar
 				logger.Debug("simplifyType: [sub] Rule 2 (Non-Rec, Polar)", "var", tv, "action", "remove")
-				varSubst[tv] = nil // Mark for removal
+				varSubst[tv.id] = nil // Mark for removal
 			}
 		}
 	}
@@ -211,12 +211,12 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 		if recVars.Contains(tv.id) {
 			continue
 		}
-		if _, exists := varSubst[tv]; exists {
+		if _, exists := varSubst[tv.id]; exists {
 			continue
 		}
 
-		posCoOccs, hasPosCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: positive, tv: tv}]
-		negCoOccs, hasNegCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: negative, tv: tv}]
+		posCoOccs, hasPosCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: positive, tv: tv.id}]
+		negCoOccs, hasNegCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: negative, tv: tv.id}]
 
 		if !hasPosCoOccs || !hasNegCoOccs {
 			continue // Cannot be dominated if not present in both polarities
@@ -231,24 +231,24 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 		}
 
 		for dominator := range intersection.Items() {
-			if _, exists := varSubst[tv]; exists {
+			if _, exists := varSubst[tv.id]; exists {
 				break // Stop if already marked
 			}
 
 			switch dom := dominator.(type) {
 			case classTag, traitTag, typeRef: // Dominated by an atom
 				logger.Debug("simplifyType: [sub] Rule 3a (Dominated by Atom)", "var", tv, "action", "remove", "dominator", dom)
-				varSubst[tv] = nil
+				varSubst[tv.id] = nil
 				continue // Check for other dominators? Scala seems to stop. Let's stop.
 			case *typeVariable: // Dominated by another variable 'dom'
 				if dom == tv {
 					continue // Skip self
 				}
-				if _, domMarked := varSubst[dom]; domMarked {
+				if _, domMarked := varSubst[dom.id]; domMarked {
 					continue // Skip if dominator is already marked
 				}
 				logger.Debug("simplifyType: [sub] Rule 3b (Dominated by Var)", "var", tv, "action", "remove", "dominator", dom)
-				varSubst[tv] = nil
+				varSubst[tv.id] = nil
 				break // Stop after finding one dominator
 			}
 		}
@@ -257,16 +257,16 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	// 4. Unify equivalent variables based on co-occurrence
 	// Iterate multiple times? Scala does this implicitly via iteration order? Let's try one pass.
 	for _, tv := range allVars {
-		if _, exists := varSubst[tv]; exists {
+		if _, exists := varSubst[tv.id]; exists {
 			continue
 		}
 
 		for _, pol := range []polarity{positive, negative} {
-			if _, exists := varSubst[tv]; exists {
+			if _, exists := varSubst[tv.id]; exists {
 				break // Stop if tv got substituted in the inner loop
 			}
 
-			tvCoOccs, hasTvCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol, tv: tv}]
+			tvCoOccs, hasTvCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol, tv: tv.id}]
 			if !hasTvCoOccs {
 				continue
 			}
@@ -277,7 +277,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 				if !ok || w == tv {
 					continue // Skip non-vars and self
 				}
-				if _, w_exists := varSubst[w]; w_exists {
+				if _, wExists := varSubst[w.id]; wExists {
 					continue // Skip if w is already substituted
 				}
 				// In Scala: Don't merge if name hint would be lost (v.nameHint.nonEmpty || w.nameHint.isEmpty)
@@ -287,11 +287,11 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 				}
 
 				// Check if tv is in w's co-occurrences for the same polarity
-				wCoOccs, hasWCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol, tv: w}]
+				wCoOccs, hasWCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol, tv: w.id}]
 				if hasWCoOccs && wCoOccs.Contains(tv) {
 					// Potential unification: w into tv
 					logger.Debug("simplifyType: [sub] Rule 4 (Unify Candidate)", "from", w, "to", tv)
-					varSubst[w] = tv // Mark w to be replaced by tv
+					varSubst[w.id] = tv // Mark w to be replaced by tv
 
 					// Merge bounds (w's bounds into tv's)
 					tv.lowerBounds = append(tv.lowerBounds, w.lowerBounds...)
@@ -305,21 +305,21 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 					recVars.Remove(w.id) // w is gone
 
 					// Merge co-occurrences for the *other* polarity (!pol)
-					wOtherCoOccs, hasWOtherCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: w}]
+					wOtherCoOccs, hasWOtherCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: w.id}]
 					if hasWOtherCoOccs {
-						tvOtherCoOccs, hasTvOtherCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv}]
+						tvOtherCoOccs, hasTvOtherCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv.id}]
 						if hasTvOtherCoOccs {
 							// Intersect tv's other co-occs with w's other co-occs
 							intersection := tvOtherCoOccs.Intersect(wOtherCoOccs)
-							analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv}] = intersection
+							analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv.id}] = intersection
 						} else {
 							// tv didn't have other co-occs, so it inherits w's
-							analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv}] = wOtherCoOccs
+							analyzer2.coOccurrences[polarVariableKey{pol: pol.inverse(), tv: tv.id}] = wOtherCoOccs
 						}
 					}
 					// Remove w from co-occurrence map (might not be strictly necessary)
-					delete(analyzer2.coOccurrences, polarVariableKey{pol: pol, tv: w})
-					delete(analyzer2.coOccurrences, polarVariableKey{pol: pol.inverse(), tv: w})
+					delete(analyzer2.coOccurrences, polarVariableKey{pol: pol, tv: w.id})
+					delete(analyzer2.coOccurrences, polarVariableKey{pol: pol.inverse(), tv: w.id})
 
 					break // Stop checking other candidates for tv for this polarity
 				}
@@ -330,9 +330,9 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	substStr := &strings.Builder{}
 	for k, v := range varSubst {
 		if v == nil {
-			fmt.Fprintf(substStr, "%s->∅; ", k)
+			fmt.Fprintf(substStr, "α%v->∅; ", k)
 		} else {
-			fmt.Fprintf(substStr, "%s->%s; ", k, v)
+			fmt.Fprintf(substStr, "α%v->%v; ", k, v)
 		}
 	}
 
@@ -348,7 +348,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 	simplifiedType := transformer.transform(st, pol, nil) // Use initial polarity for transformation
 
-	logger.Debug("simplifyType: ended", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr, "recVars", recVars.Slice())
+	logger.Debug("simplify (simplifyType): done", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr.String(), "recVars", recVars.Slice())
 
 	return simplifiedType
 }
@@ -361,12 +361,12 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 
 	switch ty := st.(type) {
 	case *typeVariable:
-		key := polarVariableKey{tv: ty} // Polarity will be set below
+		key := polarVariableKey{tv: ty.id} // Polarity will be set below
 
 		// Determine effective polarity for bound processing
 		boundPol := pol
 		if pol == invariant {
-			a1.occursInvariantly.Insert(ty)
+			a1.occursInvariantly.Insert(ty.id)
 			boundPol = positive // Process bounds as if positive for analysis
 		}
 
@@ -376,8 +376,8 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 			a1.occNums[key]++
 		} else {
 			// Invariant counts as both positive and negative
-			a1.occNums[polarVariableKey{pol: positive, tv: ty}]++
-			a1.occNums[polarVariableKey{pol: negative, tv: ty}]++
+			a1.occNums[polarVariableKey{pol: positive, tv: ty.id}]++
+			a1.occNums[polarVariableKey{pol: negative, tv: ty.id}]++
 		}
 
 		// Recurse on bounds only once per (variable, polarity)
@@ -599,7 +599,7 @@ func (a2 *analysis2State) processVarOcc(st SimpleType, pol polarity, currentCoOc
 		currentCoOccs.Insert(ty) // Add self to current path co-occs
 
 		// Update global co-occurrences for this variable
-		key := polarVariableKey{pol: pol, tv: ty}
+		key := polarVariableKey{pol: pol, tv: ty.id}
 		existingCoOccs, found := a2.coOccurrences[key]
 		if found {
 			// Intersect existing with current path's co-occs
@@ -654,9 +654,9 @@ func (a2 *analysis2State) processVarOcc(st SimpleType, pol polarity, currentCoOc
 // --- Transformation Implementation ---
 
 type transformerState struct {
-	varSubst          map[*typeVariable]*typeVariable
+	varSubst          map[TypeVarID]*typeVariable
 	recVars           set.Collection[TypeVarID]
-	occursInvariantly *set.Set[*typeVariable]
+	occursInvariantly *set.Set[TypeVarID]
 	renewals          map[*typeVariable]*typeVariable // Map from old TV to renewed fresh TV
 	inlineBounds      bool
 	ctx               *TypeCtx // For creating fresh variables
@@ -680,16 +680,14 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		}
 
 		// Apply substitution if exists
-		if replacement, exists := ts.varSubst[ty]; exists {
+		if replacement, exists := ts.varSubst[ty.id]; exists {
 			if replacement == nil { // Remove variable -> inline bounds
-				logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty)
 				boundsToInline := ty.lowerBounds
-				boundPol := true
 				if pol == negative { // Negative polarity
 					boundsToInline = ty.upperBounds
-					boundPol = false
 				}
-				mergedBound := mergeBounds(boundsToInline, boundPol)
+				mergedBound := mergeBounds(boundsToInline, pol == positive)
+				logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty, "mergedBounds", mergedBound, "polarity", pol.String())
 				// Need to pass parent variable to recursive call to handle cycles during inlining
 				return ts.transform(mergedBound, pol, ty) // Pass 'ty' as parent
 			}
@@ -700,7 +698,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 
 		// No substitution, check if we need to renew or inline bounds
 		isRec := ts.recVars.Contains(ty.id)
-		isInv := ts.occursInvariantly.Contains(ty)
+		isInv := ts.occursInvariantly.Contains(ty.id)
 
 		// Check if we should inline bounds (non-rec, non-invariant, config enabled)
 		shouldInline := ts.inlineBounds && !isRec && !isInv && pol != invariant

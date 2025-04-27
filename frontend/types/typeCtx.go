@@ -194,8 +194,8 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 	}
 	// type variables
 	{
-		this, okThis := this.(*typeVariable)
-		that, okThat := that.(*typeVariable)
+		thisTV, okThis := this.(*typeVariable)
+		thatTV, okThat := that.(*typeVariable)
 		if okThis || okThat {
 			sub, ok := cache.get(this, that)
 			if ok {
@@ -204,7 +204,7 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 		}
 		if okThis {
 			cache.put(this, that, false)
-			tmp := slices.ContainsFunc(this.upperBounds, func(t SimpleType) bool {
+			tmp := slices.ContainsFunc(thisTV.upperBounds, func(t SimpleType) bool {
 				return ctx.SolveSubtype(t, that, cache)
 			})
 			if tmp {
@@ -214,7 +214,7 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 		}
 		if okThat {
 			cache.put(this, that, false)
-			tmp := slices.ContainsFunc(that.lowerBounds, func(t SimpleType) bool {
+			tmp := slices.ContainsFunc(thatTV.lowerBounds, func(t SimpleType) bool {
 				return ctx.SolveSubtype(this, t, cache)
 			})
 			if tmp {

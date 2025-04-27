@@ -9,7 +9,7 @@ import (
 // Fresher keeps track of new variable IDs
 // it us mutable and not suitable for concurrent use
 type Fresher struct {
-	freshCount uint
+	freshCount uint64
 	freshened  map[TypeVarID]SimpleType
 }
 

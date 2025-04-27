@@ -224,3 +224,26 @@ func TestMutuallyRecursive(t *testing.T) {
 
 	testType(t, expr, &ast.TypeTag{Name: "int"})
 }
+
+func TestSimpleBoolFunc(t *testing.T) {
+	// x = 32 > (1 + 2)
+	// x
+	expr := &ast.Assign{
+		Var: "x",
+		Value: &ast.Call{
+			Func: &ast.Var{Name: ">"},
+			Args: []ast.Expr{
+				ast.IntLiteral("32", ast.Range{}),
+				&ast.Call{
+					Func: &ast.Var{Name: "+"},
+					Args: []ast.Expr{
+						ast.IntLiteral("1", ast.Range{}),
+						ast.IntLiteral("2", ast.Range{}),
+					},
+				},
+			},
+		},
+		Body: &ast.Var{Name: "x"},
+	}
+	testType(t, expr, ast.BoolType)
+}

@@ -372,7 +372,7 @@ func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 		return nil, fmt.Errorf("generics are not implemented yet, but got %v", t.ShowIn(ast.DumbShowCtx, 0))
 
 	default:
-		return nil, fmt.Errorf("unexpected ast.Type type: %v: %T", e, e)
+		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", e, e)
 	}
 }
 

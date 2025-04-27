@@ -49,10 +49,11 @@ type constraintSolver struct {
 	onErr func(err ilerr.IleError) (terminateEarly bool) // Error callback
 	level level                                          // Current polymorphism level during solving
 
-	cache *set.HashSet[*constraintPair, uint64]
-	fuel  int              // Fuel to prevent infinite loops
-	depth int              // Current recursion depth
-	stack []constraintPair // Stack for tracking recursion depth and path
+	cache          *set.HashSet[*constraintPair, uint64]
+	extrusionCache map[polarVariableKey]*typeVariable // Cache for extrude: (original_var, polarity) -> extruded_var
+	fuel           int                                // Fuel to prevent infinite loops
+	depth          int                                // Current recursion depth
+	stack          []constraintPair                   // Stack for tracking recursion depth and path
 
 	// TODO: Implement Shadows for cycle detection
 	// shadows shadowsState
@@ -76,14 +77,15 @@ func (ctx *TypeCtx) newConstraintSolver(
 	onErr func(err ilerr.IleError) (terminateEarly bool),
 ) *constraintSolver {
 	return &constraintSolver{
-		ctx:   ctx,
-		prov:  prov,
-		onErr: onErr,
-		level: ctx.level, // Start at the context's current level
-		cache: set.NewHashSet[*constraintPair, uint64](0),
-		fuel:  defaultStartingFuel,
-		depth: 0,
-		stack: make([]constraintPair, 0, defaultDepthLimit),
+		ctx:            ctx,
+		prov:           prov,
+		onErr:          onErr,
+		level:          ctx.level, // Start at the context's current level
+		cache:          set.NewHashSet[*constraintPair, uint64](0),
+		extrusionCache: make(map[polarVariableKey]*typeVariable), // Initialize extrusion cache
+		fuel:           defaultStartingFuel,
+		depth:          0,
+		stack:          make([]constraintPair, 0, defaultDepthLimit),
 		// Initialize shadows, extrCtx etc. if implemented
 	}
 }
@@ -159,14 +161,15 @@ func (cs *constraintSolver) pop() {
 // This is a simplified version. The Scala version manages ExtrCtx and unstashing.
 func (cs *constraintSolver) withSubLevel(action func(subSolver *constraintSolver) bool) bool {
 	subSolver := &constraintSolver{
-		ctx:            cs.ctx,       // Share the main context initially
-		prov:           cs.prov,      // Inherit provenance
-		onErr:          cs.onErr,     // Share error handler
-		level:          cs.level + 1, // Increment level
-		cache:          cs.cache,     // Share cache (or create a sub-cache?)
-		fuel:           cs.fuel,      // Pass remaining fuel
-		depth:          cs.depth,     // Inherit depth
-		stack:          cs.stack,     // Share stack
+		ctx:            cs.ctx,            // Share the main context initially
+		prov:           cs.prov,           // Inherit provenance
+		onErr:          cs.onErr,          // Share error handler
+		level:          cs.level + 1,      // Increment level
+		cache:          cs.cache,          // Share cache (or create a sub-cache?)
+		extrusionCache: cs.extrusionCache, // Share extrusion cache
+		fuel:           cs.fuel,           // Pass remaining fuel
+		depth:          cs.depth,          // Inherit depth
+		stack:          cs.stack,          // Share stack
 		constrainCalls: cs.constrainCalls,
 		annoyingCalls:  cs.annoyingCalls,
 		// TODO: Handle shadows and ExtrCtx properly for sub-levels
@@ -277,10 +280,10 @@ func (cs *constraintSolver) rec(
 	if sameLevel {
 		nextCctx = cctx
 		// Prepend without reallocating if possible (optimization)
-		if len(cctx.lhsChain) == 0 || cctx.lhsChain[0].Equivalent(lhs) { // Avoid duplicates
+		if len(cctx.lhsChain) == 0 || !cctx.lhsChain[0].Equivalent(lhs) { // Avoid duplicates
 			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
 		}
-		if len(cctx.rhsChain) == 0 || cctx.rhsChain[0].Equivalent(rhs) { // Avoid duplicates
+		if len(cctx.rhsChain) == 0 || !cctx.rhsChain[0].Equivalent(rhs) { // Avoid duplicates
 			nextCctx.rhsChain = slices.Insert(cctx.rhsChain, 0, rhs)
 		}
 	} else {
@@ -323,7 +326,6 @@ func (cs *constraintSolver) recImpl(
 	// 2. Cache Check
 	pair := &constraintPair{lhs, rhs}
 	if cs.cache.Contains(pair) {
-		fmt.Println(" -> Cached")
 		return false // Success (already processed)
 	}
 	// TODO: Implement proper cycle detection using shadows here.
@@ -412,7 +414,7 @@ func (cs *constraintSolver) recImpl(
 		// Need a mechanism to prevent infinite expansion
 		expandedLhs := cs.ctx.expand(lhs) // Assuming expand exists
 		// TODO this might need to be a Equiv rather than actual comparison
-		if expandedLhs == SimpleType(lhs) { // Avoid infinite loop if expansion didn't change anything
+		if expandedLhs.Equivalent(lhs) { // Avoid infinite loop if expansion didn't change anything
 			// Fall through to handle TypeRef vs RHS
 		} else {
 			return cs.rec(expandedLhs, rhs, true, cctx, shadows)
@@ -426,7 +428,7 @@ func (cs *constraintSolver) recImpl(
 	case *PolymorphicType:
 		// Instantiate LHS and retry
 		// Need to manage levels correctly
-		instantiatedLhs := lhs.instantiate(nil, cs.level) // Instantiate at current solver level
+		instantiatedLhs := lhs.instantiate(cs.ctx.fresher, cs.level) // Instantiate at current solver level
 		// TODO: Pass previous contexts (prevCctxs) if needed for extrusion reasons
 		return cs.rec(instantiatedLhs, rhs, true, cctx, shadows)
 
@@ -512,7 +514,7 @@ func (cs *constraintSolver) recImpl(
 	case typeRef:
 		// Expand RHS and retry
 		expandedRhs := cs.ctx.expand(r) // Assuming expand exists
-		if expandedRhs == rhs {
+		if expandedRhs.Equivalent(rhs) {
 			// Fall through if expansion didn't change anything
 		} else {
 			return cs.rec(lhs, expandedRhs, true, cctx, shadows)
@@ -812,7 +814,7 @@ func (cs *constraintSolver) goToWork(
 	shadows *shadowsState,
 ) bool {
 	cs.annoyingCalls++
-	fmt.Printf(" -> goToWork: %s <! %s (NOT IMPLEMENTED)\n", lhs, rhs)
+	logger.Error("goToWork: (NOT IMPLEMENTED)", "lhs", lhs, "rhs", rhs)
 	// 1. Convert lhs to DNF (Disjunctive Normal Form: union of conjunctions)
 	//    lhsDNF := cs.normalize(lhs, true) // Needs implementation
 	// 2. Convert rhs to CNF (Conjunctive Normal Form: intersection of disjunctions)
@@ -826,27 +828,223 @@ func (cs *constraintSolver) goToWork(
 	return cs.reportError("complex constraint solving (DNF/CNF) not implemented", lhs, rhs, cctx)
 }
 
-// extrude handles type variable extrusion. Complex logic based on levels and polarity.
-// Needs careful implementation matching Scala's `extrude`.
-func (cs *constraintSolver) extrude(ty SimpleType, lowerLvl level, pol bool) SimpleType {
-	panic("constraint: extrude: not implemented")
-	// 1. Check base case: ty.level <= lowerLvl -> return ty
-	// 2. Handle recursion using a cache (map[TypeVarID][bool]TypeVarID ?)
-	// 3. Recursively extrude children based on type structure and polarity.
-	// 4. Handle TypeVariable:
-	//    - If tv.level > upperLvl: Copy the variable (freshen).
-	//    - If tv.level > lowerLvl: Extrude the variable:
-	//        - Create a new variable `nv` at `lowerLvl`.
-	//        - Add `nv` to the bounds of the original `tv`.
-	//        - Extrude the bounds of `tv` and add them to `nv`.
-	//        - Return `nv`.
-	// 5. Handle SkolemTag/RigidVar extrusion (widen to Top/Bottom or use Extruded type).
-	// 6. Return the extruded type.
+// extrude copies a type up to its type variables of wrong level (and their extruded bounds).
+// It returns the extruded type, or nil if an error occurred during extrusion.
+func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) SimpleType {
+	if ty.level() <= targetLvl {
+		return ty
+	}
 
-	// Placeholder: return original type (incorrect)
-	// A real implementation needs to handle level changes and bound updates.
-	// Returning nil could signal an error during extrusion.
-	return ty
+	switch t := ty.(type) {
+	case typeRange:
+		if pol { // Positive polarity
+			return cs.extrude(t.upperBound, targetLvl, true)
+		}
+		return cs.extrude(t.lowerBound, targetLvl, false) // Negative polarity
+
+	case funcType:
+		extrudedLhs := cs.extrude(t.args[0], targetLvl, !pol) // Contravariant
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.ret, targetLvl, pol) // Covariant
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Assuming single argument function for now, like Scala's FunctionType(l, r)
+		return funcType{args: []SimpleType{extrudedLhs}, ret: extrudedRhs, withProvenance: t.withProvenance}
+
+	case unionType: // ComposedType(true, ...)
+		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.rhs, targetLvl, pol)
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Use unionOf for potential simplification
+		return unionOf(extrudedLhs, extrudedRhs, unionOpts{prov: t.prov()})
+
+	case intersectionType: // ComposedType(false, ...)
+		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.rhs, targetLvl, pol)
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Use intersectionOf for potential simplification
+		return intersectionOf(extrudedLhs, extrudedRhs, unionOpts{prov: t.prov()})
+
+	case recordType:
+		newFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+		for i, field := range t.fields {
+			// Extrude field bounds: lb is contravariant (!pol), ub is covariant (pol)
+			extrudedLb := cs.extrude(field.Snd.lowerBound, targetLvl, !pol)
+			if extrudedLb == nil {
+				return nil
+			}
+			extrudedUb := cs.extrude(field.Snd.upperBound, targetLvl, pol)
+			if extrudedUb == nil {
+				return nil
+			}
+			newFields[i] = util.Pair[ast.Var, fieldType]{
+				Fst: field.Fst,
+				Snd: fieldType{lowerBound: extrudedLb, upperBound: extrudedUb, withProvenance: withProvenance{field.Snd.prov()}},
+			}
+		}
+		// Use makeRecordType for potential sorting/simplification
+		panic("extrude: implement makeRecordType")
+		//return makeRecordType(newFields, &t.provenance)
+
+	case tupleType:
+		newFields := make([]SimpleType, len(t.fields))
+		for i, field := range t.fields {
+			extrudedField := cs.extrude(field, targetLvl, pol)
+			if extrudedField == nil {
+				return nil
+			}
+			newFields[i] = extrudedField
+		}
+		return tupleType{fields: newFields, withProvenance: t.withProvenance}
+
+	case namedTupleType: // Similar to tupleType
+		newFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+		for i, field := range t.fields {
+			extrudedField := cs.extrude(field.Snd, targetLvl, pol)
+			if extrudedField == nil {
+				return nil
+			}
+			newFields[i] = util.Pair[ast.Var, SimpleType]{Fst: field.Fst, Snd: extrudedField}
+		}
+		return namedTupleType{fields: newFields, withProvenance: t.withProvenance}
+
+	case arrayType:
+		extrudedInner := cs.extrude(t.innerT, targetLvl, pol) // Assuming covariant for now
+		if extrudedInner == nil {
+			return nil
+		}
+		return arrayType{innerT: extrudedInner, withProvenance: t.withProvenance}
+
+	case *typeVariable:
+		key := polarVariableKey{tv: t.id, pol: polarityFromBool(pol)}
+		if cachedVar, ok := cs.extrusionCache[key]; ok {
+			return cachedVar
+		}
+
+		// Create a new variable at the target level
+		nv := cs.ctx.fresher.newTypeVariable(targetLvl, t.prov(), t.nameHint, nil, nil)
+		cs.extrusionCache[key] = nv // Cache it immediately
+
+		if pol { // Positive polarity
+			// Add nv as an upper bound to the original variable t
+			t.upperBounds = append(t.upperBounds, nv)
+			// Set lower bounds of nv by extruding lower bounds of t
+			nv.lowerBounds = make([]SimpleType, 0, len(t.lowerBounds))
+			for _, lb := range t.lowerBounds {
+				extrudedLb := cs.extrude(lb, targetLvl, pol)
+				if extrudedLb == nil {
+					return nil // Propagate failure
+				}
+				nv.lowerBounds = append(nv.lowerBounds, extrudedLb)
+			}
+		} else { // Negative polarity
+			// Add nv as a lower bound to the original variable t
+			t.lowerBounds = append(t.lowerBounds, nv)
+			// Set upper bounds of nv by extruding upper bounds of t
+			nv.upperBounds = make([]SimpleType, 0, len(t.upperBounds))
+			for _, ub := range t.upperBounds {
+				extrudedUb := cs.extrude(ub, targetLvl, pol)
+				if extrudedUb == nil {
+					return nil // Propagate failure
+				}
+				nv.upperBounds = append(nv.upperBounds, extrudedUb)
+			}
+		}
+		return nv
+
+	case negType:
+		extrudedNegated := cs.extrude(t.negated, targetLvl, pol) // Polarity stays the same for negation itself? Check Scala. Yes.
+		if extrudedNegated == nil {
+			return nil
+		}
+		// Use negateType for potential simplification
+		return negateType(extrudedNegated, t.prov())
+
+	case extremeType:
+		return t // Level 0
+
+	case wrappingProvType: // ProvType
+		extrudedUnderlying := cs.extrude(t.underlying(), targetLvl, pol)
+		if extrudedUnderlying == nil {
+			return nil
+		}
+		// Re-wrap with the original provenance
+		return wrappingProvType{SimpleType: extrudedUnderlying, proxyProvenance: t.prov()}
+
+	// case ProxyType: // Scala has this, Go doesn't seem to have a direct equivalent yet
+	// 	return cs.extrude(t.underlying, targetLvl, pol)
+
+	case classTag, traitTag:
+		return t // Level 0
+
+	case typeRef:
+		// Need variance info to extrude type arguments correctly
+		variances, ok := cs.ctx.getTypeDefinitionVariances(t.defName)
+		if !ok {
+			// Cannot extrude if definition is unknown, treat as opaque? Or error?
+			// Scala seems to return the original typeRef here. Let's do that.
+			// This might be incorrect if the typeRef *contains* higher-level variables.
+			// A safer approach might be to report an error.
+			logger.Warn("extrude: unknown type definition, cannot extrude TypeRef arguments", "typeRef", t)
+			return t // Or return nil and report error?
+		}
+		if len(variances) != len(t.typeArgs) {
+			logger.Warn("extrude: variance/type argument mismatch", "typeRef", t)
+			return t // Or return nil and report error?
+		}
+
+		newTargs := make([]SimpleType, len(t.typeArgs))
+		for i, targ := range t.typeArgs {
+			argPol := combinePolarity(polarityFromBool(pol), variances[i])
+			var extrudedArg SimpleType
+			if argPol == invariant {
+				// Extrude as a TypeRange (like Scala's mapTargs N case)
+				extrudedLb := cs.extrude(targ, targetLvl, false)
+				if extrudedLb == nil {
+					return nil
+				}
+				extrudedUb := cs.extrude(targ, targetLvl, true)
+				if extrudedUb == nil {
+					return nil
+				}
+				// Use makeTypeRange for potential simplification
+				extrudedArg = cs.ctx.makeTypeRange(extrudedLb, extrudedUb, targ.prov())
+			} else {
+				// Extrude with the calculated polarity
+				extrudedArg = cs.extrude(targ, targetLvl, argPol == positive)
+				if extrudedArg == nil {
+					return nil
+				}
+			}
+			newTargs[i] = extrudedArg
+		}
+		return typeRef{defName: t.defName, typeArgs: newTargs, withProvenance: t.withProvenance}
+
+	default:
+		panic(fmt.Sprintf("extrude: unhandled type %T", ty))
+	}
+}
+
+// polarityFromBool converts bool (true=positive, false=negative) to polarity enum.
+// Assumes invariant case is handled separately where needed.
+func polarityFromBool(pol bool) polarity {
+	if pol {
+		return positive
+	}
+	return negative
 }
 
 // --- Type Definition Lookup Helpers (Need implementation in TypeCtx) ---

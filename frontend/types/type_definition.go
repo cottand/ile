@@ -55,7 +55,7 @@ func isNameReserved(name typeName) bool {
 }
 
 var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
-var emptySetTypeID = immutable.NewSet[TypeVarID](immutable.NewHasher(uint(1)))
+var emptySetTypeID = immutable.NewSet[TypeVarID](immutable.NewHasher(uint64(1)))
 
 // typeTypeDefs processes newDefs and returns a new TypeCtx with the new names
 func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]TypeDefinition) *TypeCtx {

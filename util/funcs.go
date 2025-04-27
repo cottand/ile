@@ -29,6 +29,12 @@ func ConcatIter[A any](iter ...iter.Seq[A]) iter.Seq[A] {
 	}
 }
 
+func SingleIter[A any](elem A) iter.Seq[A]  {
+	return func(yield func(A) bool) {
+		yield(elem)
+	}
+}
+
 func ConcatIter2[A, B any](iter ...iter.Seq2[A, B]) iter.Seq2[A, B] {
 	return func(yield func(A, B) bool) {
 		for _, thisIter := range iter {
@@ -36,6 +42,16 @@ func ConcatIter2[A, B any](iter ...iter.Seq2[A, B]) iter.Seq2[A, B] {
 				if !yield(v, w) {
 					return
 				}
+			}
+		}
+	}
+}
+
+func MapIter[A, B any](iter iter.Seq[A], f func(A) B) iter.Seq[B]  {
+	return func(yield func(B) bool) {
+		for v := range iter {
+			if !yield(f(v)) {
+				return
 			}
 		}
 	}

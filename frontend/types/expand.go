@@ -25,7 +25,7 @@ func (ctx *TypeCtx) GetAstTypeFor(t SimpleType) ast.Type {
 	uninstantiated := t.uninstantiatedBody()
 	simple := ctx.simplifyPipeline(uninstantiated) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
-	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded)
+	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ast.DumbShowCtx, 0))
 	return expanded
 }
 

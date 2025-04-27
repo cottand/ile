@@ -366,7 +366,7 @@ func newOriginProv(pos ast.Positioner, description string, name string) typeProv
 	}
 }
 
-type TypeVarID = uint
+type TypeVarID = uint64
 
 // typeVariable living stack a certain polymorphism level, with mutable bounds.
 // Invariant: Types appearing in the bounds never have a level higher than this variable's `level`
@@ -830,7 +830,7 @@ func (t *typeVariable) Hash() uint64 {
 	//	hash = hash*prime1 ^ ub.Hash()
 	//}
 
-	return prime1 * prime2 * uint64(t.id)
+	return prime1 * prime2 * t.id
 }
 
 func (t classTag) Hash() uint64 {
