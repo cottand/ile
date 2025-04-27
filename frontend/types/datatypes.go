@@ -653,6 +653,8 @@ func (t namedTupleType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+var emptyRecord = recordType{}
+
 type recordType struct {
 	fields []util.Pair[ast.Var, fieldType]
 	withProvenance
