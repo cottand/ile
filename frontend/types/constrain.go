@@ -5,7 +5,7 @@ import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
-	set "github.com/hashicorp/go-set"
+	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"reflect"
 	"slices"
@@ -264,7 +264,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-	// prevCctxs []constraintContext, // If needed for extrusion reasons
+// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -813,7 +813,6 @@ func (cs *constraintSolver) goToWork(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	cs.annoyingCalls++
 	logger.Error("goToWork: (NOT IMPLEMENTED)", "lhs", lhs, "rhs", rhs)
 	// 1. Convert lhs to DNF (Disjunctive Normal Form: union of conjunctions)
 	//    lhsDNF := cs.normalize(lhs, true) // Needs implementation
@@ -826,6 +825,39 @@ func (cs *constraintSolver) goToWork(
 
 	// Placeholder: report error
 	return cs.reportError("complex constraint solving (DNF/CNF) not implemented", lhs, rhs, cctx)
+}
+
+func (cs *constraintSolver) constrainDNF(ops opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
+	logger.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
+	cs.annoyingCalls++
+
+	for _, conj := range lhs {
+		if !conj.vars.Empty() {
+			first := util.IterFirstOrPanic(conj.vars.Items())
+			single := set.TreeSetFrom[*typeVariable]([]*typeVariable{first}, compareTypeVars)
+			newC := conjunct{
+				left:  conj.left,
+				right: conj.right,
+				vars:  conj.vars.Difference(single),
+				nvars: conj.nvars,
+			}
+			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
+			cs.rec(first, newRhs, true, cctx, shadows)
+		} else {
+			nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
+				return ops.mkDeep(nvar, true)
+			})
+			fullRhs := ops.or(rhs, ops.mkDeep(conj.right.toType(), false))
+			for nvar := range nvarsAsDNF {
+				fullRhs = ops.or(fullRhs, nvar)
+			}
+			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.left, fullRhs))
+
+			panic("TODO remaining body of constrainDNF")
+		}
+
+	}
+
 }
 
 // extrude copies a type up to its type variables of wrong level (and their extruded bounds).

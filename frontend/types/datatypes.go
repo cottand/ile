@@ -193,6 +193,7 @@ func (t negType) Hash() uint64 {
 	return t.negated.Hash() * 53
 }
 
+// unionType is a composedType with positive polarity in the scala reference
 type unionType struct {
 	lhs, rhs SimpleType
 	withProvenance
@@ -216,6 +217,7 @@ func (t unionType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+// intersectionType is a composedType with negative polarity in the scala reference
 type intersectionType struct {
 	lhs, rhs SimpleType
 	withProvenance

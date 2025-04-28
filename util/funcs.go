@@ -47,6 +47,13 @@ func ConcatIter2[A, B any](iter ...iter.Seq2[A, B]) iter.Seq2[A, B] {
 	}
 }
 
+func IterFirstOrPanic[A any](iter iter.Seq[A]) A {
+	for elem := range iter {
+		return elem
+	}
+	panic("empty iterator")
+}
+
 func MapIter[A, B any](iter iter.Seq[A], f func(A) B) iter.Seq[B]  {
 	return func(yield func(B) bool) {
 		for v := range iter {
