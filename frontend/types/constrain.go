@@ -264,7 +264,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-// prevCctxs []constraintContext, // If needed for extrusion reasons
+	// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -814,6 +814,9 @@ func (cs *constraintSolver) goToWork(
 	shadows *shadowsState,
 ) bool {
 	logger.Error("goToWork: (NOT IMPLEMENTED)", "lhs", lhs, "rhs", rhs)
+
+	opsDnf := &opsDNF{ctx: cs.ctx}
+	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
 	// 1. Convert lhs to DNF (Disjunctive Normal Form: union of conjunctions)
 	//    lhsDNF := cs.normalize(lhs, true) // Needs implementation
 	// 2. Convert rhs to CNF (Conjunctive Normal Form: intersection of disjunctions)
@@ -827,10 +830,14 @@ func (cs *constraintSolver) goToWork(
 	return cs.reportError("complex constraint solving (DNF/CNF) not implemented", lhs, rhs, cctx)
 }
 
-func (cs *constraintSolver) constrainDNF(ops opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
+// constrainDNF handles constraining when types have been converted to DNF.
+// This corresponds to the logic within goToWork after normalization in the scala reference.
+func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
 	logger.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
 	cs.annoyingCalls++
 
+	// Iterate through each conjunct C in the LHS DNF (LHS = C1 | C2 | ...)
+	// We need to ensure C <: RHS for all C.
 	for _, conj := range lhs {
 		if !conj.vars.Empty() {
 			first := util.IterFirstOrPanic(conj.vars.Items())
@@ -844,6 +851,8 @@ func (cs *constraintSolver) constrainDNF(ops opsDNF, lhs, rhs dnf, cctx constrai
 			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
 			cs.rec(first, newRhs, true, cctx, shadows)
 		} else {
+			// Case 2: The conjunct C has no positive variables (L & ~R & ~N <: RHS)
+
 			nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
 				return ops.mkDeep(nvar, true)
 			})
@@ -851,14 +860,91 @@ func (cs *constraintSolver) constrainDNF(ops opsDNF, lhs, rhs dnf, cctx constrai
 			for nvar := range nvarsAsDNF {
 				fullRhs = ops.or(fullRhs, nvar)
 			}
+
 			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.left, fullRhs))
 
-			panic("TODO remaining body of constrainDNF")
-		}
+			lnf := conj.left
 
+			possibleConjuncts := make([]conjunct, 0, len(fullRhs))
+			for _, rConj := range fullRhs {
+				_, isBot := rConj.right.(rhsBot)
+				// Early exit check (corresponds to Scala's `if ((r.rnf is RhsBot)...)`)
+				if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
+					// If rConj is just an LHS part (rConj.left)
+					if lnf.lessThanOrEqual(rConj.left) { // Check if lnf <: rConj.left
+						logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.left", rConj.left)
+						goto nextLhsConjunct // Skip to the next conjunct in the outer loop (lhs)
+					}
+				}
+
+				// Filtering logic (corresponds to Scala's `filter` conditions)
+				// 1. `!vars.exists(r.nvars)` - Always true here as conj.vars is empty.
+				// 2. `((lnf & r.lnf)).isDefined` - Check if intersection is possible.
+				_, ok := lnf.and(rConj.left, cs.ctx)
+
+				if !ok {
+					logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.left", rConj.left.String())
+					continue
+				}
+
+				// 3. Tag checks (simplified version)
+				if ok := checkTagCompatibility(lnf, rConj.right); !ok {
+					logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.right", rConj.right.String())
+					continue // Skip this rConj
+				}
+
+				// If all checks pass, add to possible conjuncts
+				possibleConjuncts = append(possibleConjuncts, rConj)
+				panic("TODO implement rest of constrainDNF")
+			}
+
+		} // End of else block (Case 2)
+
+	nextLhsConjunct: // Label for the early exit goto
+	} // End of loop through lhs conjuncts
+}
+
+// checkTagCompatibility performs simplified tag checks similar to the Scala filter.
+//
+//goland:noinspection ALL
+func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
+	panic("TODO double check impl of this compared to scala reference")
+	lhsRefined, okLhs := lnf.(*lhsRefined)
+	if !okLhs {
+		return true // LhsTop is compatible with anything
 	}
 
+	rhsBases, okRhs := rnf.(*rhsBases)
+	if !okRhs {
+		return true // RhsBot or RhsField don't have tags to conflict
+	}
+
+	// Check 1: Trait tag conflict
+	// `if objTags.exists { case t: TraitTag => ttags(t); case _ => false } => false`
+	for _, rhsTag := range rhsBases.tags {
+		if tt, ok := rhsTag.(traitTag); ok {
+			if lhsRefined.traitTags.Contains(tt) {
+				return false // Conflict: LHS has trait T, RHS has ~T
+			}
+		}
+	}
+
+	// Check 2: Class tag conflict
+	// `case (LhsRefined(S(ot: ClassTag), ...), RhsBases(objTags, ...)) => !objTags.contains(ot)`
+	if lhsRefined.base != nil { // If LHS has a class tag
+		for _, rhsTag := range rhsBases.tags {
+			// Check if RHS contains the *same* class tag
+			if ct, ok := rhsTag.(classTag); ok && ct.Equivalent(lhsRefined.base) {
+				return false // Conflict: LHS has class C, RHS has ~C
+			}
+			// TODO: Could add parent check here too: C <: ~D if D is parent of C
+		}
+	}
+
+	return true // No conflicts found
 }
+
+// ... (rest of the file, including extrude, helpers, etc.) ...
 
 // extrude copies a type up to its type variables of wrong level (and their extruded bounds).
 // It returns the extruded type, or nil if an error occurred during extrusion.

@@ -148,13 +148,16 @@ type normalForm interface {
 	size() int
 }
 type lhsNF interface {
+	// lessThanOrEqual is written as <:< in the scala reference
+	lessThanOrEqual(lhsNF) bool
+	and(nf lhsNF, ctx *TypeCtx) (lhs lhsNF, ok bool)
 	normalForm
 	isLeftNf() // marker for sealed hierarchy
 }
 
 var (
 	_ lhsNF = (*lhsRefined)(nil)
-	_ lhsNF = (*lhsTop)(nil)
+	_ lhsNF = lhsTop{}
 )
 
 // lhsRefined corresponds to LhsRefined in the scala reference.
@@ -301,6 +304,22 @@ func (l *lhsRefined) String() string {
 	return sb.String()
 }
 
+func (l *lhsRefined) lessThanOrEqual(other lhsNF) bool {
+	panic("TODO lessThanOrEqual for lhsRefined")
+}
+
+func (l *lhsRefined) and(other lhsNF, ctx *TypeCtx) (lhsNF, bool) {
+	_, ok := other.(*lhsRefined)
+	if !ok { // if it is not refined it must be top
+		return l, true
+	}
+	panic("implement and (&) for lhsRefined")
+}
+
+func (l *lhsRefined) andRecordType(r recordType) lhsRefined {
+	panic("TODO implement andRecordType for lhsRefined")
+}
+
 type lhsTop struct{}
 
 func (lhsTop) String() string         { return "⊤" }
@@ -309,6 +328,12 @@ func (lhsTop) toType() SimpleType     { return topType }
 func (lhsTop) level() level           { return topType.level() }
 func (lhsTop) hasTag(_ traitTag) bool { return false }
 func (lhsTop) size() int              { return 0 }
+func (lhsTop) lessThanOrEqual(nf lhsNF) bool {
+	panic("TODO lessThanOrEqual for lhsNF")
+}
+func (lhsTop) and(nf lhsNF, ctx *TypeCtx) (lhsNF, bool) {
+	return nf, true
+}
 
 // --- Right Normal Form (RhsNf) ---
 

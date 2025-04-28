@@ -193,7 +193,7 @@ func (o *opsDNF) mk(ty SimpleType, pol bool) dnf {
 		}
 		return conjuncts // Return the resulting DNF
 	case *typeVariable:
-		vars := set.TreeSetFrom([]typeVariable{*t}, compareTypeVars)
+		vars := set.TreeSetFrom([]*typeVariable{t}, compareTypeVars)
 		return dnf{newConjunct(lhsTop{}, rhsBot{}, vars, nil)}
 	case typeRef:
 		if o.preserveTypeRefs && !isPrimitiveTypeName(t.defName) { // TODO: Refine primitive check
@@ -254,7 +254,7 @@ func (o *opsDNF) mkDeepST(ty SimpleType, pol bool) SimpleType {
 		// A full implementation requires a `mapPol` equivalent.
 		// return stFromDnf.mapPol(polarityFromBool(pol), mapFunc) // Assuming mapPol exists
 		logger.Error("mkDeepST: Deep recursive normalization on children not fully implemented", "type", ty)
-		panic("TODO implement mkDeppST") // Return shallow normalized type for now
+		panic("TODO implement mkDeepST") // Return shallow normalized type for now
 	}
 }
 
