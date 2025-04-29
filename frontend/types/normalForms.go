@@ -125,7 +125,7 @@ func (j conjunct) toType() SimpleType {
 		return tv
 	})
 	types := util.ConcatIter[SimpleType](
-		vars,                                                   // our vars
+		vars, // our vars
 		util.SingleIter(negateType(j.rhs.toType(), emptyProv)), // !(rhs.toType())
 		negatedNVars,
 	)
@@ -204,15 +204,14 @@ func (l *lhsRefined) toType() SimpleType {
 	// In Scala, LhsRefined always has a RecordType, even if empty.
 	current := SimpleType(l.reft)
 
-	// Intersect with optional base class tag
+	// we always want to store SimpleType the same way so we follow the pointer
+	// before putting it in the intersection here
 	if l.base != nil {
-		current = intersectionOf(current, l.base, unionOpts{})
+		current = intersectionOf(current, *(l.base), unionOpts{})
 	}
-	// Intersect with optional function type
 	if l.fn != nil {
-		current = intersectionOf(current, l.fn, unionOpts{})
+		current = intersectionOf(current, *(l.fn), unionOpts{})
 	}
-	// Intersect with optional array base type
 	if l.arr != nil {
 		current = intersectionOf(current, l.arr, unionOpts{})
 	}

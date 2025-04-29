@@ -58,10 +58,10 @@ func (o *opsDNF) andConjunct(d dnf, c conjunct) dnf {
 }
 
 func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
-	panic("TODO")
+	panic(fmt.Sprintf("opsDNF.conjunctOrConjunct: not implemented for conjuncts %v and %v", left, right))
 }
 func (o *opsDNF) conjunctAndConjunct(left, right conjunct) *conjunct {
-	panic("TODO")
+	panic(fmt.Sprintf("opsDNF.conjunctAndConjunct: not implemented for conjuncts %v and %v", left, right))
 }
 
 // orConjunct computes the union of a DNF and a single Conjunct (this | c).
@@ -484,6 +484,8 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 		}
 		// Return the mapped body, losing the polymorphism. This matches Scala's mapPol behavior.
 		return newBody
+	case classTag:
+		return ty
 
 	default:
 		panic(fmt.Sprintf("mapPolRecursive: unhandled type %T", ty))
