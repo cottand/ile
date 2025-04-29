@@ -88,6 +88,9 @@ type SimpleType interface {
 	children(includeBounds bool) iter.Seq[SimpleType]
 }
 
+type BasicType interface {
+}
+
 var (
 	_ TypeScheme = (*PolymorphicType)(nil)
 

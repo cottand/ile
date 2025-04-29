@@ -18,7 +18,9 @@ func unionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	if !opts.swapped {
 		return unionOf(other, this, unionOpts{prov: opts.prov, swapped: true})
 	}
-	panic(fmt.Sprintf("union not implemented for %T | %T", this, other))
+	logger.Warn(fmt.Sprintf("intersection not implemented for %T | %T (returning plain union)", this, other))
+	return unionType{lhs: this, rhs: other, withProvenance: opts.prov.embed()}
+
 }
 
 // intersectionOf corresponds to the `&` operation in the scala mlstruct implementation
@@ -29,8 +31,13 @@ func intersectionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	if this.Equivalent(topType) {
 		return other
 	}
+	if this.Equivalent(other) {
+		return this
+	}
+
 	if !opts.swapped {
 		return intersectionOf(other, this, unionOpts{prov: opts.prov, swapped: true})
 	}
-	panic(fmt.Sprintf("intersection not implemented for %T & %T", this, other))
+	logger.Warn(fmt.Sprintf("intersection not implemented for %T & %T (returning plain intersection)", this, other))
+	return intersectionType{lhs: this, rhs: other, withProvenance: opts.prov.embed()}
 }

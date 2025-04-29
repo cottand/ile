@@ -14,8 +14,8 @@ var nfLogger = logger.With("section", "normalForms")
 
 // junction corresponds to conjunction or disjunction in the scala reference
 type conjunct struct {
-	left  lhsNF
-	right rhsNF
+	lhs lhsNF
+	rhs rhsNF
 
 	// vars, nvars are ordered
 	// we use *typeVariable pointer so that it matches a SimpleType, and
@@ -33,6 +33,10 @@ type disjunct struct {
 
 var compareTypeVars set.CompareFunc[*typeVariable] = func(t1, t2 *typeVariable) int {
 	return cmp.Compare(t1.id, t2.id)
+}
+
+var compareTraitTags set.CompareFunc[traitTag] = func(tag traitTag, tag2 traitTag) int {
+	return cmp.Compare(tag.Hash(), tag2.Hash())
 }
 
 func newDisjunct(left lhsNF, right rhsNF, vars, nvars set.Collection[*typeVariable]) disjunct {
@@ -57,8 +61,8 @@ func newConjunct(left lhsNF, right rhsNF, vars, nvars set.Collection[*typeVariab
 		nvars = set.NewTreeSet(compareTypeVars)
 	}
 	return conjunct{
-		left:  left,
-		right: right,
+		lhs:   left,
+		rhs:   right,
 		vars:  vars,
 		nvars: nvars,
 	}
@@ -80,11 +84,11 @@ func (j disjunct) String() string {
 
 func (j conjunct) String() string {
 	sb := &strings.Builder{}
-	sb.WriteString(j.left.String())
+	sb.WriteString(j.lhs.String())
 	for v := range j.vars.Items() {
 		sb.WriteString("∧" + v.String())
 	}
-	sb.WriteString("∧!(" + j.right.String() + ")")
+	sb.WriteString("∧!(" + j.rhs.String() + ")")
 	for v := range j.nvars.Items() {
 		sb.WriteString("∧!(" + v.String() + ")")
 	}
@@ -92,7 +96,7 @@ func (j conjunct) String() string {
 }
 
 func (j conjunct) negate() disjunct {
-	return newDisjunct(j.left, j.right, j.nvars, j.vars)
+	return newDisjunct(j.lhs, j.rhs, j.nvars, j.vars)
 }
 
 func (j disjunct) negate() conjunct {
@@ -108,7 +112,7 @@ func (j conjunct) level() level {
 	for v := range j.nvars.Items() {
 		maxLevel = max(maxLevel, v.level())
 	}
-	return max(maxLevel, j.left.level(), j.right.level())
+	return max(maxLevel, j.lhs.level(), j.rhs.level())
 }
 
 // the scala reference allows choosing whether to sort type variables
@@ -121,11 +125,11 @@ func (j conjunct) toType() SimpleType {
 		return tv
 	})
 	types := util.ConcatIter[SimpleType](
-		vars, // our vars
-		util.SingleIter(negateType(j.right.toType(), emptyProv)), // !(right.toType())
+		vars,                                                   // our vars
+		util.SingleIter(negateType(j.rhs.toType(), emptyProv)), // !(rhs.toType())
 		negatedNVars,
 	)
-	current := j.left.toType()
+	current := j.lhs.toType()
 	for type_ := range types {
 		current = intersectionOf(current, type_, unionOpts{})
 	}
@@ -133,7 +137,21 @@ func (j conjunct) toType() SimpleType {
 }
 
 func (j conjunct) lessThanOrEqual(other conjunct) bool {
-	panic("TODO lessThanOrEqual")
+	for otherVar := range other.vars.Items() {
+		if !j.vars.Contains(otherVar) {
+			return false
+		}
+	}
+	if !(j.lhs.lessThanOrEqual(other.lhs) && other.rhs.lessThanOrEqual(j.rhs)) {
+		return false
+	}
+	for otherNVar := range other.nvars.Items() {
+		if !j.nvars.Contains(otherNVar) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // both lhsNF are rhsNF are normalForm
@@ -199,8 +217,10 @@ func (l *lhsRefined) toType() SimpleType {
 		current = intersectionOf(current, l.arr, unionOpts{})
 	}
 
-	for _, id := range l.traitTags.Slice() {
-		current = intersectionOf(current, id, unionOpts{})
+	if l.traitTags != nil {
+		for id := range l.traitTags.Items() {
+			current = intersectionOf(current, id, unionOpts{})
+		}
 	}
 
 	// Intersect with type references (need to sort for canonical representation)
@@ -280,9 +300,11 @@ func (l *lhsRefined) String() string {
 	sb.WriteString(l.reft.String()) // Assuming recordType has Stringer
 
 	// Trait tags (sorted for consistency)
-	for id := range l.traitTags.Items() {
-		sb.WriteString("∧")
-		sb.WriteString(id.String())
+	if l.traitTags != nil {
+		for id := range l.traitTags.Items() {
+			sb.WriteString("∧")
+			sb.WriteString(id.String())
+		}
 	}
 
 	// Type references (sorted for consistency)
@@ -305,15 +327,216 @@ func (l *lhsRefined) String() string {
 }
 
 func (l *lhsRefined) lessThanOrEqual(other lhsNF) bool {
-	panic("TODO lessThanOrEqual for lhsRefined")
+	ctx := NewEmptyTypeCtx()
+	switch lhs := other.(type) {
+	case lhsTop:
+		return true
+	case *lhsRefined:
+		baseSubtype := l.base != nil && lhs.base != nil && ctx.SolveSubtype(*l.base, *lhs.base, nil)
+		fnSubtype := l.fn != nil && lhs.fn != nil && ctx.SolveSubtype(*l.fn, *lhs.fn, nil)
+		arrSubtype := l.arr != nil && lhs.arr != nil && ctx.SolveSubtype(l.arr, lhs.arr, nil)
+		allTraitTagsSub := l.traitTags != nil && lhs.traitTags != nil && l.traitTags.Subset(lhs.traitTags)
+		rTypeSub := ctx.SolveSubtype(l.reft, lhs.reft, nil)
+		if !((baseSubtype || fnSubtype || arrSubtype) && allTraitTagsSub && rTypeSub) {
+			return false
+		}
+		for _, typeRef := range lhs.typeRefs {
+			exists := false
+			for _, thisTypeRef := range l.typeRefs {
+				exists = exists || ctx.SolveSubtype(thisTypeRef, typeRef, nil)
+			}
+			if !exists {
+				return false
+			}
+		}
+		return true
+	default:
+		panic(fmt.Sprintf("unexpected type in lessThanOrEqual: %T", other))
+
+	}
 }
 
 func (l *lhsRefined) and(other lhsNF, ctx *TypeCtx) (lhsNF, bool) {
-	_, ok := other.(*lhsRefined)
-	if !ok { // if it is not refined it must be top
+	_, ok := other.(lhsTop)
+	if ok {
+		// Combining with top yields the original type
 		return l, true
 	}
-	panic("implement and (&) for lhsRefined")
+
+	r, ok := other.(*lhsRefined)
+	if !ok {
+		// Should never happen as only lhsTop and lhsRefined implement lhsNF
+		panic(fmt.Sprintf("unknown lhsNF implementation: %T", other))
+	}
+
+	// Merge class tags - both must be compatible
+	var base *classTag
+	if l.base != nil && r.base != nil {
+		if ctx.SolveSubtype(*r.base, *l.base, nil) {
+			// r is a subtype of l, so use r
+			base = r.base
+		} else if ctx.SolveSubtype(*l.base, *r.base, nil) {
+			// l is a subtype of r, so use l
+			base = l.base
+		} else {
+			// Incompatible base types
+			return nil, false
+		}
+	} else if l.base != nil {
+		base = l.base
+	} else {
+		base = r.base
+	}
+
+	// Merge function types
+	var fn *funcType
+	if l.fn != nil && r.fn != nil {
+		// Function types must be compatible
+		if ctx.SolveSubtype(*l.fn, *r.fn, nil) {
+			fn = l.fn
+		} else if ctx.SolveSubtype(*r.fn, *l.fn, nil) {
+			fn = r.fn
+		} else {
+			// Incompatible function types
+			return nil, false
+		}
+	} else if l.fn != nil {
+		fn = l.fn
+	} else {
+		fn = r.fn
+	}
+
+	// Merge array bases
+	var arr arrayBase
+	if l.arr != nil && r.arr != nil {
+		// Array types must be compatible
+		if ctx.SolveSubtype(l.arr, r.arr, nil) {
+			arr = l.arr
+		} else if ctx.SolveSubtype(r.arr, l.arr, nil) {
+			arr = r.arr
+		} else {
+			// Incompatible array types
+			return nil, false
+		}
+	} else if l.arr != nil {
+		arr = l.arr
+	} else {
+		arr = r.arr
+	}
+
+	// Merge trait tags - take union of both sets
+	var traitTags set.Collection[traitTag]
+	if l.traitTags != nil && r.traitTags != nil {
+		traitTags = set.NewTreeSet(compareTraitTags)
+		for tag := range l.traitTags.Items() {
+			traitTags.Insert(tag)
+		}
+		for tag := range r.traitTags.Items() {
+			traitTags.Insert(tag)
+		}
+	} else if l.traitTags != nil {
+		traitTags = l.traitTags
+	} else {
+		traitTags = r.traitTags
+	}
+
+	// Merge record types
+	mergedReft, ok := mergeRecordTypes(l.reft, r.reft, ctx)
+	if !ok {
+		return nil, false
+	}
+
+	// Merge type refs
+	typeRefs := make([]typeRef, 0, len(l.typeRefs)+len(r.typeRefs))
+	typeRefs = append(typeRefs, l.typeRefs...)
+	typeRefs = append(typeRefs, r.typeRefs...)
+
+	// Deduplicate type refs (basic approach)
+	if len(typeRefs) > 0 {
+		// Simple approach to deduplication - could be optimized
+		uniqueRefs := make(map[string]typeRef)
+		for _, tr := range typeRefs {
+			uniqueRefs[tr.defName] = tr
+		}
+
+		typeRefs = make([]typeRef, 0, len(uniqueRefs))
+		for _, tr := range uniqueRefs {
+			typeRefs = append(typeRefs, tr)
+		}
+	}
+
+	// Construct the combined lhsRefined
+	result := &lhsRefined{
+		base:      base,
+		fn:        fn,
+		arr:       arr,
+		traitTags: traitTags,
+		reft:      mergedReft,
+		typeRefs:  typeRefs,
+	}
+
+	return result, true
+}
+
+// mergeRecordTypes combines two record types, returning false if they're incompatible
+func mergeRecordTypes(r1, r2 recordType, ctx *TypeCtx) (recordType, bool) {
+	// If one is empty, return the other
+	if len(r1.fields) == 0 {
+		return r2, true
+	}
+	if len(r2.fields) == 0 {
+		return r1, true
+	}
+
+	// Build a map of field names to field types for r1
+	fieldMap := make(map[string]fieldType, len(r1.fields))
+	for _, field := range r1.fields {
+		fieldMap[field.Fst.Name] = field.Snd
+	}
+
+	// Create a result with all fields from r1
+	result := recordType{
+		fields:         make([]util.Pair[ast.Var, fieldType], 0, len(r1.fields)+len(r2.fields)),
+		withProvenance: r1.withProvenance,
+	}
+	for _, field := range r1.fields {
+		result.fields = append(result.fields, field)
+	}
+
+	// Add or merge fields from r2
+	for _, field := range r2.fields {
+		name := field.Fst.Name
+		if existing, found := fieldMap[name]; found {
+			// Field exists in both records, merge bounds
+			// Lower bound becomes the union of lower bounds
+			mergedLower := unionOf(existing.lowerBound, field.Snd.lowerBound, unionOpts{})
+			// Upper bound becomes the intersection of upper bounds
+			mergedUpper := intersectionOf(existing.upperBound, field.Snd.upperBound, unionOpts{})
+
+			// Ensure that lower <: upper
+			if !ctx.SolveSubtype(mergedLower, mergedUpper, nil) {
+				return recordType{}, false
+			}
+
+			// Update the field in the result
+			for i, resultField := range result.fields {
+				if resultField.Fst.Name == name {
+					result.fields[i].Snd = fieldType{
+						lowerBound:     mergedLower,
+						upperBound:     mergedUpper,
+						withProvenance: resultField.Snd.withProvenance,
+					}
+					break
+				}
+			}
+		} else {
+			// Field only in r2, add it to result
+			result.fields = append(result.fields, field)
+			fieldMap[name] = field.Snd
+		}
+	}
+
+	return result, true
 }
 
 func (l *lhsRefined) andRecordType(r recordType) lhsRefined {
@@ -339,6 +562,8 @@ func (lhsTop) and(nf lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 
 type rhsNF interface {
 	normalForm
+	// lessThanOrEqual is written as <:< in the scala reference
+	lessThanOrEqual(rhsNF) bool
 	isRhsNf() // marker for sealed hierarchy
 }
 
@@ -351,6 +576,11 @@ var (
 // rhsBot corresponds to RhsBot in Scala. Represents the bottom type (empty union).
 type rhsBot struct{}
 
+func (b rhsBot) lessThanOrEqual(nf rhsNF) bool {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (rhsBot) String() string         { return "⊥" }
 func (rhsBot) isRhsNf()               {}
 func (rhsBot) toType() SimpleType     { return bottomType }
@@ -362,6 +592,11 @@ func (rhsBot) size() int              { return 0 }
 type rhsField struct {
 	name string
 	ty   fieldType
+}
+
+func (r *rhsField) lessThanOrEqual(nf rhsNF) bool {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (r *rhsField) isRhsNf() {}
@@ -388,9 +623,7 @@ func (r *rhsField) size() int {
 
 // rhsRest represents the `FunOrArrType \/ RhsField` part in Scala's RhsBases.
 // We use an interface that both `funcType`, `arrayBase`, and `rhsField` can satisfy.
-// Alternatively, use a struct with pointers and check for non-nil. Let's use an interface.
 type rhsRest interface {
-	SimpleType // All possible types here are SimpleType
 	isRhsRest()
 }
 
@@ -411,50 +644,28 @@ type rhsBases struct {
 	typeRefs []typeRef
 }
 
+func (r *rhsBases) lessThanOrEqual(nf rhsNF) bool {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (r *rhsBases) isRhsNf() {}
 
 // toType reconstructs the SimpleType representation of the union.
 func (r *rhsBases) toType() SimpleType {
-	// Start with the base type/field, or Bottom if nil
-	current := SimpleType(bottomType)
-	if r.rest != nil {
-		current = r.rest // Note: rhsField.toType() converts it to a record
-	}
-
-	// Union with tags (sorted for canonical representation)
-	sortedTags := slices.Clone(r.tags)
-	slices.SortFunc(sortedTags, func(a, b objectTag) int {
-		// Define a consistent comparison for objectTag, e.g., using Compare method if available
-		// or by string representation as a fallback.
-		return a.Compare(b) // Assuming Compare exists and works
-	})
-	for _, tag := range sortedTags {
-		current = unionOf(current, tag, unionOpts{})
-	}
-
-	// Union with type references (sorted for canonical representation)
-	sortedTrefs := slices.Clone(r.typeRefs)
-	slices.SortFunc(sortedTrefs, func(a, b typeRef) int {
-		if a.defName != b.defName {
-			if a.defName < b.defName {
-				return -1
-			}
-			return 1
-		}
-		return 0
-	})
-	for _, tr := range sortedTrefs {
-		current = unionOf(current, tr, unionOpts{})
-	}
-
-	return current
+	panic("TODO implement rhsBases toType in scala's RhsNf")
 }
 
 // level calculates the maximum polymorphism level among all components.
 func (r *rhsBases) level() level {
 	maxLevel := level(0)
 	if r.rest != nil {
-		maxLevel = r.rest.level()
+		if st, isST := r.rest.(SimpleType); isST {
+			maxLevel = st.level()
+		} else {
+			panic("TODO - instead of figuring out the level manually, could probably just call mkType and get its level")
+		}
+
 	}
 	// Object tags have level 0
 	for _, tr := range r.typeRefs {
@@ -498,7 +709,11 @@ func (r *rhsBases) String() string {
 
 	// Rest (Function/Array/Field)
 	if r.rest != nil {
-		parts = append(parts, r.rest.String())
+		if st, isSimpleType := r.rest.(SimpleType); isSimpleType {
+			parts = append(parts, st.String())
+		} else {
+			panic("TODO - handle String for when rest is a record field")
+		}
 	}
 
 	// Type references (sorted)

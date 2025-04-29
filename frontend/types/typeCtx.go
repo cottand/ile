@@ -7,7 +7,6 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
 	"maps"
-	"reflect"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -223,7 +222,7 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 			return tmp
 		}
 	}
-	panic("implement me for: " + reflect.TypeOf(this).String() + " and " + reflect.TypeOf(that).String())
+	panic(fmt.Sprintf("implement me for: %s: %T and %s: %T", this, this, that, that))
 }
 
 func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {

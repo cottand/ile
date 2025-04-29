@@ -813,21 +813,9 @@ func (cs *constraintSolver) goToWork(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	logger.Error("goToWork: (NOT IMPLEMENTED)", "lhs", lhs, "rhs", rhs)
-
 	opsDnf := &opsDNF{ctx: cs.ctx}
 	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
-	// 1. Convert lhs to DNF (Disjunctive Normal Form: union of conjunctions)
-	//    lhsDNF := cs.normalize(lhs, true) // Needs implementation
-	// 2. Convert rhs to CNF (Conjunctive Normal Form: intersection of disjunctions)
-	//    or DNF with polarity false.
-	//    rhsDNF := cs.normalize(rhs, false) // Needs implementation
-	// 3. Handle polymorphism in rhsDNF (rigidification) if necessary.
-	// 4. Call constrainDNF(lhsDNF, rhsDNF)
-	// return cs.constrainDNF(lhsDNF, rhsDNF, cctx, shadows)
-
-	// Placeholder: report error
-	return cs.reportError("complex constraint solving (DNF/CNF) not implemented", lhs, rhs, cctx)
+	return false
 }
 
 // constrainDNF handles constraining when types have been converted to DNF.
@@ -843,8 +831,8 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 			first := util.IterFirstOrPanic(conj.vars.Items())
 			single := set.TreeSetFrom[*typeVariable]([]*typeVariable{first}, compareTypeVars)
 			newC := conjunct{
-				left:  conj.left,
-				right: conj.right,
+				lhs:   conj.lhs,
+				rhs:   conj.rhs,
 				vars:  conj.vars.Difference(single),
 				nvars: conj.nvars,
 			}
@@ -856,23 +844,23 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 			nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
 				return ops.mkDeep(nvar, true)
 			})
-			fullRhs := ops.or(rhs, ops.mkDeep(conj.right.toType(), false))
+			fullRhs := ops.or(rhs, ops.mkDeep(conj.rhs.toType(), false))
 			for nvar := range nvarsAsDNF {
 				fullRhs = ops.or(fullRhs, nvar)
 			}
 
-			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.left, fullRhs))
+			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
 
-			lnf := conj.left
+			lnf := conj.lhs
 
 			possibleConjuncts := make([]conjunct, 0, len(fullRhs))
 			for _, rConj := range fullRhs {
-				_, isBot := rConj.right.(rhsBot)
+				_, isBot := rConj.rhs.(rhsBot)
 				// Early exit check (corresponds to Scala's `if ((r.rnf is RhsBot)...)`)
 				if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
-					// If rConj is just an LHS part (rConj.left)
-					if lnf.lessThanOrEqual(rConj.left) { // Check if lnf <: rConj.left
-						logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.left", rConj.left)
+					// If rConj is just an LHS part (rConj.lhs)
+					if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
+						logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
 						goto nextLhsConjunct // Skip to the next conjunct in the outer loop (lhs)
 					}
 				}
@@ -880,16 +868,16 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 				// Filtering logic (corresponds to Scala's `filter` conditions)
 				// 1. `!vars.exists(r.nvars)` - Always true here as conj.vars is empty.
 				// 2. `((lnf & r.lnf)).isDefined` - Check if intersection is possible.
-				_, ok := lnf.and(rConj.left, cs.ctx)
+				_, ok := lnf.and(rConj.lhs, cs.ctx)
 
 				if !ok {
-					logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.left", rConj.left.String())
+					logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
 					continue
 				}
 
 				// 3. Tag checks (simplified version)
-				if ok := checkTagCompatibility(lnf, rConj.right); !ok {
-					logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.right", rConj.right.String())
+				if ok := checkTagCompatibility(lnf, rConj.rhs); !ok {
+					logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
 					continue // Skip this rConj
 				}
 
