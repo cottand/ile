@@ -18,7 +18,13 @@ func unionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	if !opts.swapped {
 		return unionOf(other, this, unionOpts{prov: opts.prov, swapped: true})
 	}
-	logger.Warn(fmt.Sprintf("intersection not implemented for %T | %T (returning plain union)", this, other))
+	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
+		if thisAsNeg.negated.Equivalent(other) {
+			// ~A | A = any
+			return topType
+		}
+	}
+	logger.Warn(fmt.Sprintf("union not implemented for %s | %s (returning plain union)", this, other))
 	return unionType{lhs: this, rhs: other, withProvenance: opts.prov.embed()}
 
 }
@@ -34,10 +40,20 @@ func intersectionOf(this, other SimpleType, opts unionOpts) SimpleType {
 	if this.Equivalent(other) {
 		return this
 	}
-
+	thisRecord, thisIsRecord := this.(recordType)
+	if thisIsRecord && len(thisRecord.fields) == 0 {
+		return other
+	}
 	if !opts.swapped {
 		return intersectionOf(other, this, unionOpts{prov: opts.prov, swapped: true})
 	}
-	logger.Warn(fmt.Sprintf("intersection not implemented for %T & %T (returning plain intersection)", this, other))
+
+	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
+		if thisAsNeg.negated.Equivalent(other) {
+			// ~A & A = nothing
+			return bottomType
+		}
+	}
+	logger.Warn(fmt.Sprintf("intersection not implemented for %s & %s (returning plain intersection)", this, other))
 	return intersectionType{lhs: this, rhs: other, withProvenance: opts.prov.embed()}
 }

@@ -230,7 +230,7 @@ func (t intersectionType) uninstantiatedBody() SimpleType                       
 func (t intersectionType) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t intersectionType) level() level                                         { return max(t.lhs.level(), t.rhs.level()) }
 func (t intersectionType) String() string {
-	return "(" + t.String() + "&" + t.rhs.String() + ")"
+	return "(" + t.lhs.String() + "&" + t.rhs.String() + ")"
 }
 func (t intersectionType) Equivalent(other SimpleType) bool {
 	otherT, ok := other.(intersectionType)

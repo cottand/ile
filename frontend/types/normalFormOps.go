@@ -50,8 +50,8 @@ func (o *opsDNF) or(left, right dnf) dnf {
 func (o *opsDNF) andConjunct(d dnf, c conjunct) dnf {
 	resultConjuncts := make([]conjunct, 0, len(d))
 	for _, dc := range d {
-		if merged := o.conjunctAndConjunct(dc, c); merged != nil {
-			resultConjuncts = append(resultConjuncts, *merged)
+		if merged, ok := o.conjunctAndConjunct(dc, c); ok {
+			resultConjuncts = append(resultConjuncts, merged)
 		}
 	}
 	return resultConjuncts
@@ -60,8 +60,47 @@ func (o *opsDNF) andConjunct(d dnf, c conjunct) dnf {
 func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
 	panic(fmt.Sprintf("opsDNF.conjunctOrConjunct: not implemented for conjuncts %v and %v", left, right))
 }
-func (o *opsDNF) conjunctAndConjunct(left, right conjunct) *conjunct {
-	panic(fmt.Sprintf("opsDNF.conjunctAndConjunct: not implemented for conjuncts %v and %v", left, right))
+func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
+	if o.ctx.isSubtype(left.toType(), right.toType(), nil) {
+		return conjunct{}, false
+	}
+
+	// Try to merge the LHS components
+	mergedLhs, ok := left.lhs.and(right.lhs, o.ctx)
+	if !ok {
+		return conjunct{}, false // Cannot merge LHS, intersection is empty
+	}
+
+	// Create sets for the merged variables
+	// For AND operation, we take the union of all variables
+	mergedVars := left.vars.Union(right.vars)
+	mergedNvars := left.nvars.Union(right.nvars)
+
+	// Check for variable constraint conflicts
+	// A variable cannot be both positive and negative
+	if !isDisjoint(mergedVars, mergedNvars) {
+		return conjunct{}, false // Variable conflict, intersection is empty
+	}
+
+	// Merge the RHS components
+	var mergedRhs rhsNF
+	if _, isBot := left.rhs.(rhsBot); isBot {
+		// If left RHS is bottom, use right RHS
+		mergedRhs = right.rhs
+	} else if _, isBot := right.rhs.(rhsBot); isBot {
+		// If right RHS is bottom, use left RHS
+		mergedRhs = left.rhs
+	} else {
+		// Both have non-bottom RHS components, try to merge them
+		merged, ok := o.tryMergeIntersection(left.rhs, right.rhs)
+		if !ok {
+			return conjunct{}, false // Cannot merge RHS, intersection is empty
+		}
+		mergedRhs = merged
+	}
+
+	// Create the merged conjunct
+	return newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars), true
 }
 
 // orConjunct computes the union of a DNF and a single Conjunct (this | c).

@@ -147,11 +147,11 @@ func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 
 // TypesEquivalent carries the notation >:< in the scala implementation
 func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
-	return this.Equivalent(that) || ctx.SolveSubtype(this, that, nil) && ctx.SolveSubtype(that, this, nil)
+	return this.Equivalent(that) || ctx.isSubtype(this, that, nil) && ctx.isSubtype(that, this, nil)
 }
 
-// SolveSubtype carries the notation <:< in the scala implementation
-func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
+// isSubtype carries the notation <:< in the scala implementation
+func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 	if this.Equivalent(that) {
 		return true
 	}
@@ -169,15 +169,49 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 				}
 				for i, arg := range that.args {
 					// TODO args are inverted here in ref impl - is it a bug?
-					if !ctx.SolveSubtype(arg, this.args[i], cache) {
+					if !ctx.isSubtype(arg, this.args[i], cache) {
 						return false
 					}
 				}
-				return ctx.SolveSubtype(this.ret, that.ret, cache)
+				return ctx.isSubtype(this.ret, that.ret, cache)
 			})
 		}
 		if okThis || okThat {
 			return false
+		}
+	}
+	// intersections, unions
+	{
+		if thisUnion, okThis := this.(unionType); okThis {
+			//( A | B <:< C) => (A <:< C and B <:< C)
+			return ctx.isSubtype(thisUnion.lhs, that, cache) && ctx.isSubtype(thisUnion.rhs, that, cache)
+		}
+		if thatUnion, okThat := that.(unionType); okThat {
+			// (A <:< B | C) => (A <:< B and A <:< C)
+			return ctx.isSubtype(this, thatUnion.lhs, cache) && ctx.isSubtype(this, thatUnion.rhs, cache)
+		}
+		if thisIntersection, okThis := this.(intersectionType); okThis {
+			// (A & B <:< C) => (A <:< C or B <:< C)
+			return ctx.isSubtype(thisIntersection.lhs, that, cache) || ctx.isSubtype(thisIntersection.rhs, that, cache)
+		}
+		if thatIntersection, okThat := that.(intersectionType); okThat {
+			// (A <:< B & C) => (A <:< B or A <:< C)
+			return ctx.isSubtype(this, thatIntersection.lhs, cache) || ctx.isSubtype(this, thatIntersection.rhs, cache)
+		}
+	}
+	// records
+	{
+		if thisRecord, okThis := this.(recordType); okThis {
+			if len(thisRecord.fields) == 0 {
+				return ctx.isSubtype(topType, that, cache)
+			}
+			panic("isSubtype: implement for non empty records")
+		}
+		if thatRecord, okThat := that.(recordType); okThat {
+			if len(thatRecord.fields) == 0 {
+				return ctx.isSubtype(this, topType, cache)
+			}
+			panic("isSubtype: implement for non empty records")
 		}
 	}
 	// class tags
@@ -204,7 +238,7 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 		if okThis {
 			cache.put(this, that, false)
 			tmp := slices.ContainsFunc(thisTV.upperBounds, func(t SimpleType) bool {
-				return ctx.SolveSubtype(t, that, cache)
+				return ctx.isSubtype(t, that, cache)
 			})
 			if tmp {
 				cache.put(this, that, true)
@@ -214,12 +248,25 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 		if okThat {
 			cache.put(this, that, false)
 			tmp := slices.ContainsFunc(thatTV.lowerBounds, func(t SimpleType) bool {
-				return ctx.SolveSubtype(this, t, cache)
+				return ctx.isSubtype(this, t, cache)
 			})
 			if tmp {
 				cache.put(this, that, true)
 			}
 			return tmp
+		}
+	}
+	// negation types
+	{
+		thatNeg, okThat := that.(negType)
+		if okThat {
+			// A <:< ~B => A & B <:< Bot
+			return ctx.isSubtype(intersectionOf(this, thatNeg.negated, unionOpts{}), bottomType, cache)
+		}
+		thisNeg, okThis := this.(negType)
+		if okThis {
+			// ~A <:< B => Top <:< A | B
+			return ctx.isSubtype(topType, unionOf(thisNeg.negated, that, unionOpts{}), cache)
 		}
 	}
 	panic(fmt.Sprintf("implement me for: %s: %T and %s: %T", this, this, that, that))

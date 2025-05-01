@@ -331,18 +331,18 @@ func (l *lhsRefined) lessThanOrEqual(other lhsNF) bool {
 	case lhsTop:
 		return true
 	case *lhsRefined:
-		baseSubtype := l.base != nil && lhs.base != nil && ctx.SolveSubtype(*l.base, *lhs.base, nil)
-		fnSubtype := l.fn != nil && lhs.fn != nil && ctx.SolveSubtype(*l.fn, *lhs.fn, nil)
-		arrSubtype := l.arr != nil && lhs.arr != nil && ctx.SolveSubtype(l.arr, lhs.arr, nil)
+		baseSubtype := l.base != nil && lhs.base != nil && ctx.isSubtype(*l.base, *lhs.base, nil)
+		fnSubtype := l.fn != nil && lhs.fn != nil && ctx.isSubtype(*l.fn, *lhs.fn, nil)
+		arrSubtype := l.arr != nil && lhs.arr != nil && ctx.isSubtype(l.arr, lhs.arr, nil)
 		allTraitTagsSub := l.traitTags != nil && lhs.traitTags != nil && l.traitTags.Subset(lhs.traitTags)
-		rTypeSub := ctx.SolveSubtype(l.reft, lhs.reft, nil)
+		rTypeSub := ctx.isSubtype(l.reft, lhs.reft, nil)
 		if !((baseSubtype || fnSubtype || arrSubtype) && allTraitTagsSub && rTypeSub) {
 			return false
 		}
 		for _, typeRef := range lhs.typeRefs {
 			exists := false
 			for _, thisTypeRef := range l.typeRefs {
-				exists = exists || ctx.SolveSubtype(thisTypeRef, typeRef, nil)
+				exists = exists || ctx.isSubtype(thisTypeRef, typeRef, nil)
 			}
 			if !exists {
 				return false
@@ -371,10 +371,10 @@ func (l *lhsRefined) and(other lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 	// Merge class tags - both must be compatible
 	var base *classTag
 	if l.base != nil && r.base != nil {
-		if ctx.SolveSubtype(*r.base, *l.base, nil) {
+		if ctx.isSubtype(*r.base, *l.base, nil) {
 			// r is a subtype of l, so use r
 			base = r.base
-		} else if ctx.SolveSubtype(*l.base, *r.base, nil) {
+		} else if ctx.isSubtype(*l.base, *r.base, nil) {
 			// l is a subtype of r, so use l
 			base = l.base
 		} else {
@@ -391,9 +391,9 @@ func (l *lhsRefined) and(other lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 	var fn *funcType
 	if l.fn != nil && r.fn != nil {
 		// Function types must be compatible
-		if ctx.SolveSubtype(*l.fn, *r.fn, nil) {
+		if ctx.isSubtype(*l.fn, *r.fn, nil) {
 			fn = l.fn
-		} else if ctx.SolveSubtype(*r.fn, *l.fn, nil) {
+		} else if ctx.isSubtype(*r.fn, *l.fn, nil) {
 			fn = r.fn
 		} else {
 			// Incompatible function types
@@ -409,9 +409,9 @@ func (l *lhsRefined) and(other lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 	var arr arrayBase
 	if l.arr != nil && r.arr != nil {
 		// Array types must be compatible
-		if ctx.SolveSubtype(l.arr, r.arr, nil) {
+		if ctx.isSubtype(l.arr, r.arr, nil) {
 			arr = l.arr
-		} else if ctx.SolveSubtype(r.arr, l.arr, nil) {
+		} else if ctx.isSubtype(r.arr, l.arr, nil) {
 			arr = r.arr
 		} else {
 			// Incompatible array types
@@ -513,7 +513,7 @@ func mergeRecordTypes(r1, r2 recordType, ctx *TypeCtx) (recordType, bool) {
 			mergedUpper := intersectionOf(existing.upperBound, field.Snd.upperBound, unionOpts{})
 
 			// Ensure that lower <: upper
-			if !ctx.SolveSubtype(mergedLower, mergedUpper, nil) {
+			if !ctx.isSubtype(mergedLower, mergedUpper, nil) {
 				return recordType{}, false
 			}
 
@@ -753,4 +753,12 @@ func (j dnf) toType() SimpleType {
 		result = unionOf(result, c.toType(), unionOpts{})
 	}
 	return result
+}
+
+func (j dnf) String() string {
+	return util.JoinString(j, "V")
+}
+
+func (j cnf) String() string {
+	return util.JoinString(j, "V")
 }

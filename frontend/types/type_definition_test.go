@@ -245,5 +245,6 @@ func TestSimpleBoolFunc(t *testing.T) {
 		},
 		Body: &ast.Var{Name: "x"},
 	}
+	testType(t, &ast.Var{Name: ">"}, &ast.FnType{Args: []ast.Type{ast.IntType, ast.IntType}, Return: ast.BoolType})
 	testType(t, expr, ast.BoolType)
 }

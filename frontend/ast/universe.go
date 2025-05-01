@@ -13,8 +13,8 @@ var IntType = &TypeTag{
 	Name: IntTypeName,
 }
 var BoolType = &UnionType{
-	Left:       TrueType,
-	Right:      FalseType,
+	Left:       FalseType,
+	Right:      TrueType,
 	Positioner: Range{},
 }
 var TrueType = &TypeTag{

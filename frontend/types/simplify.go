@@ -964,6 +964,12 @@ func (tv *typeVariable) isRecursive() bool {
 }
 
 func negateType(negated SimpleType, prov typeProvenance) SimpleType {
+	if negated.Equivalent(topType) {
+		return bottomType
+	}
+	if negated.Equivalent(bottomType) {
+		return topType
+	}
 	// Basic simplification placeholder
 	if nn, ok := negated.(negType); ok {
 		return nn.negated // ~(~A) = A

@@ -264,7 +264,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-	// prevCctxs []constraintContext, // If needed for extrusion reasons
+// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -828,6 +828,8 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 	// We need to ensure C <: RHS for all C.
 	for _, conj := range lhs {
 		if !conj.vars.Empty() {
+			// Case 1: The conjunct has positive variables (TV & L & ~R & ~N <: RHS)
+			// Strategy: Extract one variable TV and constrain TV <: (RHS | ~(L & ~R & ~N))
 			first := util.IterFirstOrPanic(conj.vars.Items())
 			single := set.TreeSetFrom[*typeVariable]([]*typeVariable{first}, compareTypeVars)
 			newC := conjunct{
@@ -883,8 +885,14 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 
 				// If all checks pass, add to possible conjuncts
 				possibleConjuncts = append(possibleConjuncts, rConj)
-				panic("TODO implement rest of constrainDNF")
 			}
+			logger.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
+			possibleAsTypes := make([]SimpleType, 0, len(possibleConjuncts))
+			for _, rConj := range possibleConjuncts {
+				possibleAsTypes = append(possibleAsTypes, rConj.toType())
+			}
+			cs.annoying(cctx, nil, lnf, possibleAsTypes, &rhsBot{})
+			panic("TODO implement rest of constrainDNF")
 
 		} // End of else block (Case 2)
 
@@ -892,11 +900,14 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 	} // End of loop through lhs conjuncts
 }
 
-// checkTagCompatibility performs simplified tag checks similar to the Scala filter.
-//
-//goland:noinspection ALL
+func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
+	logger.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
+	cs.annoyingCalls++
+
+}
+
+// checkTagCompatibility performs tag compatibility checks similar to the Scala filter.
 func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
-	panic("TODO double check impl of this compared to scala reference")
 	lhsRefined, okLhs := lnf.(*lhsRefined)
 	if !okLhs {
 		return true // LhsTop is compatible with anything
@@ -908,7 +919,7 @@ func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
 	}
 
 	// Check 1: Trait tag conflict
-	// `if objTags.exists { case t: TraitTag => ttags(t); case _ => false } => false`
+	// If LHS has trait T and RHS has ~T, there's a conflict
 	for _, rhsTag := range rhsBases.tags {
 		if tt, ok := rhsTag.(traitTag); ok {
 			if lhsRefined.traitTags.Contains(tt) {
@@ -918,14 +929,22 @@ func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
 	}
 
 	// Check 2: Class tag conflict
-	// `case (LhsRefined(S(ot: ClassTag), ...), RhsBases(objTags, ...)) => !objTags.contains(ot)`
+	// If LHS has class C and RHS has ~C, there's a conflict
 	if lhsRefined.base != nil { // If LHS has a class tag
 		for _, rhsTag := range rhsBases.tags {
-			// Check if RHS contains the *same* class tag
+			// Check if RHS contains the same class tag
 			if ct, ok := rhsTag.(classTag); ok && ct.Equivalent(lhsRefined.base) {
 				return false // Conflict: LHS has class C, RHS has ~C
 			}
-			// TODO: Could add parent check here too: C <: ~D if D is parent of C
+
+			// Check inheritance relationship: if C <: D and RHS has ~D, there's a conflict
+			if ct, ok := rhsTag.(classTag); ok && lhsRefined.base != nil {
+				// Check if LHS class is a subtype of RHS class (using parent info)
+				clsTag := *(lhsRefined.base)
+				if clsTag.parents.Contains(ct.id.CanonicalSyntax()) {
+					return false // Conflict: LHS has class C, RHS has ~D, and C <: D
+				}
+			}
 		}
 	}
 
