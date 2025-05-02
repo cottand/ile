@@ -24,7 +24,7 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret 
 	logger.Debug("typing expression", "expr", expr.ExprName())
 	defer func() {
 		// for types not implemented, note ret might be nil at this stage
-		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret)
+		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret, "bounds", boundsString(ret))
 
 		ctx.putCache(expr, ret)
 	}()

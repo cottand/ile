@@ -106,16 +106,6 @@ type Expr interface {
 	Hash() uint64
 }
 
-// InferrableExpr is an Expr which we are interested in knowing its type after the inference phase
-// All Expr are inferrable, but in practice we are not interested in storing inference info for all of them.
-//
-// To assign a type to an expression previous to inference, use ast.Ascribe
-type InferrableExpr interface {
-	Expr
-	// SetType mutates this Expr to assign it a type during inference
-	SetType(t Type)
-}
-
 func RangeOf(expr Positioner) Range {
 	if expr == nil {
 		return Range{}
@@ -159,11 +149,6 @@ type Scope struct {
 type Literal struct {
 	// Syntax is a string representation of the literal value. The syntax will be printed when the literal is printed.
 	Syntax string
-	// Using may contain identifiers which will be looked up in the type-environment when the type is constructed.
-	Using []string
-	// Construct should produce a type at the given binding-level. The constructed type may include
-	// types derived from variables which are already in scope (retrieved from the type-environment).
-	inferred Type
 
 	// Kind indicates what literal this is originally
 	//
@@ -178,12 +163,6 @@ func (e *Literal) isAtomicExpr() {}
 
 // Returns the syntax of e.
 func (e *Literal) ExprName() string { return e.Syntax }
-
-// getCached the inferred (or assigned) type of e.
-func (e *Literal) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Literal) SetType(t Type) { e.inferred = t }
 
 func (e *Literal) Copy() Expr {
 	copied := *e
@@ -232,14 +211,8 @@ type Var struct {
 // "Var"
 func (e *Var) ExprName() string { return "Var" }
 
-// getCached the inferred (or assigned) type of e.
-func (e *Var) Type() Type { return e.inferred }
-
 // getCached the inferred (or assigned) scope where e is defined.
 func (e *Var) Scope() *Scope { return e.scope }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Var) SetType(t Type) { e.inferred = t }
 
 // Assign a binding scope for e. Scope assignments should occur indirectly, during inference.
 func (e *Var) SetScope(scope *Scope) { e.scope = scope }
@@ -277,12 +250,6 @@ type Deref struct {
 // "Deref"
 func (e *Deref) ExprName() string { return "Deref" }
 
-// getCached the inferred (or assigned) type of e.
-func (e *Deref) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Deref) SetType(t Type) { e.inferred = t }
-
 func (e *Deref) Copy() Expr {
 	copied := *e
 	return &copied
@@ -307,18 +274,6 @@ type Call struct {
 
 // "Call"
 func (e *Call) ExprName() string { return "Call" }
-
-// getCached the inferred (or assigned) type of e.
-func (e *Call) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetType(t Type) { e.inferred = t }
-
-// getCached the inferred (or assigned) function/method called in e.
-func (e *Call) FuncType() *hmtypes.Arrow { return e.inferredFunc }
-
-// Assign the function/method called in e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetFuncType(t *hmtypes.Arrow) { e.inferredFunc = t }
 
 func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -449,8 +404,6 @@ type ListLiteral struct {
 	inferred Type
 }
 
-func (l *ListLiteral) SetType(t Type) { l.inferred = t }
-
 func (l *ListLiteral) ExprName() string { return "list literal" }
 
 func (l *ListLiteral) String() string {
@@ -546,12 +499,6 @@ type RecordSelect struct {
 // "RecordSelect"
 func (e *RecordSelect) ExprName() string { return "RecordSelect" }
 
-// getCached the inferred (or assigned) type of e.
-func (e *RecordSelect) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordSelect) SetType(t Type) { e.inferred = t }
-
 func (e *RecordSelect) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Record = e.Record.Transform(f)
@@ -575,12 +522,6 @@ type RecordExtend struct {
 
 // "RecordExtend"
 func (e *RecordExtend) ExprName() string { return "RecordExtend" }
-
-// getCached the inferred (or assigned) type of e.
-func (e *RecordExtend) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordExtend) SetType(rt Type) { e.inferred = rt }
 
 func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied := *e
@@ -632,12 +573,6 @@ type RecordRestrict struct {
 // "RecordRestrict"
 func (e *RecordRestrict) ExprName() string { return "RecordRestrict" }
 
-// getCached the inferred (or assigned) type of e.
-func (e *RecordRestrict) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordRestrict) SetType(rt *RecordType) { e.inferred = rt }
-
 func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	e.Record = e.Record.Transform(f)
@@ -659,12 +594,6 @@ type RecordEmpty struct {
 
 // "RecordEmpty"
 func (e *RecordEmpty) ExprName() string { return "RecordEmpty" }
-
-// getCached the inferred (or assigned) type of e.
-func (e *RecordEmpty) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordEmpty) SetType(rt *RecordType) { e.inferred = rt }
 
 func (e *RecordEmpty) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -718,12 +647,6 @@ type WhenMatch struct {
 
 // "WhenMatch"
 func (e *WhenMatch) ExprName() string { return "WhenMatch" }
-
-// getCached the inferred (or assigned) type of e.
-func (e *WhenMatch) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *WhenMatch) SetType(t Type) { e.inferred = t }
 
 type WhenCase struct {
 	Pattern  MatchPattern
@@ -802,12 +725,6 @@ type Pipe struct {
 // "Pipe"
 func (e *Pipe) ExprName() string { return "Pipe" }
 
-// getCached the inferred (or assigned) type of e.
-func (e *Pipe) Type() Type { return e.inferred }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Pipe) SetType(t Type) { e.inferred = t }
-
 func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Sequence = make([]Expr, len(e.Sequence))
@@ -822,12 +739,6 @@ func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
 type ErrorExpr struct {
 	Range
 	Syntax string
-}
-
-func (e *ErrorExpr) Type() Type {
-	return &NothingType{
-		Positioner: e.Range,
-	}
 }
 
 func (e *ErrorExpr) ExprName() string { return "Error" }
