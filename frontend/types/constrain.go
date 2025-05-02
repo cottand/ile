@@ -102,7 +102,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "exceeded max depth limit",
-		})) // TODO Check if we should terminate
+		}))
 	}
 	if cs.fuel <= 0 {
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
@@ -110,7 +110,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "ran out of fuel",
-		})) // TODO Check if we should terminate
+		}))
 	}
 	return false // Continue
 }
@@ -316,7 +316,7 @@ func (cs *constraintSolver) recImpl(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	logger.Debug("constrain", "level", cs.level, "lhs", lhs, "rhs", rhs, "fuel", cs.fuel)
+	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
@@ -391,15 +391,12 @@ func (cs *constraintSolver) recImpl(
 		// arrayType <: Other? -> goToWork or error
 
 	case intersectionType:
-		// (L1 & L2) <: R  =>  L1 <: R AND L2 <: R
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	case unionType:
 		if cs.rec(lhs.lhs, rhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.rec(lhs.rhs, rhs, true, cctx, shadows)
-
-	case unionType:
-		// L <: (R1 | R2) -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
+		return cs.goToWork(lhs.rhs, rhs, cctx, shadows)
 
 	case negType:
 		if r, ok := rhs.(negType); ok {
@@ -497,15 +494,13 @@ func (cs *constraintSolver) recImpl(
 		return cs.constrainTypeVarRhs(lhs, r, cctx, shadows)
 
 	case unionType:
-		// L <: (R1 | R2) => L <: R1 AND L <: R2
+		cs.goToWork(lhs, rhs, cctx, shadows)
+
+	case intersectionType:
 		if cs.rec(lhs, r.lhs, true, cctx, shadows) {
 			return true
 		}
 		return cs.rec(lhs, r.rhs, true, cctx, shadows)
-
-	case intersectionType:
-		// L <: (R1 & R2) -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
 
 	case negType:
 		// L <: ~R -> Requires DNF/CNF (goToWork)
@@ -577,7 +572,11 @@ func requiresGoToWork(lhs, rhs SimpleType) bool {
 	_, rhsIsNeg := rhs.(negType)
 	// TODO: Check for Without type if implemented
 
-	return (lhsIsUnion && !isTop(rhs)) || (rhsIsInter && !isBottom(lhs)) || lhsIsNeg || rhsIsNeg
+	required := (lhsIsUnion && !isTop(rhs)) || (rhsIsInter && !isBottom(lhs)) || lhsIsNeg || rhsIsNeg
+
+	logger.Debug(fmt.Sprintf("constrain: determined normalisation required for %s <: %s", lhs, rhs), "required", required)
+
+	return required
 }
 
 func isTop(t SimpleType) bool {

@@ -148,6 +148,9 @@ func (extremeType) level() level                                           { ret
 func (t extremeType) uninstantiatedBody() SimpleType                       { return t }
 func (t extremeType) instantiate(fresher *Fresher, level level) SimpleType { return t }
 func (t extremeType) children(bool) iter.Seq[SimpleType]                   { return emptySeqSimpleType }
+func (t extremeType) isTop() bool  {
+	return !t.polarity
+}
 
 // equivalent is true when two types are equal except for ProvType, which is equivalent
 // to the underlying type, which is necessary for recursive types to associate type provenances to
