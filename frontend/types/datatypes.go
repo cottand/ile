@@ -422,6 +422,7 @@ type objectTag interface {
 }
 type classTag struct {
 	id      ast.AtomicExpr
+	// collection of
 	parents set.Collection[typeName]
 	withProvenance
 }

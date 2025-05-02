@@ -199,14 +199,20 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 // addUpperBound adds rhs as an upper bound to the type variable tv.
 func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
 	logger.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
-	// Simplified: Add bound and propagate. Scala version uses mkProxy.
-	// Need to handle potential duplicates and normalization.
-	newBound := rhs // TODO: Apply makeProxy based on cctx
+	// the reference implementation uses foldLeft so we concatenate and iterate in reverse
+	chains := util.ConcatIter(slices.Values(cctx.rhsChain), util.Reverse(cctx.lhsChain))
+	newBound := rhs
+	for bound := range chains {
+		if bound.prov() != emptyProv {
+			newBound = makeProxy(newBound, bound.prov())
+		}
+	}
+
 	tv.upperBounds = append(tv.upperBounds, newBound)
 
 	// Propagate constraints: L <: new_rhs for all L in lowerBounds
 	for _, lb := range tv.lowerBounds {
-		if cs.rec(lb, newBound, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lb, rhs, true, cctx, nil /* TODO: shadows */) {
 			return true // Terminate early if propagation fails
 		}
 	}
@@ -215,7 +221,7 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
 func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
-	logger.Debug("adding lower bound", "lhs", lhs, "tv", tv)
+	logger.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
 	newBound := lhs
 	for c := range util.ConcatIter(slices.Values(cctx.lhsChain), util.Reverse(cctx.rhsChain)) {
 		if c.prov() != emptyProv {
@@ -227,7 +233,7 @@ func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx
 
 	// Propagate constraints: new_lhs <: U for all U in upperBounds
 	for _, ub := range tv.upperBounds {
-		if cs.rec(newBound, ub, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lhs, ub, true, cctx, nil /* TODO: shadows */) {
 			return true // Terminate early if propagation fails
 		}
 	}
@@ -264,7 +270,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-// prevCctxs []constraintContext, // If needed for extrusion reasons
+	// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -316,7 +322,7 @@ func (cs *constraintSolver) recImpl(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "fuel", cs.fuel)
+	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
@@ -343,223 +349,150 @@ func (cs *constraintSolver) recImpl(
 		return cs.rec(lhs, rhsWrap.underlying(), true, cctx, shadows)
 	}
 
-	// 4. Handle specific type combinations (Switch statement mirroring Scala's match)
-	switch lhs := lhs.(type) {
-	case extremeType: // Top or Bottom
-		if lhs.polarity == true { // Bottom <: Anything
-			return false // Success
-		}
-		// Top <: RHS only if RHS is Top
-		if r, ok := rhs.(extremeType); ok && !r.polarity {
-			return false // Top <: Top
-		}
-		// Fall through to report error or handle Top <: X via goToWork
+	// 4. Handle specific type combinations (using if statements with type assertions)
 
-	case *typeVariable:
-		return cs.constrainTypeVarLhs(lhs, rhs, cctx, shadows)
-
-	case funcType:
-		if r, ok := rhs.(funcType); ok {
-			return cs.constrainFuncFunc(lhs, r, cctx, shadows)
+	if lhsExtreme, ok := lhs.(extremeType); ok && lhsExtreme.polarity {
+		return false
+	}
+	if rhsExtreme, ok := rhs.(extremeType); ok && !rhsExtreme.polarity {
+		return false
+	}
+	if rhs, ok := rhs.(recordType); ok && len(rhs.fields) == 0 {
+		return false
+	}
+	if lhsRange, ok := lhs.(typeRange); ok {
+		// L..U <: R => U <: R
+		return cs.rec(lhsRange.upperBound, rhs, true, cctx, shadows)
+	}
+	if rhsRange, ok := rhs.(typeRange); ok {
+		// R <: L..U => U <: L
+		return cs.rec(lhs, rhsRange.lowerBound, true, cctx, shadows)
+	}
+	lhsNeg, okLhsNeg := lhs.(negType)
+	if okLhsNeg {
+		if r, ok := rhs.(negType); ok {
+			// ~L <: ~R  =>  R <: L
+			return cs.rec(r.negated, lhsNeg.negated, true, cctx, shadows)
 		}
-		// funcType <: Other? -> goToWork or error
+	}
 
-	case tupleType:
+	lhsFn, okLhsFn := lhs.(funcType)
+	rhsIsErr := isErrorType(rhs)
+	if okLhsFn {
+		if rhsFn, ok := rhs.(funcType); ok {
+			// (L1, L2) -> LR <: (R1, R2) -> RR   =>
+			// R1 <: L1, LR <: LR
+			return cs.constrainFuncFunc(lhsFn, rhsFn, cctx, shadows)
+		}
+		if rhsIsErr {
+			for _, leftArg := range lhsFn.args {
+				cs.rec(rhs, leftArg, false, cctx, shadows)
+			}
+			cs.rec(lhsFn.ret, rhs, false, cctx, shadows)
+		}
+	}
+
+	if lhsClassTag, ok := lhs.(classTag); ok {
+		if rhsObjType, ok := rhs.(objectTag); ok && lhsClassTag.containsParentST(rhsObjType.Id()) {
+			return false
+		}
+	}
+
+	if lhsVar, ok := lhs.(*typeVariable); ok {
+		return cs.constrainTypeVarLhs(lhsVar, rhs, cctx, shadows)
+	}
+	if rhsVar, ok := rhs.(*typeVariable); ok {
+		return cs.constrainTypeVarRhs(lhs, rhsVar, cctx, shadows)
+	}
+	// TODO ARRAYS/TUPLES HERE
+	if lhsTuple, ok := lhs.(tupleType); ok {
 		if r, ok := rhs.(tupleType); ok {
-			return cs.constrainTupleTuple(lhs, r, cctx, shadows)
+			return cs.constrainTupleTuple(lhsTuple, r, cctx, shadows)
 		}
 		if r, ok := rhs.(arrayType); ok {
 			// Array subtyping: Tuple<T1,..Tn> <: Array<U> if (T1|...|Tn) <: U
-			innerLhs := lhs.inner() // Needs implementation
+			innerLhs := lhsTuple.inner() // Needs implementation
 			return cs.rec(innerLhs, r.innerT, false, cctx, shadows)
 			// TODO: Handle bounds correctly (recLb in Scala)
 		}
 		// tupleType <: Other? -> goToWork or error
 
-	case namedTupleType: // Similar to tupleType
+		// namedTupleType (Similar to tupleType)
+	}
+	if lhsNamedTuple, ok := lhs.(namedTupleType); ok {
 		if r, ok := rhs.(namedTupleType); ok {
-			return cs.constrainNamedTupleNamedTuple(lhs, r, cctx, shadows)
+			return cs.constrainNamedTupleNamedTuple(lhsNamedTuple, r, cctx, shadows)
 		}
 		// namedTupleType <: Other? -> goToWork or error
 
-	case arrayType:
+		// arrayType
+	}
+	if lhsArray, ok := lhs.(arrayType); ok {
 		if r, ok := rhs.(arrayType); ok {
 			// Array<T> <: Array<U> if T <: U (covariance)
 			// TODO: Handle bounds correctly (recLb in Scala for mutable arrays)
-			return cs.rec(lhs.innerT, r.innerT, false, cctx, shadows)
+			return cs.rec(lhsArray.innerT, r.innerT, false, cctx, shadows)
 		}
-		// arrayType <: Other? -> goToWork or error
+	}
+	// TODO ARRAYS/TUPLES END
 
-	case intersectionType:
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-	case unionType:
-		if cs.rec(lhs.lhs, rhs, true, cctx, shadows) {
+	if lhsUnion, ok := lhs.(unionType); ok {
+		if cs.rec(lhsUnion.lhs, rhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.goToWork(lhs.rhs, rhs, cctx, shadows)
-
-	case negType:
-		if r, ok := rhs.(negType); ok {
-			// ~L <: ~R  =>  R <: L
-			return cs.rec(r.negated, lhs.negated, true, cctx, shadows)
-		}
-		// ~L <: R -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case typeRef:
-		// Expand LHS and retry
-		// Need a mechanism to prevent infinite expansion
-		expandedLhs := cs.ctx.expand(lhs) // Assuming expand exists
-		// TODO this might need to be a Equiv rather than actual comparison
-		if expandedLhs.Equivalent(lhs) { // Avoid infinite loop if expansion didn't change anything
-			// Fall through to handle TypeRef vs RHS
-		} else {
-			return cs.rec(expandedLhs, rhs, true, cctx, shadows)
-		}
-		// Handle TypeRef vs TypeRef (variance check) or TypeRef vs Other
-		if r, ok := rhs.(typeRef); ok {
-			return cs.constrainTypeRefTypeRef(lhs, r, cctx, shadows)
-		}
-		// Fall through
-
-	case *PolymorphicType:
-		// Instantiate LHS and retry
-		// Need to manage levels correctly
-		instantiatedLhs := lhs.instantiate(cs.ctx.fresher, cs.level) // Instantiate at current solver level
-		// TODO: Pass previous contexts (prevCctxs) if needed for extrusion reasons
-		return cs.rec(instantiatedLhs, rhs, true, cctx, shadows)
-
-	case typeRange: // Equivalent to TypeBounds in Scala
-		// L..U <: R => U <: R
-		return cs.rec(lhs.upperBound, rhs, true, cctx, shadows)
-
-	case classTag:
-		switch rhs := rhs.(type) {
-		// Handle ClassTag <: RecordType (member checking)
-		case objectTag:
-			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(lhs, rhs) {
-				return false // Success
-			}
-		// Handle ClassTag <: RHS
-		case recordType:
-			return cs.constrainClassRecord(lhs, rhs, cctx, shadows)
-		}
-
-		// special cases where lhs is the error type - we continue constraining so that we can get
-		// some info on the other types
-		if isErrorType(lhs) {
-			err := lhs
-			if rhs, rhsIsFunction := rhs.(funcType); rhsIsFunction {
-				for _, arg := range rhs.args {
-					cs.rec(arg, err, false, cctx, shadows)
-				}
-				cs.rec(err, rhs.ret, false, cctx, shadows)
-			}
-			if rhs, rhsIsRecordType := rhs.(recordType); rhsIsRecordType {
-				for _, field := range rhs.fields {
-					cs.rec(err, field.Snd.upperBound, false, cctx, shadows)
-				}
-			}
-			return false
-		}
-		// Fall through
-
-	case traitTag:
-		// Handle TraitTag <: RHS
-		if rTag, ok := rhs.(objectTag); ok {
-			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(lhs, rTag) { // Needs implementation
-				return false // Success
-			}
-		}
-		// Fall through
-
-		// TODO: Add cases for RecordType, other specific types as needed
+		return cs.rec(lhsUnion.rhs, rhs, true, cctx, shadows)
 	}
 
-	// Handle RHS structure (if LHS didn't match a specific case)
-	switch r := rhs.(type) {
-	case extremeType: // Bottom or Top
-		if r.polarity == false { // Anything <: Top
-			return false // Success
-		}
-		// L <: Bottom only if L is Bottom
-		if l, ok := lhs.(extremeType); ok && l.polarity {
-			return false // Bottom <: Bottom
-		}
-		// Fall through to report error or handle X <: Bottom via goToWork
-
-	case *typeVariable:
-		return cs.constrainTypeVarRhs(lhs, r, cctx, shadows)
-
-	case unionType:
-		cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case intersectionType:
-		if cs.rec(lhs, r.lhs, true, cctx, shadows) {
+	if rhsInter, ok := rhs.(intersectionType); ok {
+		if cs.rec(lhs, rhsInter.lhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.rec(lhs, r.rhs, true, cctx, shadows)
-
-	case negType:
-		// L <: ~R -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case typeRef:
-		// Expand RHS and retry
-		expandedRhs := cs.ctx.expand(r) // Assuming expand exists
-		if expandedRhs.Equivalent(rhs) {
-			// Fall through if expansion didn't change anything
-		} else {
-			return cs.rec(lhs, expandedRhs, true, cctx, shadows)
-		}
-		// Fall through
-
-	case *PolymorphicType:
-		// L <: forall V. R => Enter new level, rigidify R, and constrain L <: rigid R
-		return cs.withSubLevel(func(subSolver *constraintSolver) bool {
-			rigidRhs := r.rigidify(cs.ctx.fresher, subSolver.level) // Rigidify at the *new* level
-			fmt.Printf(" -> Rigidified RHS: %s\n", rigidRhs)
-			// constrain LHS against the rigidified RHS in the sub-level
-			return subSolver.rec(lhs, rigidRhs, true, cctx, shadows) // Pass original cctx? Scala passes `true` for sameLevel
-			// Unstashing happens automatically when withSubLevel returns (if implemented)
-		})
-
-	case typeRange: // Equivalent to TypeBounds in Scala
-		// L <: L'..U' => L <: L'
-		return cs.rec(lhs, r.lowerBound, true, cctx, shadows)
-
-	case classTag:
-		// special cases where rhs is the error type - we continue constraining so that we can get
-		// some info on the other types
-		if isErrorType(rhs) {
-			err := rhs
-			if lhs, lhsIsFunction := lhs.(funcType); lhsIsFunction {
-				for _, arg := range lhs.args {
-					cs.rec(err, arg, false, cctx, shadows)
-				}
-				cs.rec(lhs.ret, err, false, cctx, shadows)
+		return cs.rec(lhs, rhsInter.rhs, true, cctx, shadows)
+	}
+	if leftProxy, ok := lhs.(wrappingProvType); ok {
+		return cs.rec(leftProxy.underlying(), rhs, true, cctx, shadows)
+	}
+	if rightProxy, ok := rhs.(wrappingProvType); ok {
+		return cs.rec(lhs, rightProxy.underlying(), true, cctx, shadows)
+	}
+	lhsIsErr := isErrorType(lhs)
+	if lhsIsErr {
+		rhsFn, isRhsFn := rhs.(funcType)
+		if isRhsFn {
+			for _, arg := range rhsFn.args {
+				cs.rec(lhs, arg, false, cctx, shadows)
 			}
-			if lhs, lhsIsRecordType := lhs.(recordType); lhsIsRecordType {
-				for _, field := range lhs.fields {
-					cs.rec(field.Snd.upperBound, err, false, cctx, shadows)
-				}
-			}
-			return false
+			cs.rec(rhsFn.ret, lhs, false, cctx, shadows)
 		}
-
-		// TODO: Add cases for RecordType on RHS, etc.
 	}
 
-	// 6. If no specific rule matched, report error or try complex solving
-	logger.Debug("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
-	// Attempt goToWork for complex cases involving unions/intersections/negations
-	if requiresGoToWork(lhs, rhs) {
+	// TODO record <: record
+	//         err <: record
+	//      record <: err
+	//     typeRef <: typeRef
+	//     typeRef <: _
+	//           _ <: typeRef
+	if lhsIsErr || rhsIsErr {
+		return false
+	}
+
+	if _, ok := rhs.(unionType); ok {
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+	if _, ok := lhs.(intersectionType); ok {
 		return cs.goToWork(lhs, rhs, cctx, shadows)
 	}
 
-	// 7. Default: Report Error
+	if okLhsNeg {
+		// ~L <: _ -> Requires DNF/CNF (goToWork)
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+	if _, ok := rhs.(negType); ok {
+		// _ <: ~~R -> Requires DNF/CNF (goToWork)
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+
+	logger.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
 	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs), lhs, rhs, cctx)
 }
 
@@ -608,11 +541,10 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
 	if extrudedRhs == nil {                            // Extrusion failed or reported error
+		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs), lhs, rhs, cctx)
 		return true
 	}
 	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
-
-	// Levels match or RHS is lower: Add upper bound
 }
 
 // constrainTypeVarRhs handles LHS <: TypeVariable
@@ -626,8 +558,8 @@ func (cs *constraintSolver) constrainTypeVarRhs(
 	if lhs.level() <= rhs.level() {
 		return cs.addLowerBound(rhs, lhs, cctx)
 	}
-	// Extrusion needed for LHS
-	fmt.Printf(" -> Extruding LHS for TV RHS (%d > %d)\n", lhs.level(), rhs.level())
+
+	logger.Debug("constraint: extruding LHS for type-variable RHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedLhs := cs.extrude(lhs, rhs.level(), true) // Needs extrude implementation
 	if extrudedLhs == nil {                           // Extrusion failed or reported error
 		return true
@@ -642,18 +574,15 @@ func (cs *constraintSolver) constrainFuncFunc(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	// Check arity
 	if len(lhs.args) != len(rhs.args) {
 		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), lhs, rhs, cctx)
 	}
-
 	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
 		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) { // Note: sameLevel = false
 			return true // Terminate early
 		}
 	}
-
 	// constrain return type covariantly: lhs.ret <: rhs.ret
 	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows) // Note: sameLevel = false
 }
