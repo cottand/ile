@@ -2,10 +2,10 @@ package types
 
 import (
 	"fmt"
-	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 	"maps"
 	"runtime/debug"
 	"slices"
@@ -147,12 +147,12 @@ func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 
 // TypesEquivalent carries the notation >:< in the scala implementation
 func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
-	return this.Equivalent(that) || ctx.isSubtype(this, that, nil) && ctx.isSubtype(that, this, nil)
+	return Equal(this, that) || ctx.isSubtype(this, that, nil) && ctx.isSubtype(that, this, nil)
 }
 
 // isSubtype carries the notation <:< in the scala implementation
 func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
-	if this.Equivalent(that) {
+	if Equal(this, that) {
 		return true
 	}
 	if cache == nil {
@@ -332,7 +332,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 				Snd: argType,
 			})
 		}
-		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Len() == 0 {
+		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Size() == 0 {
 			td1 = TypeDefinition{
 				defKind:       td0.Kind,
 				name:          td0.Name.Name,
@@ -344,7 +344,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 					isType:     true,
 				}}},
 				// this is Object in the reference implementation
-				baseClasses: emptySetTypeName.Add(ast.AnyTypeName),
+				baseClasses: set.From([]typeName{ast.AnyTypeName}),
 			}
 		} else {
 			td1 = TypeDefinition{
@@ -353,7 +353,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 				typeParamArgs: typeParamsArgsAsSlice,
 				typeVars:      typeVars,
 				bodyType:      bodyType,
-				baseClasses:   baseClasses.Immutable(immutable.NewHasher("")),
+				baseClasses:   baseClasses,
 				from:          td0.Positioner,
 			}
 		}
@@ -371,30 +371,28 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 
 // def baseClassesOf(tyd: mlscript.TypeDef): Set[TypeName] =
 // if (tyd.kind === Als) Set.empty else baseClassesOf(tyd.body)
-func baseClassesOfDef(definition ast.TypeDefinition) util.MSet[typeName] {
+func baseClassesOfDef(definition ast.TypeDefinition) set.Collection[typeName] {
 	if definition.Kind == ast.KindAlias {
-		return util.NewEmptySet[string]()
+		return set.New[string](0)
 	}
 	return baseClassesOfType(definition.Body)
 
 }
 
-func baseClassesOfType(typ ast.Type) util.MSet[typeName] {
+func baseClassesOfType(typ ast.Type) set.Collection[typeName] {
 	switch typ := typ.(type) {
 	case *ast.IntersectionType:
 		leftClasses := baseClassesOfType(typ.Left)
 		rightClasses := baseClassesOfType(typ.Right)
-		for elem := range leftClasses.All() {
-			rightClasses.Add(elem)
-		}
+		rightClasses.InsertSet(leftClasses)
 		return rightClasses
 	case *ast.TypeName:
-		return util.NewSetOf(typ.Name)
+		return set.From([]typeName{typ.Name})
 	case *ast.AppliedType:
 		return baseClassesOfType(&(typ.Base))
 		// including  *ast.Record, *ast.UnionType:
 	default:
-		return util.NewEmptySet[string]()
+		return set.New[string](0)
 	}
 }
 

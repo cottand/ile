@@ -32,7 +32,7 @@ type PackagePublicEnv = map[string]ast.Type
 
 // InferencePhase mutates pkg to assign types from inference as well as existing ast.TypeAnnotation.
 // It should populate both pkg's Syntax and declarations
-func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
+func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Errors, error) {
 	errs := &ilerr.Errors{}
 	files := make([]ast.File, len(env.Syntax))
 
@@ -42,7 +42,6 @@ func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
 	}
 	errs = errs.Merge(err)
 
-	ctx := types.NewEmptyTypeCtx()
 	vars := make(map[types.TypeVarID]types.SimpleType)
 	for i, file := range env.Syntax {
 		for j, decl := range file.Declarations {

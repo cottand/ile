@@ -1,13 +1,14 @@
 package types
 
 import (
+	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/internal/log"
 	"reflect"
 )
 
-var logger = log.DefaultLogger.With("section", "inference")
+var logger = ast.ExprLogger(log.DefaultLogger).With("section", "inference")
 
 func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
 	panic("TODO implement me")
@@ -17,14 +18,16 @@ func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
 //
 // it is called typeTerm in the reference scala implementation
 func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret SimpleType) {
+	logger := logger.With("expr.name", expr.ExprName(), "expr.string", expr, "expr.hash", fmt.Sprintf("%x", expr.Hash()))
 	if cached, ok := ctx.cache.getCached(expr); ok && cached.at == ctx.level {
+		logger.Debug("typeExpr: using cached type")
 		return cached.t
 	}
 
-	logger.Debug("typing expression", "expr", expr.ExprName())
+	logger.Debug("typeExpr: typing expression")
 	defer func() {
 		// for types not implemented, note ret might be nil at this stage
-		logger.Debug("done typing expression", "expr", expr.ExprName(), "result", ret, "bounds", boundsString(ret))
+		logger.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
 
 		ctx.putCache(expr, ret)
 	}()
@@ -129,11 +132,6 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret 
 		nested := ctx.nest()
 		argTypes := make([]SimpleType, 0, len(expr.ArgNames))
 		for _, arg := range expr.ArgNames {
-			//val res = new TypeVariable(lvl, Nil, Nil, N, Option.when(dbg)(nme))(prov)
-			//v.uid = S(nextUid)
-			//ctx += nme -> VarSymbol(res, v)
-			//res
-			// scala reference allows using a pattern as a function argument, but we only support normal variables
 			argType := ctx.newTypeVariable(newOriginProv(expr, "function parameter", ""), "", nil, nil)
 			nested.env[arg] = argType
 			argTypes = append(argTypes, argType)

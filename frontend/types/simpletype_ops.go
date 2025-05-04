@@ -9,17 +9,17 @@ type unionOpts struct {
 
 // unionOf corresponds to the `|` operation in the scala mlstruct implementation
 func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
-	if this.Equivalent(topType) {
+	if Equal(this, topType) {
 		return topType
 	}
-	if this.Equivalent(bottomType) {
+	if Equal(this, bottomType) {
 		return that
 	}
 	if !opts.swapped {
 		return unionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
 	}
 	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
-		if thisAsNeg.negated.Equivalent(that) {
+		if Equal(thisAsNeg.negated, that) {
 			// ~A | A = any
 			return topType
 		}
@@ -31,13 +31,13 @@ func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 
 // intersectionOf corresponds to the `&` operation in the scala mlstruct implementation
 func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
-	if this.Equivalent(bottomType) {
+	if Equal(this, bottomType) {
 		return bottomType
 	}
-	if this.Equivalent(topType) {
+	if Equal(this, topType) {
 		return that
 	}
-	if this.Equivalent(that) {
+	if Equal(this, that) {
 		return this
 	}
 	thisRecord, thisIsRecord := this.(recordType)
@@ -49,7 +49,7 @@ func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	}
 
 	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
-		if thisAsNeg.negated.Equivalent(that) {
+		if Equal(thisAsNeg.negated, that) {
 			// ~A & A = nothing
 			return bottomType
 		}

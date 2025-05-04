@@ -6,14 +6,9 @@ import (
 	"slices"
 )
 
-// Equivalenceable allows checking if two elements are equivalent
-type Equivalenceable[A any] interface {
-	Equivalent(other A) bool
-}
-
-func SlicesEquivalent[A any, B Equivalenceable[A]](fst []B, snd []A) bool {
-	return slices.EqualFunc(fst, snd, func(e1 B, e2 A) bool {
-		return e1.Equivalent(e2)
+func SlicesEquivalent[A set.Hash, B, BB set.Hasher[A]](fst []B, snd []BB) bool {
+	return slices.EqualFunc(fst, snd, func(e1 B, e2 BB) bool {
+		return e1.Hash() == e2.Hash()
 	})
 }
 
@@ -29,7 +24,7 @@ func ConcatIter[A any](iter ...iter.Seq[A]) iter.Seq[A] {
 	}
 }
 
-func SingleIter[A any](elem A) iter.Seq[A]  {
+func SingleIter[A any](elem A) iter.Seq[A] {
 	return func(yield func(A) bool) {
 		yield(elem)
 	}
@@ -54,7 +49,7 @@ func IterFirstOrPanic[A any](iter iter.Seq[A]) A {
 	panic("empty iterator")
 }
 
-func MapIter[A, B any](iter iter.Seq[A], f func(A) B) iter.Seq[B]  {
+func MapIter[A, B any](iter iter.Seq[A], f func(A) B) iter.Seq[B] {
 	return func(yield func(B) bool) {
 		for v := range iter {
 			if !yield(f(v)) {
@@ -74,7 +69,6 @@ func Reverse[A any](slice []A) iter.Seq[A] {
 	}
 }
 
-
 func SetFromSeq[V comparable](s iter.Seq[V], size int) *set.Set[V] {
 	newSet := set.New[V](size)
 	for item := range s {
@@ -87,7 +81,7 @@ func CopySet[V comparable](s set.Collection[V]) *set.Set[V] {
 	return SetFromSeq(s.Items(), s.Size())
 }
 
-func CopyHashSet[T set.Hasher[H], H set.Hash](s set.Collection[T]) *set.HashSet[T, H]  {
+func CopyHashSet[T set.Hasher[H], H set.Hash](s set.Collection[T]) *set.HashSet[T, H] {
 	newSet := set.NewHashSet[T, H](s.Size())
 	for item := range s.Items() {
 		newSet.Insert(item)

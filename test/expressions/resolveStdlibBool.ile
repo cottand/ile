@@ -1,4 +1,4 @@
 //ile:compilerTest test.MyBool | true
 package test
 
-val MyBool Bool = True
+val MyBool: Bool = True

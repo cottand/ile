@@ -2,7 +2,6 @@ package ast
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/internal/log"
 	"go/token"
 	"unicode"
@@ -17,10 +16,6 @@ type Positioner interface {
 	Pos() token.Pos // position of first character belonging to the node
 	End() token.Pos // position of first character immediately after the node
 }
-
-// TypeAnnotationFn should produce a type at the given binding-level. The constructed type may include
-// types derived from variables which are already in scope (retrieved from the type-environment).
-type TypeAnnotationFn = func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
 
 type Range struct {
 	PosStart token.Pos

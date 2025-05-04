@@ -145,7 +145,6 @@ type Scope struct {
 	Parent *Scope
 }
 
-// Semi-opaque literal value
 type Literal struct {
 	// Syntax is a string representation of the literal value. The syntax will be printed when the literal is printed.
 	Syntax string
@@ -316,14 +315,13 @@ func (e *Ascribe) Hash() uint64 {
 	return h.Sum64()
 }
 
-// Function abstraction: `fn (x, y) -> x`
+// Func abstraction: `fn x, y -> x`
 type Func struct {
 	ArgNames []string
 	Body     Expr
 	Range    // of the declaration including parameters but not the body
 }
 
-// "Func"
 func (e *Func) ExprName() string { return "Func" }
 
 func (e *Func) Transform(f func(expr Expr) Expr) Expr {
@@ -436,26 +434,11 @@ func (l *ListLiteral) Hash() uint64 {
 type LetGroup struct {
 	Vars []LetBinding
 	Body Expr
-	sccs [][]LetBinding
 	Range
 }
 
 // "LetGroup"
 func (e *LetGroup) ExprName() string { return "LetGroup" }
-
-// getCached the strongly connected components inferred for e, in dependency order.
-// The strongly connected components will be assigned if e is inferred with
-// annotation enabled.
-//
-// Each component is a variable bound by e.
-func (e *LetGroup) StronglyConnectedComponents() [][]LetBinding { return e.sccs }
-
-// Assign the strongly connected components for e. Assignments should occur indirectly,
-// during inference.
-//
-// Each component should be a variable bound by e.
-func (e *LetGroup) SetStronglyConnectedComponents(sccs [][]LetBinding) { e.sccs = sccs }
-
 func (e *LetGroup) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Vars = make([]LetBinding, len(e.Vars))

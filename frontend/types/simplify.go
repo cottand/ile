@@ -111,7 +111,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) SimpleType {
 // simplifyType performs the core simplification logic: analysis, substitution determination, and transformation.
 // Corresponds to the simplifyType method in Scala's TypeSimplifier.
 func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bool, inlineBounds bool) SimpleType {
-	logger.Debug("simplifyType: starting", "type", st, "polarity", pol)
+	logger.Debug("simplifyType: starting", "type", st, "polarity", pol, "bounds", boundsString(st))
 
 	// --- Analysis 1: Polarity and Occurrence Counts ---
 	analyzer1 := &analysis1State{
@@ -964,10 +964,10 @@ func (tv *typeVariable) isRecursive() bool {
 }
 
 func negateType(negated SimpleType, prov typeProvenance) SimpleType {
-	if negated.Equivalent(topType) {
+	if Equal(negated, topType) {
 		return bottomType
 	}
-	if negated.Equivalent(bottomType) {
+	if Equal(negated, bottomType) {
 		return topType
 	}
 	// Basic simplification placeholder

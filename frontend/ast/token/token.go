@@ -228,6 +228,8 @@ func (op Token) Precedence() int {
 		return 4
 	case MUL, QUO, REM, SHL, SHR, AND, AND_NOT:
 		return 5
+	default:
+		panic("unimplemented precedence for token: " + op.String())
 	}
 	return LowestPrec
 }

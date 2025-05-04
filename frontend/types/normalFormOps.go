@@ -591,7 +591,7 @@ func (o *opsDNF) mkDeepST(ty SimpleType, pol bool) SimpleType {
 		go_ = func(childPol polarity, child SimpleType) SimpleType {
 			// Use Equivalent to handle potential cycles involving ProvType wrappers etc.
 			// Compare with the *original* unwrapped type `t`
-			if child.Equivalent(t) {
+			if Equal(child, t) {
 				// Recursive step: Apply mapPol again to handle cycles/nested structures
 				// Use the *original* opsDNF `o` here, as mapPol itself doesn't change preserveTypeRefs setting
 				return o.mapPolRecursive(child, childPol, go_)

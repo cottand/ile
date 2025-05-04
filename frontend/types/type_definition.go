@@ -5,6 +5,7 @@ import (
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 	"iter"
 	"reflect"
 	"slices"
@@ -17,22 +18,22 @@ type TypeDefinition struct {
 	typeVars         []typeVariable
 	typeVarVariances map[TypeVarID]varianceInfo
 	bodyType         SimpleType
-	baseClasses      immutable.Set[typeName]
+	baseClasses      set.Collection[typeName]
 	from             ast.Positioner
 }
 
-func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) immutable.Set[typeName] {
-	builder := util.NewEmptySet[typeName]()
+func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) set.Collection[typeName] {
+	builder := set.New[typeName](1)
 	d.allBaseClassesHelper(ctx, builder)
-	return immutable.NewSet[typeName](nil, builder.AsSlice()...)
+	return builder
 }
 
-func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed util.MSet[typeName]) {
+func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed set.Collection[typeName]) {
 	if traversed.Contains(d.name) {
 		return
 	}
-	traversed.Add(d.name)
-	for def := range util.SetIterator[typeName](d.baseClasses) {
+	traversed.Insert(d.name)
+	for def := range d.baseClasses.Items() {
 		t, ok := ctx.typeDefs[def]
 		if ok {
 			t.allBaseClassesHelper(ctx, traversed)

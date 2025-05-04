@@ -6,6 +6,7 @@ import (
 	"github.com/cottand/ile/frontend"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/internal/log"
 	"go/format"
 	"go/token"
@@ -40,7 +41,9 @@ type Package struct {
 	declarations map[string]ast.Type
 	syntax       []ast.File
 	fSet         *token.FileSet
-	errors       *ilerr.Errors
+	errors  *ilerr.Errors
+	TypeCtx *types.TypeCtx
+
 	//typeInfo     *infer.TypeEnv
 }
 
@@ -86,6 +89,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		imports:      make(map[string]*Package),
 		goImports:    make(map[string]*gopackages.Package),
 		declarations: make(map[string]ast.Type),
+		TypeCtx:      types.NewEmptyTypeCtx(),
 	}
 	fSet := token.NewFileSet()
 	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
@@ -140,7 +144,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 
 	// inference phase
 	var errorsInference *ilerr.Errors
-	pkg.syntax, errorsInference, err = frontend.InferencePhase(pkg.inferenceEnv())
+	pkg.syntax, errorsInference, err = frontend.InferencePhase(pkg.inferenceEnv(), pkg.TypeCtx)
 	pkg.errors = pkg.errors.Merge(errorsInference)
 	return pkg, err
 }
@@ -231,7 +235,7 @@ func (p *Package) WriteTranspiledModule(dir string) error {
 		return fmt.Errorf("write go.mod: %w", err)
 	}
 
-	tp := backend.NewTranspiler()
+	tp := backend.NewTranspiler(p.TypeCtx)
 	goFiles, err := tp.TranspilePackage(p.Name(), p.syntax)
 
 	for i, goAstFile := range goFiles {

@@ -286,10 +286,10 @@ func (cs *constraintSolver) rec(
 	if sameLevel {
 		nextCctx = cctx
 		// Prepend without reallocating if possible (optimization)
-		if len(cctx.lhsChain) == 0 || !cctx.lhsChain[0].Equivalent(lhs) { // Avoid duplicates
+		if len(cctx.lhsChain) == 0 || !Equal(cctx.lhsChain[0], lhs) { // Avoid duplicates
 			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
 		}
-		if len(cctx.rhsChain) == 0 || !cctx.rhsChain[0].Equivalent(rhs) { // Avoid duplicates
+		if len(cctx.rhsChain) == 0 || !Equal(cctx.rhsChain[0], rhs) { // Avoid duplicates
 			nextCctx.rhsChain = slices.Insert(cctx.rhsChain, 0, rhs)
 		}
 	} else {
@@ -312,7 +312,7 @@ func (cs *constraintSolver) rec(
 }
 
 func isErrorType(ty SimpleType) bool {
-	return ty.Equivalent(errorTypeInstance)
+	return Equal(ty, errorTypeInstance)
 }
 
 // recImpl contains the core subtyping logic based on type structure.
@@ -341,13 +341,8 @@ func (cs *constraintSolver) recImpl(
 	cs.cache.Insert(pair)
 	// TODO: Update shadows state here.
 
-	// 3. Unwrap Provenance Wrappers (like ProvType in Scala)
-	if lhsWrap, ok := lhs.(wrappingProvType); ok {
-		return cs.rec(lhsWrap.underlying(), rhs, true, cctx, shadows)
-	}
-	if rhsWrap, ok := rhs.(wrappingProvType); ok {
-		return cs.rec(lhs, rhsWrap.underlying(), true, cctx, shadows)
-	}
+	// 3. unwrap provenance wrappers so that we do this checking on the underlying types
+	lhs, rhs = unwrapProvenance(lhs), unwrapProvenance(rhs)
 
 	// 4. Handle specific type combinations (using if statements with type assertions)
 
@@ -643,7 +638,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		// Need cycle detection for expansion
 		expandedLhs := cs.ctx.expand(lhs)
 		expandedRhs := cs.ctx.expand(rhs)
-		if expandedLhs.Equivalent(lhs) && expandedRhs.Equivalent(rhs) { // Avoid infinite loop
+		if Equal(expandedLhs, lhs) && Equal(expandedRhs, rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error
 			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), lhs, rhs, cctx)
@@ -861,7 +856,7 @@ func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
 	if lhsRefined.base != nil { // If LHS has a class tag
 		for _, rhsTag := range rhsBases.tags {
 			// Check if RHS contains the same class tag
-			if ct, ok := rhsTag.(classTag); ok && ct.Equivalent(lhsRefined.base) {
+			if ct, ok := rhsTag.(classTag); ok && Equal(ct, *(lhsRefined.base)) {
 				return false // Conflict: LHS has class C, RHS has ~C
 			}
 
@@ -1104,7 +1099,7 @@ func polarityFromBool(pol bool) polarity {
 
 // IsSubtypeTag checks if tag1 is a subtype of tag2 (class/trait inheritance).
 func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {
-	if tag1.Equivalent(tag2) {
+	if Equal(tag1, tag2) {
 		return true
 	}
 	asClassTag, ok := tag1.(classTag)

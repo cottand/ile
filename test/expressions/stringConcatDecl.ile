@@ -1,6 +1,6 @@
 //ile:compilerTest test.SomeVal+test.OtherVal | "aabbccdd"
 package test
 
-val SomeVal String = "aa" + "bb"
+val SomeVal: String = "aa" + "bb"
 
-val OtherVal String = "cc" + "dd"
+val OtherVal: String = "cc" + "dd"

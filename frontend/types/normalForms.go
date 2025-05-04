@@ -677,7 +677,7 @@ func (r *rhsBases) level() level {
 func (r *rhsBases) hasTag(tag traitTag) bool {
 	for _, t := range r.tags {
 		// Need to check type and ID equivalence
-		if tt, ok := t.(traitTag); ok && tt.Equivalent(tag) {
+		if tt, ok := t.(traitTag); ok && Equal(tt, tag) {
 			return true
 		}
 	}

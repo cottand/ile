@@ -45,6 +45,7 @@ func (f filteringHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (f filteringHandler) Handle(ctx context.Context, record slog.Record) error {
+	// always handle warnings
 	if record.Level >= slog.LevelWarn {
 		return f.underlying.Handle(ctx, record)
 	}
@@ -71,6 +72,8 @@ func (f filteringHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 			newAttrs = append(newAttrs, attr)
 		}
 	}
+	// ...and keep the sections we already had
+	sections = append(sections, f.sections...)
 	return &filteringHandler{
 		underlying: f.underlying.WithAttrs(newAttrs),
 		sections:   sections,

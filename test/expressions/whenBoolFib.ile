@@ -1,7 +1,7 @@
 //ile:compilerTest test.Fib(10) | int64(55)
 package test
 
-fn Fib(n Int) Int {
+fn Fib(n: Int): Int {
   when n {
     0 -> 0
     1 -> 1

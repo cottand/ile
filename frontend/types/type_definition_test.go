@@ -1,9 +1,10 @@
-package types
+package types_test
 
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/util"
 	"github.com/stretchr/testify/assert"
 	"runtime/debug"
@@ -19,7 +20,8 @@ func (m MapShowCtx) NameOf(t *ast.TypeVar) string {
 
 func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 	typeMap := new(MapShowCtx)
-	t.Run(fmt.Sprintf("(%s):%s", expr.ExprName(), expected.ShowIn(typeMap, 0)), func(t *testing.T) {
+	exprString := ast.ExprString(expr)
+	t.Run(fmt.Sprintf("(%s):%s", exprString, expected.ShowIn(typeMap, 0)), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := strings.Split(string(debug.Stack()), "\n")
@@ -27,8 +29,8 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 				t.FailNow()
 			}
 		}()
-		ctx := NewEmptyTypeCtx()
-		vars := make(map[TypeVarID]SimpleType)
+		ctx := types.NewEmptyTypeCtx()
+		vars := make(map[types.TypeVarID]types.SimpleType)
 
 		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {
@@ -44,7 +46,7 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 		asAst := ctx.TypeOf(expr)
 		finalTypeStr := asAst.ShowIn(typeMap, 0)
 		assert.Equal(t, expected.ShowIn(typeMap, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(typeMap, 0))
-		println("inferred: ", finalTypeStr)
+		fmt.Printf("INFERRED %s (with hash %x): %s\n", exprString, expr.Hash(), finalTypeStr)
 	})
 }
 

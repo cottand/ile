@@ -1,7 +1,9 @@
 package ast
 
 import (
+	"encoding/binary"
 	"go/token"
+	"hash/fnv"
 	"strings"
 )
 
@@ -14,6 +16,11 @@ const (
 	KindAlias
 	KindTrait
 )
+
+func TypeString(t Type) string  {
+	return t.ShowIn(DumbShowCtx, 0)
+
+}
 
 func (k TypeDefKind) String() string {
 	switch k {
@@ -41,10 +48,11 @@ type Field struct {
 	Positioner
 }
 
-// Type is not the same as a hmtypes.Type (legacy HM type system)
+// Type is different from a hmtypes.Type (legacy HM type system)
 // it can be found in the source (provided by the user) or inferred
 type Type interface {
 	ShowIn(ctx ShowCtx, outerPrecedence uint16) string
+	Hash() uint64
 	Positioner
 }
 
@@ -80,14 +88,34 @@ func (t *IntersectionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return t.Left.ShowIn(ctx, thisPrecedence) + " & " + t.Right.ShowIn(ctx, thisPrecedence)
 }
 
+func (t *IntersectionType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("IntersectionType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.Left.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, t.Right.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 type UnionType struct {
 	Left, Right Type
 	Positioner
 }
 
 func (t *UnionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
-	var thisPrecedence uint16 = 20
+	const thisPrecedence uint16 = 20
 	return t.Left.ShowIn(ctx, thisPrecedence) + " | " + t.Right.ShowIn(ctx, thisPrecedence)
+}
+
+func (t *UnionType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("UnionType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.Left.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, t.Right.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 type AppliedType struct {
@@ -107,6 +135,18 @@ func (t *AppliedType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return sb.String()
 }
 
+func (t *AppliedType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("AppliedType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.Base.Hash())
+	for _, arg := range t.Args {
+		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 type Record struct{}
 
 type TypeVar struct {
@@ -120,6 +160,14 @@ func (t *TypeVar) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return ctx.NameOf(t)
 }
 func (*TypeVar) isNullaryType() {}
+
+func (t *TypeVar) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("TypeVar"))
+	_, _ = h.Write([]byte(t.Identifier))
+	_, _ = h.Write([]byte(t.NameHint))
+	return h.Sum64()
+}
 
 func (t *Literal) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	switch t.Kind {
@@ -140,6 +188,12 @@ type NothingType struct{ Positioner }
 func (*NothingType) ShowIn(ShowCtx, uint16) string { return NothingTypeName }
 func (*NothingType) isNullaryType()                {}
 
+func (*NothingType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("NothingType"))
+	return h.Sum64()
+}
+
 // AnyType corresponds to Top in the type lattice
 // all values have the AnyType type
 type AnyType struct {
@@ -148,6 +202,12 @@ type AnyType struct {
 
 func (*AnyType) ShowIn(ShowCtx, uint16) string { return AnyTypeName }
 func (*AnyType) isNullaryType()                {}
+
+func (*AnyType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("AnyType"))
+	return h.Sum64()
+}
 
 type ShowCtx interface {
 	NameOf(typeVar *TypeVar) string
@@ -165,6 +225,13 @@ type TypeName struct {
 func (n *TypeName) ShowIn(ShowCtx, uint16) string { return n.Name }
 func (n *TypeName) isNullaryType()                {}
 
+func (n *TypeName) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("TypeName"))
+	_, _ = h.Write([]byte(n.Name))
+	return h.Sum64()
+}
+
 type TypeTag struct {
 	Name string
 	Positioner
@@ -172,6 +239,12 @@ type TypeTag struct {
 
 func (n *TypeTag) ShowIn(ShowCtx, uint16) string { return "#" + n.Name }
 func (n *TypeTag) isNullaryType()                {}
+
+func (n *TypeTag) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("TypeTag"+n.Name))
+	return h.Sum64()
+}
 
 type TypeBounds struct {
 	Lower, Upper Type
@@ -195,6 +268,16 @@ func (n *TypeBounds) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 		return lowerStr + " .."
 	}
 	return lowerStr + " .. " + upperStr
+}
+
+func (n *TypeBounds) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("TypeBounds"))
+	arr := make([]byte, 0, 4)
+	arr = binary.LittleEndian.AppendUint64(arr, n.Lower.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, n.Upper.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 type ConstrainedEntry = struct {
@@ -230,7 +313,19 @@ func (t *ConstrainedType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 		entries = append(entries, lhs+v+rhs)
 	}
 	return t.Base.ShowIn(ctx, 0) + " where " + strings.Join(entries, ", ")
+}
 
+func (t *ConstrainedType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("ConstrainedType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.Base.Hash())
+	for _, entry := range t.Where {
+		arr = binary.LittleEndian.AppendUint64(arr, entry.Var.Hash())
+		arr = binary.LittleEndian.AppendUint64(arr, entry.Bounds.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 type FnType struct {
@@ -255,10 +350,28 @@ func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return withParensIf(outerPrecedence > 30, "fn "+strings.Join(argShow, ", ")+" -> "+t.Return.ShowIn(ctx, 30))
 }
 
+func (t *FnType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("FnType"))
+	arr := make([]byte, 0)
+	for _, arg := range t.Args {
+		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
+	}
+	arr = binary.LittleEndian.AppendUint64(arr, t.Return.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 type RecordType struct {
 	Range
 }
 
 func (*RecordType) ShowIn(ShowCtx, uint16) string {
 	return "record"
+}
+
+func (*RecordType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("RecordType"))
+	return h.Sum64()
 }
