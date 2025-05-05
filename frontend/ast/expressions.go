@@ -193,13 +193,11 @@ func (e *Literal) CanonicalSyntax() string {
 	}
 }
 
-var intSuperTypes = []string{IntTypeName, NumberTypeName}
-var stringSuperTypes = []string{StringTypeName}
-var floatSuperTypes = []string{FloatTypeName, NumberTypeName}
+var intSuperTypes = []string{IntTypeName, NumberTypeName, AnyTypeName}
+var stringSuperTypes = []string{StringTypeName, AnyTypeName}
+var floatSuperTypes = []string{FloatTypeName, NumberTypeName, AnyTypeName}
 
 // BaseTypes lists the TypeTag these literals are subtypes of
-//
-// These do not include the Any type, which is already a subtype of all
 func (e *Literal) BaseTypes() set.Collection[string] {
 	switch e.Kind {
 	case token.INT:
@@ -208,7 +206,6 @@ func (e *Literal) BaseTypes() set.Collection[string] {
 		return set.From(stringSuperTypes)
 	case token.FLOAT:
 		return set.From(floatSuperTypes)
-
 
 	default:
 		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
