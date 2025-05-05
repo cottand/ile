@@ -2,8 +2,6 @@ package ast
 
 import (
 	"encoding/binary"
-	"fmt"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
@@ -15,7 +13,6 @@ var (
 	_ Expr = (*Literal)(nil)
 	_ Expr = (*Var)(nil)
 	_ Expr = (*Deref)(nil)
-	_ Expr = (*Pipe)(nil)
 	_ Expr = (*Call)(nil)
 	_ Expr = (*Ascribe)(nil)
 	_ Expr = (*Func)(nil)
@@ -53,7 +50,6 @@ func (e *Literal) Describe() string {
 
 func (e *Var) Describe() string            { return "variable" }
 func (e *Deref) Describe() string          { return "dereference" }
-func (e *Pipe) Describe() string           { return "pipeline" }
 func (e *Call) Describe() string           { return "function call" }
 func (e *Ascribe) Describe() string        { return "type annotation" }
 func (e *Func) Describe() string           { return "function" }
@@ -125,6 +121,7 @@ func RangeOf(expr Positioner) Range {
 // It is called SimpleTerm in the mlstruct scala implementation
 type AtomicExpr interface {
 	Expr
+
 	// CanonicalSyntax should return equal strings for equal AtomicExpr
 	// for example, 1.0 and 1.00 for floats
 	//
@@ -133,9 +130,6 @@ type AtomicExpr interface {
 	isAtomicExpr()
 	Equivalent(other AtomicExpr) bool
 }
-
-// PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.
-var PredeclaredScope = &Scope{}
 
 // Scope is a variable-binding scope, such as a let-binding or function.
 type Scope struct {
@@ -173,12 +167,48 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// TODO desugar identical literals (01 == 1)
-func (e *Literal) CanonicalSyntax() string { return e.Syntax }
+// CanonicalSyntax must TODO desugar identical literals (01 == 1)
+func (e *Literal) CanonicalSyntax() string {
+	switch e.Kind {
+	case token.STRING:
+		return e.Syntax
+	case token.INT:
+		logger := logger.With("type", e.Kind.String(), "syntax", e.Syntax)
+		if strings.HasPrefix(e.Syntax, "0x") {
+			logger.Warn("CanonicalSyntax: cannot do integer hex notation yet")
+			return e.Syntax
+		}
+		if strings.HasPrefix(e.Syntax, "0b") {
+			logger.Warn("CanonicalSyntax: cannot do integer binary notation yet")
+			return e.Syntax
+		}
+		if strings.HasPrefix(e.Syntax, "0o") {
+			logger.Warn("CanonicalSyntax: cannot do integer octal notation yet")
+			return e.Syntax
+		}
+		return strings.TrimPrefix(e.Syntax, "0")
+	default:
+		logger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax")
+		return e.Syntax
+	}
+}
+
+var intSuperTypes = []string{IntTypeName, NumberTypeName}
+var stringSuperTypes = []string{StringTypeName}
+var floatSuperTypes = []string{FloatTypeName, NumberTypeName}
+
+// BaseTypes lists the TypeTag these literals are subtypes of
+//
+// These do not include the Any type, which is already a subtype of all
 func (e *Literal) BaseTypes() set.Collection[string] {
 	switch e.Kind {
 	case token.INT:
-		return set.From([]string{IntTypeName, NumberTypeName})
+		return set.From(intSuperTypes)
+	case token.STRING:
+		return set.From(stringSuperTypes)
+	case token.FLOAT:
+		return set.From(floatSuperTypes)
+
 
 	default:
 		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
@@ -264,11 +294,9 @@ func (e *Deref) Hash() uint64 {
 
 // Application: `f(x)`
 type Call struct {
-	Func         Expr
-	Args         []Expr
-	inferred     Type
-	inferredFunc *hmtypes.Arrow
-	Range        // of the entire expression
+	Func  Expr
+	Args  []Expr
+	Range // of the entire expression
 }
 
 // "Call"
@@ -402,28 +430,28 @@ type ListLiteral struct {
 	inferred Type
 }
 
-func (l *ListLiteral) ExprName() string { return "list literal" }
+func (e *ListLiteral) ExprName() string { return "list literal" }
 
-func (l *ListLiteral) String() string {
-	var exprArgs = make([]string, len(l.Args))
-	for i, arg := range l.Args {
+func (e *ListLiteral) String() string {
+	var exprArgs = make([]string, len(e.Args))
+	for i, arg := range e.Args {
 		exprArgs[i] = arg.ExprName()
 	}
 	return "[" + strings.Join(exprArgs, ", ") + "]"
 }
 
-func (l *ListLiteral) Transform(f func(expr Expr) Expr) Expr {
-	copied := *l
-	copied.Args = make([]Expr, len(l.Args))
-	for i, arg := range l.Args {
+func (e *ListLiteral) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	copied.Args = make([]Expr, len(e.Args))
+	for i, arg := range e.Args {
 		copied.Args[i] = arg.Transform(f)
 	}
 	return f(&copied)
 }
-func (l *ListLiteral) Hash() uint64 {
+func (e *ListLiteral) Hash() uint64 {
 	h := fnv.New64a()
 	arr := []byte("ListLiteral")
-	for _, arg := range l.Args {
+	for _, arg := range e.Args {
 		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
 	}
 	_, _ = h.Write(arr)
@@ -632,9 +660,8 @@ type WhenMatch struct {
 func (e *WhenMatch) ExprName() string { return "WhenMatch" }
 
 type WhenCase struct {
-	Pattern  MatchPattern
-	Value    Expr
-	inferred *hmtypes.Record
+	Pattern MatchPattern
+	Value   Expr
 }
 
 func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
@@ -696,28 +723,6 @@ func (e *ValueLiteralPattern) TransformChildExprs(f func(expr Expr) Expr) MatchP
 	return &copied
 }
 
-// Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
-type Pipe struct {
-	Source   Expr
-	As       string
-	Sequence []Expr
-	inferred Type
-	Range    // of the first pipe operator?
-}
-
-// "Pipe"
-func (e *Pipe) ExprName() string { return "Pipe" }
-
-func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	copied.Sequence = make([]Expr, len(e.Sequence))
-	for i, expr := range e.Sequence {
-		copied.Sequence[i] = expr.Transform(f)
-	}
-	copied.Source = e.Source.Transform(f)
-	return f(&copied)
-}
-
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be
 type ErrorExpr struct {
 	Range
@@ -728,29 +733,6 @@ func (e *ErrorExpr) ExprName() string { return "Error" }
 func (e *ErrorExpr) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
-}
-
-// Hash generates a structural hash for Expr nodes, excluding location and type information
-func (e *Pipe) Hash() uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("Pipe"))
-	_, _ = h.Write([]byte(e.As))
-
-	// Hash source
-	if e.Source != nil {
-		sourceHash := e.Source.Hash()
-		h.Write([]byte(fmt.Sprintf("%d", sourceHash)))
-	}
-
-	// Hash sequence of expressions
-	for _, expr := range e.Sequence {
-		if expr != nil {
-			exprHash := expr.Hash()
-			_, _ = h.Write([]byte(fmt.Sprintf("%d", exprHash)))
-		}
-	}
-
-	return h.Sum64()
 }
 
 // Hash generates a structural hash for ErrorExpr nodes, excluding location information

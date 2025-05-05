@@ -17,7 +17,7 @@ const (
 	KindTrait
 )
 
-func TypeString(t Type) string  {
+func TypeString(t Type) string {
 	return t.ShowIn(DumbShowCtx, 0)
 
 }
@@ -169,12 +169,12 @@ func (t *TypeVar) Hash() uint64 {
 	return h.Sum64()
 }
 
-func (t *Literal) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
-	switch t.Kind {
+func (e *Literal) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	switch e.Kind {
 	case token.INT, token.FLOAT:
-		return t.Syntax
+		return e.Syntax
 	case token.STRING:
-		return "\"" + t.Syntax + "\""
+		return "\"" + e.Syntax + "\""
 	default:
 		panic("unreachable")
 	}
@@ -214,7 +214,9 @@ type ShowCtx interface {
 }
 
 type dumbShowCtx struct{}
+
 var DumbShowCtx ShowCtx = (*dumbShowCtx)(nil)
+
 func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return typeVar.Identifier }
 
 type TypeName struct {
@@ -242,7 +244,7 @@ func (n *TypeTag) isNullaryType()                {}
 
 func (n *TypeTag) Hash() uint64 {
 	h := fnv.New64a()
-	_, _ = h.Write([]byte("TypeTag"+n.Name))
+	_, _ = h.Write([]byte("TypeTag" + n.Name))
 	return h.Sum64()
 }
 

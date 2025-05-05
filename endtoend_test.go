@@ -86,9 +86,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		defer func() {
-			//if recover() != nil {
-			//t.Fatalf("test panicked: %v", recover())
-			//}
+			if recover() != nil {
+				t.Errorf("test panicked: %v", recover())
+			}
 		}()
 		content, err := testSet.ReadFile(path.Join("test", name))
 		assert.NoError(t, err)
@@ -126,9 +126,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 
 		resActual, err := i.Eval(eval)
 		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
-		if logGoAST {
-			println("go AST:\n-------", sourceBuf.String(), "\n-------")
-		}
+		t.Log("go AST:\n-------", sourceBuf.String(), "\n-------")
 
 		iClean := interp.New(interp.Options{})
 		resExpected, err := iClean.Eval(expected)
