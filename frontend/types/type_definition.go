@@ -5,33 +5,35 @@ import (
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 	"iter"
 	"reflect"
 	"slices"
 )
 
 type TypeDefinition struct {
-	defKind       ast.TypeDefKind
-	name          typeName
-	typeParamArgs []util.Pair[typeName, typeVariable]
-	typeVars      []typeVariable
-	bodyType      SimpleType
-	baseClasses   immutable.Set[typeName]
-	from          ast.Positioner
+	defKind          ast.TypeDefKind
+	name             typeName
+	typeParamArgs    []util.Pair[typeName, *typeVariable]
+	typeVars         []typeVariable
+	typeVarVariances map[TypeVarID]varianceInfo
+	bodyType         SimpleType
+	baseClasses      set.Collection[typeName]
+	from             ast.Positioner
 }
 
-func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) immutable.Set[typeName] {
-	builder := util.NewEmptySet[typeName]()
+func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) set.Collection[typeName] {
+	builder := set.New[typeName](1)
 	d.allBaseClassesHelper(ctx, builder)
-	return immutable.NewSet[typeName](nil, builder.AsSlice()...)
+	return builder
 }
 
-func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed util.MSet[typeName]) {
+func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed set.Collection[typeName]) {
 	if traversed.Contains(d.name) {
 		return
 	}
-	traversed.Add(d.name)
-	for def := range util.SetIterator[typeName](d.baseClasses) {
+	traversed.Insert(d.name)
+	for def := range d.baseClasses.Items() {
 		t, ok := ctx.typeDefs[def]
 		if ok {
 			t.allBaseClassesHelper(ctx, traversed)
@@ -54,7 +56,7 @@ func isNameReserved(name typeName) bool {
 }
 
 var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
-var emptySetTypeID = immutable.NewSet[typeVariableID](immutable.NewHasher(uint(1)))
+var emptySetTypeID = immutable.NewSet[TypeVarID](immutable.NewHasher(uint64(1)))
 
 // typeTypeDefs processes newDefs and returns a new TypeCtx with the new names
 func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]TypeDefinition) *TypeCtx {
@@ -138,7 +140,7 @@ func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ SimpleType,
 func (ctx *TypeCtx) checkCycle(
 	type_ SimpleType,
 	traversedNames immutable.Set[typeName],
-	traversedVars immutable.Set[typeVariableID],
+	traversedVars immutable.Set[TypeVarID],
 ) bool {
 	switch typ := type_.(type) {
 	case typeRef:
@@ -155,7 +157,7 @@ func (ctx *TypeCtx) checkCycle(
 	case typeRange:
 		return ctx.checkCycle(typ.upperBound, traversedNames, traversedVars) &&
 			ctx.checkCycle(typ.lowerBound, traversedNames, traversedVars)
-	case typeVariable:
+	case *typeVariable:
 		if traversedVars.Has(typ.id) {
 			return true
 		}
@@ -189,7 +191,7 @@ func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
 	panic("TODO implement me (methods necessary)")
 }
 
-// implementation wise it is completed but TODO make a typeError to accumulate failures with their locations
+// implementation wise it is completed but TODO make a typeError to accumulate Failures with their locations
 func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ SimpleType, reached *immutable.Map[string, []SimpleType], pos ast.Positioner) bool {
 	if reached == nil {
 		reached = immutable.NewMap[string, []SimpleType](immutable.NewHasher(""))

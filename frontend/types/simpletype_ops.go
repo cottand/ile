@@ -1,16 +1,59 @@
 package types
 
+import "fmt"
+
 type unionOpts struct {
 	prov    typeProvenance
 	swapped bool
 }
 
 // unionOf corresponds to the `|` operation in the scala mlstruct implementation
-func unionOf(this, other SimpleType, opts unionOpts) SimpleType {
-	panic("unimplemented")
+func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
+	if Equal(this, topType) {
+		return topType
+	}
+	if Equal(this, bottomType) {
+		return that
+	}
+	if !opts.swapped {
+		return unionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+	}
+	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
+		if Equal(thisAsNeg.negated, that) {
+			// ~A | A = any
+			return topType
+		}
+	}
+	logger.Warn(fmt.Sprintf("union not implemented for %s | %s (returning plain union)", this, that))
+	return unionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
+
 }
 
-// unionOf corresponds to the `&` operation in the scala mlstruct implementation
-func intersectionOf(this, other SimpleType, opts unionOpts) SimpleType {
-	panic("unimplemented")
+// intersectionOf corresponds to the `&` operation in the scala mlstruct implementation
+func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
+	if Equal(this, bottomType) {
+		return bottomType
+	}
+	if Equal(this, topType) {
+		return that
+	}
+	if Equal(this, that) {
+		return this
+	}
+	thisRecord, thisIsRecord := this.(recordType)
+	if thisIsRecord && len(thisRecord.fields) == 0 {
+		return that
+	}
+	if !opts.swapped {
+		return intersectionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+	}
+
+	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
+		if Equal(thisAsNeg.negated, that) {
+			// ~A & A = nothing
+			return bottomType
+		}
+	}
+	logger.Warn(fmt.Sprintf("intersection not implemented for %s & %s (returning plain intersection)", this, that))
+	return intersectionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
 }

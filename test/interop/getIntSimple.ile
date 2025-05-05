@@ -4,4 +4,4 @@ package test
 
 import math "go:math"
 
-someInt Int = math.MaxInt64
+val someInt: Int = math.MaxInt64

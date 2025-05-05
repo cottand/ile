@@ -2,13 +2,13 @@ package types
 
 import (
 	"fmt"
-	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 	"maps"
-	"reflect"
 	"runtime/debug"
+	"slices"
 	"strings"
 )
 
@@ -33,6 +33,10 @@ type TypeCtx struct {
 	level     level
 	inPattern bool
 
+	// variancesStore is called variancesStore in the scala reference
+	// should be accessed via variancesForTypeDef
+	variancesStore map[TypeVarID]varianceInfo
+
 	//typeDefs  map[types.Type]typeDef
 
 	// here to avoid passing a position on every function call.
@@ -42,6 +46,23 @@ type TypeCtx struct {
 	*TypeState
 }
 
+type nodesToSimpletypeCache map[uint64]nodeCacheEntry
+type nodeCacheEntry struct {
+	t  SimpleType
+	at level
+}
+
+func (ctx *TypeCtx) putCache(expr ast.Expr, typ SimpleType) {
+	ctx.cache[expr.Hash()] = nodeCacheEntry{t: typ, at: ctx.level}
+}
+
+func (n nodesToSimpletypeCache) getCached(expr ast.Expr) (nodeCacheEntry, bool) {
+	st, ok := n[expr.Hash()]
+	return st, ok
+}
+
+type expandedTypeCache = map[uint64]ast.Type
+
 // TypeState is part of TypeCtx and is shared across all copies of it during a single inference.
 // It is not concurrency safe and is not present on the scala implementation
 type TypeState struct {
@@ -50,15 +71,23 @@ type TypeState struct {
 	// there the same functionality is implemented by keeping global state
 	fresher *Fresher
 
-	// failures are irrecoverable unexpected scenarios
+	// Failures are irrecoverable unexpected scenarios
 	// that a normal program should never hit
-	failures []typeError
-	// errors are language problems that a malformed program could cause
-	errors []ilerr.IleError
+	Failures []typeError
+	// Errors are language problems that a malformed program could cause
+	Errors []ilerr.IleError
+
+	// cache keeps hashes of ast elements to already-simplified ast.Type
+	cache             nodesToSimpletypeCache
+	expandedTypeCache expandedTypeCache
 
 	dontRecordProvenance bool
 }
 
+// NewEmptyTypeCtx should be the entry point to get a TypeCtx, but not how you
+// produce a TypeCtx from another one. For that use copy
+//
+// TypeState is shared across nested levels of TypeCtx
 func NewEmptyTypeCtx() *TypeCtx {
 	return &TypeCtx{
 		parent:    nil,
@@ -66,12 +95,35 @@ func NewEmptyTypeCtx() *TypeCtx {
 		level:     0,
 		inPattern: false,
 		TypeState: &TypeState{
-			fresher: &Fresher{},
+			fresher:           NewFresher(),
+			cache:             make(map[uint64]nodeCacheEntry, 1),
+			expandedTypeCache: make(map[uint64]ast.Type, 1),
 		},
 	}
 }
 
-type ctxCache = map[util.Pair[SimpleType, SimpleType]]bool
+func (ctx *TypeCtx) nest() *TypeCtx {
+	copied := *ctx
+	copied.parent = ctx
+	copied.env = make(map[string]typeInfo, len(ctx.env))
+	return &copied
+
+}
+
+// ctxCache stores a map of pairs of types' hashes to whether they are subtypes
+type ctxCache map[uint64]bool
+
+func (c ctxCache) get(l, r SimpleType) (sub bool, ok bool) {
+	sub, ok = c[l.Hash()*r.Hash()]
+	return sub, ok
+}
+func (c ctxCache) put(l, r SimpleType, sub bool) {
+	c[l.Hash()*r.Hash()] = sub
+}
+func (c ctxCache) contains(l, t SimpleType) bool {
+	_, ok := c[l.Hash()*t.Hash()]
+	return ok
+}
 
 // assuming evaluates body assuming all entries in cache are true
 func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
@@ -84,8 +136,10 @@ func assuming[R any](cache ctxCache, body func(ctxCache) R) R {
 
 func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 	t, ok = ctx.env[name]
-
-	if !ok && ctx.parent != nil {
+	if ok {
+		return t, true
+	}
+	if ctx.parent != nil {
 		t, ok = ctx.parent.get(name)
 	}
 	return t, ok
@@ -93,12 +147,12 @@ func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 
 // TypesEquivalent carries the notation >:< in the scala implementation
 func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
-	return this.Equivalent(that) || ctx.SolveSubtype(this, that, nil) && ctx.SolveSubtype(that, this, nil)
+	return Equal(this, that) || ctx.isSubtype(this, that, nil) && ctx.isSubtype(that, this, nil)
 }
 
-// SolveSubtype carries the notation <:< in the scala implementation
-func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
-	if this.Equivalent(that) {
+// isSubtype carries the notation <:< in the scala implementation
+func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
+	if Equal(this, that) {
 		return true
 	}
 	if cache == nil {
@@ -115,15 +169,49 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 				}
 				for i, arg := range that.args {
 					// TODO args are inverted here in ref impl - is it a bug?
-					if !ctx.SolveSubtype(arg, this.args[i], cache) {
+					if !ctx.isSubtype(arg, this.args[i], cache) {
 						return false
 					}
 				}
-				return ctx.SolveSubtype(this.ret, that.ret, cache)
+				return ctx.isSubtype(this.ret, that.ret, cache)
 			})
 		}
 		if okThis || okThat {
 			return false
+		}
+	}
+	// intersections, unions
+	{
+		if thisUnion, okThis := this.(unionType); okThis {
+			//( A | B <:< C) => (A <:< C and B <:< C)
+			return ctx.isSubtype(thisUnion.lhs, that, cache) && ctx.isSubtype(thisUnion.rhs, that, cache)
+		}
+		if thatUnion, okThat := that.(unionType); okThat {
+			// (A <:< B | C) => (A <:< B and A <:< C)
+			return ctx.isSubtype(this, thatUnion.lhs, cache) && ctx.isSubtype(this, thatUnion.rhs, cache)
+		}
+		if thisIntersection, okThis := this.(intersectionType); okThis {
+			// (A & B <:< C) => (A <:< C or B <:< C)
+			return ctx.isSubtype(thisIntersection.lhs, that, cache) || ctx.isSubtype(thisIntersection.rhs, that, cache)
+		}
+		if thatIntersection, okThat := that.(intersectionType); okThat {
+			// (A <:< B & C) => (A <:< B or A <:< C)
+			return ctx.isSubtype(this, thatIntersection.lhs, cache) || ctx.isSubtype(this, thatIntersection.rhs, cache)
+		}
+	}
+	// records
+	{
+		if thisRecord, okThis := this.(recordType); okThis {
+			if len(thisRecord.fields) == 0 {
+				return ctx.isSubtype(topType, that, cache)
+			}
+			panic("isSubtype: implement for non empty records")
+		}
+		if thatRecord, okThat := that.(recordType); okThat {
+			if len(thatRecord.fields) == 0 {
+				return ctx.isSubtype(this, topType, cache)
+			}
+			panic("isSubtype: implement for non empty records")
 		}
 	}
 	// class tags
@@ -137,7 +225,51 @@ func (ctx *TypeCtx) SolveSubtype(this, that SimpleType, cache ctxCache) bool {
 			return false
 		}
 	}
-	panic("implement me for: " + reflect.TypeOf(this).String() + " and " + reflect.TypeOf(that).String())
+	// type variables
+	{
+		thisTV, okThis := this.(*typeVariable)
+		thatTV, okThat := that.(*typeVariable)
+		if okThis || okThat {
+			sub, ok := cache.get(this, that)
+			if ok {
+				return sub
+			}
+		}
+		if okThis {
+			cache.put(this, that, false)
+			tmp := slices.ContainsFunc(thisTV.upperBounds, func(t SimpleType) bool {
+				return ctx.isSubtype(t, that, cache)
+			})
+			if tmp {
+				cache.put(this, that, true)
+			}
+			return tmp
+		}
+		if okThat {
+			cache.put(this, that, false)
+			tmp := slices.ContainsFunc(thatTV.lowerBounds, func(t SimpleType) bool {
+				return ctx.isSubtype(this, t, cache)
+			})
+			if tmp {
+				cache.put(this, that, true)
+			}
+			return tmp
+		}
+	}
+	// negation types
+	{
+		thatNeg, okThat := that.(negType)
+		if okThat {
+			// A <:< ~B => A & B <:< Bot
+			return ctx.isSubtype(intersectionOf(this, thatNeg.negated, unionOpts{}), bottomType, cache)
+		}
+		thisNeg, okThis := this.(negType)
+		if okThis {
+			// ~A <:< B => Top <:< A | B
+			return ctx.isSubtype(topType, unionOf(thisNeg.negated, that, unionOpts{}), cache)
+		}
+	}
+	panic(fmt.Sprintf("implement me for: %s: %T and %s: %T", this, this, that, that))
 }
 
 func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
@@ -189,18 +321,18 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 		bodyType, typeVars := ctx.typeType2(td0.Body, false, typeParamsArgsMap, defsInfo)
 		baseClasses := baseClassesOfDef(td0)
 		var td1 TypeDefinition
-		typeParamsArgsAsSlice := make([]util.Pair[typeName, typeVariable], 0, len(typeParamsArgsMap))
+		typeParamsArgsAsSlice := make([]util.Pair[typeName, *typeVariable], 0, len(typeParamsArgsMap))
 		for argName, argType := range typeParamsArgsMap {
-			argType, ok := argType.(typeVariable)
+			argType, ok := argType.(*typeVariable)
 			if !ok {
 				panic("all types in argTypes should be of type variable")
 			}
-			td1.typeParamArgs = append(typeParamsArgsAsSlice, util.Pair[string, typeVariable]{
+			td1.typeParamArgs = append(typeParamsArgsAsSlice, util.Pair[string, *typeVariable]{
 				Fst: argName,
 				Snd: argType,
 			})
 		}
-		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Len() == 0 {
+		if (td0.Kind == ast.KindClass || td0.Kind == ast.KindTrait) && baseClasses.Size() == 0 {
 			td1 = TypeDefinition{
 				defKind:       td0.Kind,
 				name:          td0.Name.Name,
@@ -212,7 +344,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 					isType:     true,
 				}}},
 				// this is Object in the reference implementation
-				baseClasses: emptySetTypeName.Add("Any"),
+				baseClasses: set.From([]typeName{ast.AnyTypeName}),
 			}
 		} else {
 			td1 = TypeDefinition{
@@ -221,7 +353,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 				typeParamArgs: typeParamsArgsAsSlice,
 				typeVars:      typeVars,
 				bodyType:      bodyType,
-				baseClasses:   baseClasses.Immutable(immutable.NewHasher("")),
+				baseClasses:   baseClasses,
 				from:          td0.Positioner,
 			}
 		}
@@ -239,30 +371,28 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 
 // def baseClassesOf(tyd: mlscript.TypeDef): Set[TypeName] =
 // if (tyd.kind === Als) Set.empty else baseClassesOf(tyd.body)
-func baseClassesOfDef(definition ast.TypeDefinition) util.MSet[typeName] {
+func baseClassesOfDef(definition ast.TypeDefinition) set.Collection[typeName] {
 	if definition.Kind == ast.KindAlias {
-		return util.NewEmptySet[string]()
+		return set.New[string](0)
 	}
 	return baseClassesOfType(definition.Body)
 
 }
 
-func baseClassesOfType(typ ast.Type) util.MSet[typeName] {
+func baseClassesOfType(typ ast.Type) set.Collection[typeName] {
 	switch typ := typ.(type) {
 	case *ast.IntersectionType:
 		leftClasses := baseClassesOfType(typ.Left)
 		rightClasses := baseClassesOfType(typ.Right)
-		for elem := range leftClasses.All() {
-			rightClasses.Add(elem)
-		}
+		rightClasses.InsertSet(leftClasses)
 		return rightClasses
 	case *ast.TypeName:
-		return util.NewSetOf(typ.Name)
+		return set.From([]typeName{typ.Name})
 	case *ast.AppliedType:
 		return baseClassesOfType(&(typ.Base))
 		// including  *ast.Record, *ast.UnionType:
 	default:
-		return util.NewEmptySet[string]()
+		return set.New[string](0)
 	}
 }
 
@@ -287,11 +417,32 @@ func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
 }
 
 func (ctx *TypeState) addFailure(message string, pos ast.Positioner) {
-	ctx.failures = append(ctx.failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
+	ctx.Failures = append(ctx.Failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
 }
 
 func (ctx *TypeState) addError(ileError ilerr.IleError) {
-	ctx.errors = append(ctx.errors, ileError)
+	ctx.Errors = append(ctx.Errors, ileError)
+}
+
+// TypeOf must be called after running inference
+func (ctx *TypeCtx) TypeOf(expr ast.Expr) ast.Type {
+	// check if simplified before
+	expanded, ok := ctx.expandedTypeCache[expr.Hash()]
+	if ok {
+		return expanded
+	}
+
+	// check if traversed before
+	typeScheme, ok := ctx.cache.getCached(expr)
+	if !ok {
+		logger.Warn("TypeState: tried to access type for unknown AST node", "expr", expr.ExprName())
+		return &ast.NothingType{Positioner: expr}
+	}
+	instantiated := typeScheme.t.instantiate(ctx.fresher, typeScheme.at)
+	typ := ctx.GetAstTypeFor(instantiated)
+	// save in map
+	ctx.expandedTypeCache[expr.Hash()] = typ
+	return typ
 }
 
 func (ctx *TypeCtx) nextLevel() *TypeCtx {
@@ -300,6 +451,35 @@ func (ctx *TypeCtx) nextLevel() *TypeCtx {
 	return &copied
 }
 
-func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) typeVariable {
+func (ctx *TypeCtx) newTypeVariable(prov typeProvenance, nameHint string, lowerBounds, upperBounds []SimpleType) *typeVariable {
 	return ctx.fresher.newTypeVariable(ctx.level, prov, nameHint, lowerBounds, upperBounds)
+}
+
+// variancesForTypeDef corresponds to getTypeDefinitionVariances in the scala reference implementation
+func (ctx *TypeCtx) variancesForTypeDef(defName string, id TypeVarID) varianceInfo {
+	_, ok := ctx.typeDefs[defName]
+	if !ok {
+		return varianceInvariant
+	}
+	variance, ok := ctx.variancesStore[id]
+	if !ok {
+		return varianceInvariant
+	}
+	return variance
+}
+
+// getTypeDefinitionVariances retrieves variance information for type parameters.
+func (ctx *TypeCtx) getTypeDefinitionVariances(name typeName) ([]Variance, bool) {
+	fmt.Printf("WARN: getTypeDefinitionVariances not implemented for %s\n", name)
+	// Placeholder: Assume invariant for now
+	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
+	if !ok {
+		return nil, false
+	}
+	variances := make([]Variance, len(def.typeParamArgs))
+	for i := range variances {
+		variances[i] = Invariant // Default to invariant
+		// TODO: Read actual variance from TypeDef
+	}
+	return variances, true
 }

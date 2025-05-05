@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
-	set "github.com/hashicorp/go-set"
+	"github.com/cottand/ile/util"
+	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"reflect"
 	"slices"
@@ -48,16 +49,17 @@ type constraintSolver struct {
 	onErr func(err ilerr.IleError) (terminateEarly bool) // Error callback
 	level level                                          // Current polymorphism level during solving
 
-	cache *set.HashSet[*constraintPair, uint64]
-	fuel  int              // Fuel to prevent infinite loops
-	depth int              // Current recursion depth
-	stack []constraintPair // Stack for tracking recursion depth and path
+	cache          *set.HashSet[*constraintPair, uint64]
+	extrusionCache map[polarVariableKey]*typeVariable // Cache for extrude: (original_var, polarity) -> extruded_var
+	fuel           int                                // Fuel to prevent infinite loops
+	depth          int                                // Current recursion depth
+	stack          []constraintPair                   // Stack for tracking recursion depth and path
 
 	// TODO: Implement Shadows for cycle detection
 	// shadows shadowsState
 
 	// TODO: Implement ExtrCtx for stashing constraints during extrusion
-	// extrCtx map[typeVariableID][]*stashedConstraint
+	// extrCtx map[TypeVarID][]*stashedConstraint
 
 	// Counters for stats (optional)
 	constrainCalls int
@@ -75,14 +77,15 @@ func (ctx *TypeCtx) newConstraintSolver(
 	onErr func(err ilerr.IleError) (terminateEarly bool),
 ) *constraintSolver {
 	return &constraintSolver{
-		ctx:   ctx,
-		prov:  prov,
-		onErr: onErr,
-		level: ctx.level, // Start at the context's current level
-		cache: set.NewHashSet[*constraintPair, uint64](0),
-		fuel:  defaultStartingFuel,
-		depth: 0,
-		stack: make([]constraintPair, 0, defaultDepthLimit),
+		ctx:            ctx,
+		prov:           prov,
+		onErr:          onErr,
+		level:          ctx.level, // Start at the context's current level
+		cache:          set.NewHashSet[*constraintPair, uint64](0),
+		extrusionCache: make(map[polarVariableKey]*typeVariable), // Initialize extrusion cache
+		fuel:           defaultStartingFuel,
+		depth:          0,
+		stack:          make([]constraintPair, 0, defaultDepthLimit),
 		// Initialize shadows, extrCtx etc. if implemented
 	}
 }
@@ -99,7 +102,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "exceeded max depth limit",
-		})) // TODO Check if we should terminate
+		}))
 	}
 	if cs.fuel <= 0 {
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
@@ -107,7 +110,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
 			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
 			Reason:     "ran out of fuel",
-		})) // TODO Check if we should terminate
+		}))
 	}
 	return false // Continue
 }
@@ -158,14 +161,15 @@ func (cs *constraintSolver) pop() {
 // This is a simplified version. The Scala version manages ExtrCtx and unstashing.
 func (cs *constraintSolver) withSubLevel(action func(subSolver *constraintSolver) bool) bool {
 	subSolver := &constraintSolver{
-		ctx:            cs.ctx,       // Share the main context initially
-		prov:           cs.prov,      // Inherit provenance
-		onErr:          cs.onErr,     // Share error handler
-		level:          cs.level + 1, // Increment level
-		cache:          cs.cache,     // Share cache (or create a sub-cache?)
-		fuel:           cs.fuel,      // Pass remaining fuel
-		depth:          cs.depth,     // Inherit depth
-		stack:          cs.stack,     // Share stack
+		ctx:            cs.ctx,            // Share the main context initially
+		prov:           cs.prov,           // Inherit provenance
+		onErr:          cs.onErr,          // Share error handler
+		level:          cs.level + 1,      // Increment level
+		cache:          cs.cache,          // Share cache (or create a sub-cache?)
+		extrusionCache: cs.extrusionCache, // Share extrusion cache
+		fuel:           cs.fuel,           // Pass remaining fuel
+		depth:          cs.depth,          // Inherit depth
+		stack:          cs.stack,          // Share stack
 		constrainCalls: cs.constrainCalls,
 		annoyingCalls:  cs.annoyingCalls,
 		// TODO: Handle shadows and ExtrCtx properly for sub-levels
@@ -193,16 +197,22 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 }
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
-func (cs *constraintSolver) addUpperBound(tv typeVariable, rhs SimpleType, cctx constraintContext) bool {
-	fmt.Printf("Adding UB %s to %s\n", rhs, tv)
-	// Simplified: Add bound and propagate. Scala version uses mkProxy.
-	// Need to handle potential duplicates and normalization.
-	newBound := rhs // TODO: Apply makeProxy based on cctx
+func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
+	logger.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
+	// the reference implementation uses foldLeft so we concatenate and iterate in reverse
+	chains := util.ConcatIter(slices.Values(cctx.rhsChain), util.Reverse(cctx.lhsChain))
+	newBound := rhs
+	for bound := range chains {
+		if bound.prov() != emptyProv {
+			newBound = makeProxy(newBound, bound.prov())
+		}
+	}
+
 	tv.upperBounds = append(tv.upperBounds, newBound)
 
 	// Propagate constraints: L <: new_rhs for all L in lowerBounds
 	for _, lb := range tv.lowerBounds {
-		if cs.rec(lb, newBound, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lb, rhs, true, cctx, nil /* TODO: shadows */) {
 			return true // Terminate early if propagation fails
 		}
 	}
@@ -210,25 +220,29 @@ func (cs *constraintSolver) addUpperBound(tv typeVariable, rhs SimpleType, cctx 
 }
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
-func (cs *constraintSolver) addLowerBound(tv typeVariable, lhs SimpleType, cctx constraintContext) bool {
-	fmt.Printf("Adding LB %s to %s\n", lhs, tv)
-	// Simplified: Add bound and propagate. Scala version uses mkProxy.
-	// Need to handle potential duplicates and normalization.
-	newBound := lhs // TODO: Apply makeProxy based on cctx
+func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
+	logger.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
+	newBound := lhs
+	for c := range util.ConcatIter(slices.Values(cctx.lhsChain), util.Reverse(cctx.rhsChain)) {
+		if c.prov() != emptyProv {
+			newBound = makeProxy(newBound, c.prov())
+		}
+	}
+
 	tv.lowerBounds = append(tv.lowerBounds, newBound)
 
 	// Propagate constraints: new_lhs <: U for all U in upperBounds
 	for _, ub := range tv.upperBounds {
-		if cs.rec(newBound, ub, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lhs, ub, true, cctx, nil /* TODO: shadows */) {
 			return true // Terminate early if propagation fails
 		}
 	}
 	return false
 }
 
-// Constrain enforces a subtyping relationship `lhs` <: `rhs`.
+// constrain enforces a subtyping relationship `lhs` <: `rhs`.
 // It returns true if constraint solving should terminate early due to an error.
-func (ctx *TypeCtx) Constrain(
+func (ctx *TypeCtx) constrain(
 	lhs, rhs SimpleType,
 	prov typeProvenance,
 	onErr func(err ilerr.IleError) (terminateEarly bool),
@@ -256,7 +270,7 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-// prevCctxs []constraintContext, // If needed for extrusion reasons
+	// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
@@ -272,10 +286,10 @@ func (cs *constraintSolver) rec(
 	if sameLevel {
 		nextCctx = cctx
 		// Prepend without reallocating if possible (optimization)
-		if len(cctx.lhsChain) == 0 || cctx.lhsChain[0] != lhs { // Avoid duplicates
+		if len(cctx.lhsChain) == 0 || !Equal(cctx.lhsChain[0], lhs) { // Avoid duplicates
 			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
 		}
-		if len(cctx.rhsChain) == 0 || cctx.rhsChain[0] != rhs { // Avoid duplicates
+		if len(cctx.rhsChain) == 0 || !Equal(cctx.rhsChain[0], rhs) { // Avoid duplicates
 			nextCctx.rhsChain = slices.Insert(cctx.rhsChain, 0, rhs)
 		}
 	} else {
@@ -298,7 +312,7 @@ func (cs *constraintSolver) rec(
 }
 
 func isErrorType(ty SimpleType) bool {
-	return ty.Equivalent(errorTypeInstance)
+	return Equal(ty, errorTypeInstance)
 }
 
 // recImpl contains the core subtyping logic based on type structure.
@@ -308,7 +322,7 @@ func (cs *constraintSolver) recImpl(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	logger.Debug("constrain", "level", cs.level, "lhs", lhs, "rhs", rhs, "fuel", cs.fuel)
+	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
@@ -318,7 +332,6 @@ func (cs *constraintSolver) recImpl(
 	// 2. Cache Check
 	pair := &constraintPair{lhs, rhs}
 	if cs.cache.Contains(pair) {
-		fmt.Println(" -> Cached")
 		return false // Success (already processed)
 	}
 	// TODO: Implement proper cycle detection using shadows here.
@@ -328,236 +341,153 @@ func (cs *constraintSolver) recImpl(
 	cs.cache.Insert(pair)
 	// TODO: Update shadows state here.
 
-	// 3. Unwrap Provenance Wrappers (like ProvType in Scala)
-	if lhsWrap, ok := lhs.(wrappingProvType); ok {
-		return cs.rec(lhsWrap.underlying(), rhs, true, cctx, shadows)
+	// 3. unwrap provenance wrappers so that we do this checking on the underlying types
+	lhs, rhs = unwrapProvenance(lhs), unwrapProvenance(rhs)
+
+	// 4. Handle specific type combinations (using if statements with type assertions)
+
+	if lhsExtreme, ok := lhs.(extremeType); ok && lhsExtreme.polarity {
+		return false
 	}
-	if rhsWrap, ok := rhs.(wrappingProvType); ok {
-		return cs.rec(lhs, rhsWrap.underlying(), true, cctx, shadows)
+	if rhsExtreme, ok := rhs.(extremeType); ok && !rhsExtreme.polarity {
+		return false
+	}
+	if rhs, ok := rhs.(recordType); ok && len(rhs.fields) == 0 {
+		return false
+	}
+	if lhsRange, ok := lhs.(typeRange); ok {
+		// L..U <: R => U <: R
+		return cs.rec(lhsRange.upperBound, rhs, true, cctx, shadows)
+	}
+	if rhsRange, ok := rhs.(typeRange); ok {
+		// R <: L..U => U <: L
+		return cs.rec(lhs, rhsRange.lowerBound, true, cctx, shadows)
+	}
+	lhsNeg, okLhsNeg := lhs.(negType)
+	if okLhsNeg {
+		if r, ok := rhs.(negType); ok {
+			// ~L <: ~R  =>  R <: L
+			return cs.rec(r.negated, lhsNeg.negated, true, cctx, shadows)
+		}
 	}
 
-	// 4. Handle specific type combinations (Switch statement mirroring Scala's match)
-	switch lhs := lhs.(type) {
-	case extremeType: // Top or Bottom
-		if lhs.polarity == true { // Bottom <: Anything
-			return false // Success
+	lhsFn, okLhsFn := lhs.(funcType)
+	rhsIsErr := isErrorType(rhs)
+	if okLhsFn {
+		if rhsFn, ok := rhs.(funcType); ok {
+			// (L1, L2) -> LR <: (R1, R2) -> RR   =>
+			// R1 <: L1, LR <: LR
+			return cs.constrainFuncFunc(lhsFn, rhsFn, cctx, shadows)
 		}
-		// Top <: RHS only if RHS is Top
-		if r, ok := rhs.(extremeType); ok && !r.polarity {
-			return false // Top <: Top
+		if rhsIsErr {
+			for _, leftArg := range lhsFn.args {
+				cs.rec(rhs, leftArg, false, cctx, shadows)
+			}
+			cs.rec(lhsFn.ret, rhs, false, cctx, shadows)
 		}
-		// Fall through to report error or handle Top <: X via goToWork
+	}
 
-	case typeVariable:
-		return cs.constrainTypeVarLhs(lhs, rhs, cctx, shadows)
-
-	case funcType:
-		if r, ok := rhs.(funcType); ok {
-			return cs.constrainFuncFunc(lhs, r, cctx, shadows)
+	if lhsClassTag, ok := lhs.(classTag); ok {
+		if rhsObjType, ok := rhs.(objectTag); ok && lhsClassTag.containsParentST(rhsObjType.Id()) {
+			return false
 		}
-		// funcType <: Other? -> goToWork or error
+	}
 
-	case tupleType:
+	if lhsVar, ok := lhs.(*typeVariable); ok {
+		return cs.constrainTypeVarLhs(lhsVar, rhs, cctx, shadows)
+	}
+	if rhsVar, ok := rhs.(*typeVariable); ok {
+		return cs.constrainTypeVarRhs(lhs, rhsVar, cctx, shadows)
+	}
+	// TODO ARRAYS/TUPLES HERE
+	if lhsTuple, ok := lhs.(tupleType); ok {
 		if r, ok := rhs.(tupleType); ok {
-			return cs.constrainTupleTuple(lhs, r, cctx, shadows)
+			return cs.constrainTupleTuple(lhsTuple, r, cctx, shadows)
 		}
 		if r, ok := rhs.(arrayType); ok {
 			// Array subtyping: Tuple<T1,..Tn> <: Array<U> if (T1|...|Tn) <: U
-			innerLhs := lhs.inner() // Needs implementation
+			innerLhs := lhsTuple.inner() // Needs implementation
 			return cs.rec(innerLhs, r.innerT, false, cctx, shadows)
 			// TODO: Handle bounds correctly (recLb in Scala)
 		}
 		// tupleType <: Other? -> goToWork or error
 
-	case namedTupleType: // Similar to tupleType
+		// namedTupleType (Similar to tupleType)
+	}
+	if lhsNamedTuple, ok := lhs.(namedTupleType); ok {
 		if r, ok := rhs.(namedTupleType); ok {
-			return cs.constrainNamedTupleNamedTuple(lhs, r, cctx, shadows)
+			return cs.constrainNamedTupleNamedTuple(lhsNamedTuple, r, cctx, shadows)
 		}
 		// namedTupleType <: Other? -> goToWork or error
 
-	case arrayType:
+		// arrayType
+	}
+	if lhsArray, ok := lhs.(arrayType); ok {
 		if r, ok := rhs.(arrayType); ok {
 			// Array<T> <: Array<U> if T <: U (covariance)
 			// TODO: Handle bounds correctly (recLb in Scala for mutable arrays)
-			return cs.rec(lhs.innerT, r.innerT, false, cctx, shadows)
+			return cs.rec(lhsArray.innerT, r.innerT, false, cctx, shadows)
 		}
-		// arrayType <: Other? -> goToWork or error
+	}
+	// TODO ARRAYS/TUPLES END
 
-	case intersectionType:
-		// (L1 & L2) <: R  =>  L1 <: R AND L2 <: R
-		if cs.rec(lhs.lhs, rhs, true, cctx, shadows) {
+	if lhsUnion, ok := lhs.(unionType); ok {
+		if cs.rec(lhsUnion.lhs, rhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.rec(lhs.rhs, rhs, true, cctx, shadows)
-
-	case unionType:
-		// L <: (R1 | R2) -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case negType:
-		if r, ok := rhs.(negType); ok {
-			// ~L <: ~R  =>  R <: L
-			return cs.rec(r.negated, lhs.negated, true, cctx, shadows)
-		}
-		// ~L <: R -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case typeRef:
-		// Expand LHS and retry
-		// Need a mechanism to prevent infinite expansion
-		expandedLhs := cs.ctx.expand(lhs) // Assuming expand exists
-		// TODO this might need to be a Equiv rather than actual comparison
-		if expandedLhs == SimpleType(lhs) { // Avoid infinite loop if expansion didn't change anything
-			// Fall through to handle TypeRef vs RHS
-		} else {
-			return cs.rec(expandedLhs, rhs, true, cctx, shadows)
-		}
-		// Handle TypeRef vs TypeRef (variance check) or TypeRef vs Other
-		if r, ok := rhs.(typeRef); ok {
-			return cs.constrainTypeRefTypeRef(lhs, r, cctx, shadows)
-		}
-		// Fall through
-
-	case *PolymorphicType:
-		// Instantiate LHS and retry
-		// Need to manage levels correctly
-		instantiatedLhs := lhs.instantiate(nil, cs.level) // Instantiate at current solver level
-		// TODO: Pass previous contexts (prevCctxs) if needed for extrusion reasons
-		return cs.rec(instantiatedLhs, rhs, true, cctx, shadows)
-
-	case typeRange: // Equivalent to TypeBounds in Scala
-		// L..U <: R => U <: R
-		return cs.rec(lhs.upperBound, rhs, true, cctx, shadows)
-
-	case classTag:
-		// Handle ClassTag <: RHS
-		if rTag, ok := rhs.(objectTag); ok {
-			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(lhs, rTag) {
-				return false // Success
-			}
-		}
-		// Handle ClassTag <: RecordType (member checking)
-		if rRec, ok := rhs.(recordType); ok { // Assuming recordType exists
-			return cs.constrainClassRecord(lhs, rRec, cctx, shadows)
-		}
-
-		// special cases where lhs is the error type - we continue constraining so that we can get
-		// some info on the other types
-		if isErrorType(lhs) {
-			err := lhs
-			if rhs, rhsIsFunction := rhs.(funcType); rhsIsFunction {
-				for _, arg := range rhs.args {
-					cs.rec(arg, err, false, cctx, shadows)
-				}
-				cs.rec(err, rhs.ret, false, cctx, shadows)
-			}
-			if rhs, rhsIsRecordType := rhs.(recordType); rhsIsRecordType {
-				for _, field := range rhs.fields {
-					cs.rec(err, field.Snd.upperBound, false, cctx, shadows)
-				}
-			}
-			return false
-		}
-		// Fall through
-
-	case traitTag:
-		// Handle TraitTag <: RHS
-		if rTag, ok := rhs.(objectTag); ok {
-			// Check inheritance/equality
-			if cs.ctx.IsSubtypeTag(lhs, rTag) { // Needs implementation
-				return false // Success
-			}
-		}
-		// Fall through
-
-		// TODO: Add cases for RecordType, other specific types as needed
+		return cs.rec(lhsUnion.rhs, rhs, true, cctx, shadows)
 	}
 
-	// 5. Handle RHS structure (if LHS didn't match a specific case)
-	switch r := rhs.(type) {
-	case extremeType: // Bottom or Top
-		if r.polarity == false { // Anything <: Top
-			return false // Success
-		}
-		// L <: Bottom only if L is Bottom
-		if l, ok := lhs.(extremeType); ok && l.polarity {
-			return false // Bottom <: Bottom
-		}
-		// Fall through to report error or handle X <: Bottom via goToWork
-
-	case typeVariable:
-		return cs.constrainTypeVarRhs(lhs, r, cctx, shadows)
-
-	case unionType:
-		// L <: (R1 | R2) => L <: R1 AND L <: R2
-		if cs.rec(lhs, r.lhs, true, cctx, shadows) {
+	if rhsInter, ok := rhs.(intersectionType); ok {
+		if cs.rec(lhs, rhsInter.lhs, true, cctx, shadows) {
 			return true
 		}
-		return cs.rec(lhs, r.rhs, true, cctx, shadows)
-
-	case intersectionType:
-		// L <: (R1 & R2) -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case negType:
-		// L <: ~R -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
-
-	case typeRef:
-		// Expand RHS and retry
-		expandedRhs := cs.ctx.expand(r) // Assuming expand exists
-		if expandedRhs == rhs {
-			// Fall through if expansion didn't change anything
-		} else {
-			return cs.rec(lhs, expandedRhs, true, cctx, shadows)
-		}
-		// Fall through
-
-	case *PolymorphicType:
-		// L <: forall V. R => Enter new level, rigidify R, and constrain L <: rigid R
-		return cs.withSubLevel(func(subSolver *constraintSolver) bool {
-			rigidRhs := r.rigidify(cs.ctx.fresher, subSolver.level) // Rigidify at the *new* level
-			fmt.Printf(" -> Rigidified RHS: %s\n", rigidRhs)
-			// Constrain LHS against the rigidified RHS in the sub-level
-			return subSolver.rec(lhs, rigidRhs, true, cctx, shadows) // Pass original cctx? Scala passes `true` for sameLevel
-			// Unstashing happens automatically when withSubLevel returns (if implemented)
-		})
-
-	case typeRange: // Equivalent to TypeBounds in Scala
-		// L <: L'..U' => L <: L'
-		return cs.rec(lhs, r.lowerBound, true, cctx, shadows)
-
-	case classTag:
-		// special cases where rhs is the error type - we continue constraining so that we can get
-		// some info on the other types
-		if isErrorType(rhs) {
-			err := rhs
-			if lhs, lhsIsFunction := lhs.(funcType); lhsIsFunction {
-				for _, arg := range lhs.args {
-					cs.rec(err, arg, false, cctx, shadows)
-				}
-				cs.rec(lhs.ret, err, false, cctx, shadows)
+		return cs.rec(lhs, rhsInter.rhs, true, cctx, shadows)
+	}
+	if leftProxy, ok := lhs.(wrappingProvType); ok {
+		return cs.rec(leftProxy.underlying(), rhs, true, cctx, shadows)
+	}
+	if rightProxy, ok := rhs.(wrappingProvType); ok {
+		return cs.rec(lhs, rightProxy.underlying(), true, cctx, shadows)
+	}
+	lhsIsErr := isErrorType(lhs)
+	if lhsIsErr {
+		rhsFn, isRhsFn := rhs.(funcType)
+		if isRhsFn {
+			for _, arg := range rhsFn.args {
+				cs.rec(lhs, arg, false, cctx, shadows)
 			}
-			if lhs, lhsIsRecordType := lhs.(recordType); lhsIsRecordType {
-				for _, field := range lhs.fields {
-					cs.rec(field.Snd.upperBound, err, false, cctx, shadows)
-				}
-			}
-			return false
+			cs.rec(rhsFn.ret, lhs, false, cctx, shadows)
 		}
-
-		// TODO: Add cases for RecordType on RHS, etc.
 	}
 
-	// 6. If no specific rule matched, report error or try complex solving
-	logger.Debug("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
-	// Attempt goToWork for complex cases involving unions/intersections/negations
-	if requiresGoToWork(lhs, rhs) {
+	// TODO record <: record
+	//         err <: record
+	//      record <: err
+	//     typeRef <: typeRef
+	//     typeRef <: _
+	//           _ <: typeRef
+	if lhsIsErr || rhsIsErr {
+		return false
+	}
+
+	if _, ok := rhs.(unionType); ok {
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+	if _, ok := lhs.(intersectionType); ok {
 		return cs.goToWork(lhs, rhs, cctx, shadows)
 	}
 
-	// 7. Default: Report Error
+	if okLhsNeg {
+		// ~L <: _ -> Requires DNF/CNF (goToWork)
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+	if _, ok := rhs.(negType); ok {
+		// _ <: ~~R -> Requires DNF/CNF (goToWork)
+		return cs.goToWork(lhs, rhs, cctx, shadows)
+	}
+
+	logger.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
 	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs), lhs, rhs, cctx)
 }
 
@@ -570,7 +500,11 @@ func requiresGoToWork(lhs, rhs SimpleType) bool {
 	_, rhsIsNeg := rhs.(negType)
 	// TODO: Check for Without type if implemented
 
-	return (lhsIsUnion && !isTop(rhs)) || (rhsIsInter && !isBottom(lhs)) || lhsIsNeg || rhsIsNeg
+	required := (lhsIsUnion && !isTop(rhs)) || (rhsIsInter && !isBottom(lhs)) || lhsIsNeg || rhsIsNeg
+
+	logger.Debug(fmt.Sprintf("constrain: determined normalisation required for %s <: %s", lhs, rhs), "required", required)
+
+	return required
 }
 
 func isTop(t SimpleType) bool {
@@ -588,46 +522,45 @@ func isBottom(t SimpleType) bool {
 
 // constrainTypeVarLhs handles `TypeVariable <: Rhs`
 func (cs *constraintSolver) constrainTypeVarLhs(
-	lhs typeVariable,
+	lhs *typeVariable,
 	rhs SimpleType,
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
 	// Check levels
-	if rhs.level() > lhs.level() {
-		// Extrusion needed for RHS
-		fmt.Printf(" -> Extruding RHS for TV LHS (%d > %d)\n", rhs.level(), lhs.level())
-		extrudedRhs := cs.extrude(rhs, lhs.level(), false, cs.level /*?*/, cctx) // Needs extrude implementation
-		if extrudedRhs == nil {                                                  // Extrusion failed or reported error
-			return true
-		}
-		return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
+	if rhs.level() <= lhs.level() {
+		return cs.addUpperBound(lhs, rhs, cctx)
 	}
 
-	// Levels match or RHS is lower: Add upper bound
-	return cs.addUpperBound(lhs, rhs, cctx)
+	// Extrusion needed for RHS
+	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
+	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
+	if extrudedRhs == nil {                            // Extrusion failed or reported error
+		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs), lhs, rhs, cctx)
+		return true
+	}
+	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
 }
 
-// constrainTypeVarRhs handles `Lhs <: TypeVariable`
+// constrainTypeVarRhs handles LHS <: TypeVariable
 func (cs *constraintSolver) constrainTypeVarRhs(
 	lhs SimpleType,
-	rhs typeVariable,
+	rhs *typeVariable,
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	// Check levels
-	if lhs.level() > rhs.level() {
-		// Extrusion needed for LHS
-		fmt.Printf(" -> Extruding LHS for TV RHS (%d > %d)\n", lhs.level(), rhs.level())
-		extrudedLhs := cs.extrude(lhs, rhs.level(), true, cs.level /*?*/, cctx) // Needs extrude implementation
-		if extrudedLhs == nil {                                                 // Extrusion failed or reported error
-			return true
-		}
-		return cs.rec(extrudedLhs, rhs, true, cctx, shadows) // Retry with extruded LHS
+	// Levels match or LHS is lower: Add lower bound
+	if lhs.level() <= rhs.level() {
+		return cs.addLowerBound(rhs, lhs, cctx)
 	}
 
-	// Levels match or LHS is lower: Add lower bound
-	return cs.addLowerBound(rhs, lhs, cctx)
+	logger.Debug("constraint: extruding LHS for type-variable RHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
+	extrudedLhs := cs.extrude(lhs, rhs.level(), true) // Needs extrude implementation
+	if extrudedLhs == nil {                           // Extrusion failed or reported error
+		return true
+	}
+	return cs.rec(extrudedLhs, rhs, true, cctx, shadows) // Retry with extruded LHS
+
 }
 
 // constrainFuncFunc handles `FunctionType <: FunctionType`
@@ -636,19 +569,16 @@ func (cs *constraintSolver) constrainFuncFunc(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	// Check arity
 	if len(lhs.args) != len(rhs.args) {
 		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), lhs, rhs, cctx)
 	}
-
-	// Constrain arguments contravariantly: rhs.arg <: lhs.arg
+	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
 		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) { // Note: sameLevel = false
 			return true // Terminate early
 		}
 	}
-
-	// Constrain return type covariantly: lhs.ret <: rhs.ret
+	// constrain return type covariantly: lhs.ret <: rhs.ret
 	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows) // Note: sameLevel = false
 }
 
@@ -662,7 +592,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), lhs, rhs, cctx)
 	}
 
-	// Constrain fields covariantly: lhs.field <: rhs.field
+	// constrain fields covariantly: lhs.field <: rhs.field
 	// TODO: Handle named tuples correctly if names differ.
 	// TODO: Handle bounds correctly (recLb in Scala).
 	for i := range lhs.fields {
@@ -708,7 +638,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		// Need cycle detection for expansion
 		expandedLhs := cs.ctx.expand(lhs)
 		expandedRhs := cs.ctx.expand(rhs)
-		if expandedLhs.Equivalent(lhs) && expandedRhs.Equivalent(rhs) { // Avoid infinite loop
+		if Equal(expandedLhs, lhs) && Equal(expandedRhs, rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error
 			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), lhs, rhs, cctx)
@@ -723,7 +653,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 	}
 
 	// Fetch variance info for the definition (needs Ctx support)
-	variances, ok := cs.ctx.GetTypeDefinitionVariances(lhs.defName) // Needs implementation
+	variances, ok := cs.ctx.getTypeDefinitionVariances(lhs.defName) // Needs implementation
 	if !ok {
 		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName), lhs, rhs, cctx)
 	}
@@ -778,12 +708,12 @@ func (cs *constraintSolver) constrainClassRecord(
 			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name), lhs, rhs, cctx)
 		}
 
-		// Constrain upper bounds: memberTy.ub <: fldTy.ub
+		// constrain upper bounds: memberTy.ub <: fldTy.ub
 		if cs.rec(memberTy.ub, fldTy.upperBound, false, cctx, shadows) {
 			return true
 		}
 
-		// Constrain lower bounds: fldTy.lb <: memberTy.lb (recLb)
+		// constrain lower bounds: fldTy.lb <: memberTy.lb (recLb)
 		if fldTy.lowerBound != nil {
 			if memberTy.lb == nil {
 				// Trying to assign to a non-mutable field
@@ -806,72 +736,370 @@ func (cs *constraintSolver) goToWork(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	cs.annoyingCalls++
-	fmt.Printf(" -> goToWork: %s <! %s (NOT IMPLEMENTED)\n", lhs, rhs)
-	// 1. Convert lhs to DNF (Disjunctive Normal Form: union of conjunctions)
-	//    lhsDNF := cs.normalize(lhs, true) // Needs implementation
-	// 2. Convert rhs to CNF (Conjunctive Normal Form: intersection of disjunctions)
-	//    or DNF with polarity false.
-	//    rhsDNF := cs.normalize(rhs, false) // Needs implementation
-	// 3. Handle polymorphism in rhsDNF (rigidification) if necessary.
-	// 4. Call constrainDNF(lhsDNF, rhsDNF)
-	// return cs.constrainDNF(lhsDNF, rhsDNF, cctx, shadows)
-
-	// Placeholder: report error
-	return cs.reportError("complex constraint solving (DNF/CNF) not implemented", lhs, rhs, cctx)
+	opsDnf := &opsDNF{ctx: cs.ctx}
+	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
+	return false
 }
 
-// extrude handles type variable extrusion. Complex logic based on levels and polarity.
-// Needs careful implementation matching Scala's `extrude`.
-func (cs *constraintSolver) extrude(
-	ty SimpleType,
-	lowerLvl level,
-	pol bool,               // Polarity: true for positive, false for negative
-	upperLvl level,         // Upper level limit for extrusion
-	cctx constraintContext, // Used for provenance/reason in Extruded type
-) SimpleType {
-	fmt.Printf(" -> extrude: %s (level %d) below %d, pol: %t (NOT IMPLEMENTED)\n", ty, ty.level(), lowerLvl, pol)
-	// 1. Check base case: ty.level <= lowerLvl -> return ty
-	// 2. Handle recursion using a cache (map[typeVariableID][bool]typeVariableID ?)
-	// 3. Recursively extrude children based on type structure and polarity.
-	// 4. Handle TypeVariable:
-	//    - If tv.level > upperLvl: Copy the variable (freshen).
-	//    - If tv.level > lowerLvl: Extrude the variable:
-	//        - Create a new variable `nv` at `lowerLvl`.
-	//        - Add `nv` to the bounds of the original `tv`.
-	//        - Extrude the bounds of `tv` and add them to `nv`.
-	//        - Return `nv`.
-	// 5. Handle SkolemTag/RigidVar extrusion (widen to Top/Bottom or use Extruded type).
-	// 6. Return the extruded type.
+// constrainDNF handles constraining when types have been converted to DNF.
+// This corresponds to the logic within goToWork after normalization in the scala reference.
+func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
+	logger.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
+	cs.annoyingCalls++
 
-	// Placeholder: return original type (incorrect)
-	// A real implementation needs to handle level changes and bound updates.
-	// Returning nil could signal an error during extrusion.
-	return ty
+	// Iterate through each conjunct C in the LHS DNF (LHS = C1 | C2 | ...)
+	// We need to ensure C <: RHS for all C.
+	for _, conj := range lhs {
+		if !conj.vars.Empty() {
+			// Case 1: The conjunct has positive variables (TV & L & ~R & ~N <: RHS)
+			// Strategy: Extract one variable TV and constrain TV <: (RHS | ~(L & ~R & ~N))
+			first := util.IterFirstOrPanic(conj.vars.Items())
+			single := set.TreeSetFrom[*typeVariable]([]*typeVariable{first}, compareTypeVars)
+			newC := conjunct{
+				lhs:   conj.lhs,
+				rhs:   conj.rhs,
+				vars:  conj.vars.Difference(single),
+				nvars: conj.nvars,
+			}
+			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
+			cs.rec(first, newRhs, true, cctx, shadows)
+		} else {
+			// Case 2: The conjunct C has no positive variables (L & ~R & ~N <: RHS)
+
+			nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
+				return ops.mkDeep(nvar, true)
+			})
+			fullRhs := ops.or(rhs, ops.mkDeep(conj.rhs.toType(), false))
+			for nvar := range nvarsAsDNF {
+				fullRhs = ops.or(fullRhs, nvar)
+			}
+
+			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
+
+			lnf := conj.lhs
+
+			possibleConjuncts := make([]conjunct, 0, len(fullRhs))
+			for _, rConj := range fullRhs {
+				_, isBot := rConj.rhs.(rhsBot)
+				// Early exit check (corresponds to Scala's `if ((r.rnf is RhsBot)...)`)
+				if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
+					// If rConj is just an LHS part (rConj.lhs)
+					if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
+						logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
+						goto nextLhsConjunct // Skip to the next conjunct in the outer loop (lhs)
+					}
+				}
+
+				// Filtering logic (corresponds to Scala's `filter` conditions)
+				// 1. `!vars.exists(r.nvars)` - Always true here as conj.vars is empty.
+				// 2. `((lnf & r.lnf)).isDefined` - Check if intersection is possible.
+				_, ok := lnf.and(rConj.lhs, cs.ctx)
+
+				if !ok {
+					logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
+					continue
+				}
+
+				// 3. Tag checks (simplified version)
+				if ok := checkTagCompatibility(lnf, rConj.rhs); !ok {
+					logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
+					continue // Skip this rConj
+				}
+
+				// If all checks pass, add to possible conjuncts
+				possibleConjuncts = append(possibleConjuncts, rConj)
+			}
+			logger.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
+			possibleAsTypes := make([]SimpleType, 0, len(possibleConjuncts))
+			for _, rConj := range possibleConjuncts {
+				possibleAsTypes = append(possibleAsTypes, rConj.toType())
+			}
+			cs.annoying(cctx, nil, lnf, possibleAsTypes, &rhsBot{})
+			panic("TODO implement rest of constrainDNF")
+
+		} // End of else block (Case 2)
+
+	nextLhsConjunct: // Label for the early exit goto
+	} // End of loop through lhs conjuncts
+}
+
+func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
+	logger.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
+	cs.annoyingCalls++
+
+}
+
+// checkTagCompatibility performs tag compatibility checks similar to the Scala filter.
+func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
+	lhsRefined, okLhs := lnf.(*lhsRefined)
+	if !okLhs {
+		return true // LhsTop is compatible with anything
+	}
+
+	rhsBases, okRhs := rnf.(*rhsBases)
+	if !okRhs {
+		return true // RhsBot or RhsField don't have tags to conflict
+	}
+
+	// Check 1: Trait tag conflict
+	// If LHS has trait T and RHS has ~T, there's a conflict
+	for _, rhsTag := range rhsBases.tags {
+		if tt, ok := rhsTag.(traitTag); ok {
+			if lhsRefined.traitTags.Contains(tt) {
+				return false // Conflict: LHS has trait T, RHS has ~T
+			}
+		}
+	}
+
+	// Check 2: Class tag conflict
+	// If LHS has class C and RHS has ~C, there's a conflict
+	if lhsRefined.base != nil { // If LHS has a class tag
+		for _, rhsTag := range rhsBases.tags {
+			// Check if RHS contains the same class tag
+			if ct, ok := rhsTag.(classTag); ok && Equal(ct, *(lhsRefined.base)) {
+				return false // Conflict: LHS has class C, RHS has ~C
+			}
+
+			// Check inheritance relationship: if C <: D and RHS has ~D, there's a conflict
+			if ct, ok := rhsTag.(classTag); ok && lhsRefined.base != nil {
+				// Check if LHS class is a subtype of RHS class (using parent info)
+				clsTag := *(lhsRefined.base)
+				if clsTag.parents.Contains(ct.id.CanonicalSyntax()) {
+					return false // Conflict: LHS has class C, RHS has ~D, and C <: D
+				}
+			}
+		}
+	}
+
+	return true // No conflicts found
+}
+
+// ... (rest of the file, including extrude, helpers, etc.) ...
+
+// extrude copies a type up to its type variables of wrong level (and their extruded bounds).
+// It returns the extruded type, or nil if an error occurred during extrusion.
+func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) SimpleType {
+	if ty.level() <= targetLvl {
+		return ty
+	}
+
+	switch t := ty.(type) {
+	case typeRange:
+		if pol { // Positive polarity
+			return cs.extrude(t.upperBound, targetLvl, true)
+		}
+		return cs.extrude(t.lowerBound, targetLvl, false) // Negative polarity
+
+	case funcType:
+		extrudedLhs := cs.extrude(t.args[0], targetLvl, !pol) // Contravariant
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.ret, targetLvl, pol) // Covariant
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Assuming single argument function for now, like Scala's FunctionType(l, r)
+		return funcType{args: []SimpleType{extrudedLhs}, ret: extrudedRhs, withProvenance: t.withProvenance}
+
+	case unionType: // ComposedType(true, ...)
+		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.rhs, targetLvl, pol)
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Use unionOf for potential simplification
+		return unionOf(extrudedLhs, extrudedRhs, unionOpts{prov: t.prov()})
+
+	case intersectionType: // ComposedType(false, ...)
+		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
+		if extrudedLhs == nil {
+			return nil
+		}
+		extrudedRhs := cs.extrude(t.rhs, targetLvl, pol)
+		if extrudedRhs == nil {
+			return nil
+		}
+		// Use intersectionOf for potential simplification
+		return intersectionOf(extrudedLhs, extrudedRhs, unionOpts{prov: t.prov()})
+
+	case recordType:
+		newFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+		for i, field := range t.fields {
+			// Extrude field bounds: lb is contravariant (!pol), ub is covariant (pol)
+			extrudedLb := cs.extrude(field.Snd.lowerBound, targetLvl, !pol)
+			if extrudedLb == nil {
+				return nil
+			}
+			extrudedUb := cs.extrude(field.Snd.upperBound, targetLvl, pol)
+			if extrudedUb == nil {
+				return nil
+			}
+			newFields[i] = util.Pair[ast.Var, fieldType]{
+				Fst: field.Fst,
+				Snd: fieldType{lowerBound: extrudedLb, upperBound: extrudedUb, withProvenance: withProvenance{field.Snd.prov()}},
+			}
+		}
+		// Use makeRecordType for potential sorting/simplification
+		panic("extrude: implement makeRecordType")
+		//return makeRecordType(newFields, &t.provenance)
+
+	case tupleType:
+		newFields := make([]SimpleType, len(t.fields))
+		for i, field := range t.fields {
+			extrudedField := cs.extrude(field, targetLvl, pol)
+			if extrudedField == nil {
+				return nil
+			}
+			newFields[i] = extrudedField
+		}
+		return tupleType{fields: newFields, withProvenance: t.withProvenance}
+
+	case namedTupleType: // Similar to tupleType
+		newFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+		for i, field := range t.fields {
+			extrudedField := cs.extrude(field.Snd, targetLvl, pol)
+			if extrudedField == nil {
+				return nil
+			}
+			newFields[i] = util.Pair[ast.Var, SimpleType]{Fst: field.Fst, Snd: extrudedField}
+		}
+		return namedTupleType{fields: newFields, withProvenance: t.withProvenance}
+
+	case arrayType:
+		extrudedInner := cs.extrude(t.innerT, targetLvl, pol) // Assuming covariant for now
+		if extrudedInner == nil {
+			return nil
+		}
+		return arrayType{innerT: extrudedInner, withProvenance: t.withProvenance}
+
+	case *typeVariable:
+		key := polarVariableKey{tv: t.id, pol: polarityFromBool(pol)}
+		if cachedVar, ok := cs.extrusionCache[key]; ok {
+			return cachedVar
+		}
+
+		// Create a new variable at the target level
+		nv := cs.ctx.fresher.newTypeVariable(targetLvl, t.prov(), t.nameHint, nil, nil)
+		cs.extrusionCache[key] = nv // Cache it immediately
+
+		if pol { // Positive polarity
+			// Add nv as an upper bound to the original variable t
+			t.upperBounds = append(t.upperBounds, nv)
+			// Set lower bounds of nv by extruding lower bounds of t
+			nv.lowerBounds = make([]SimpleType, 0, len(t.lowerBounds))
+			for _, lb := range t.lowerBounds {
+				extrudedLb := cs.extrude(lb, targetLvl, pol)
+				if extrudedLb == nil {
+					return nil // Propagate failure
+				}
+				nv.lowerBounds = append(nv.lowerBounds, extrudedLb)
+			}
+		} else { // Negative polarity
+			// Add nv as a lower bound to the original variable t
+			t.lowerBounds = append(t.lowerBounds, nv)
+			// Set upper bounds of nv by extruding upper bounds of t
+			nv.upperBounds = make([]SimpleType, 0, len(t.upperBounds))
+			for _, ub := range t.upperBounds {
+				extrudedUb := cs.extrude(ub, targetLvl, pol)
+				if extrudedUb == nil {
+					return nil // Propagate failure
+				}
+				nv.upperBounds = append(nv.upperBounds, extrudedUb)
+			}
+		}
+		return nv
+
+	case negType:
+		extrudedNegated := cs.extrude(t.negated, targetLvl, pol) // Polarity stays the same for negation itself? Check Scala. Yes.
+		if extrudedNegated == nil {
+			return nil
+		}
+		// Use negateType for potential simplification
+		return negateType(extrudedNegated, t.prov())
+
+	case extremeType:
+		return t // Level 0
+
+	case wrappingProvType: // ProvType
+		extrudedUnderlying := cs.extrude(t.underlying(), targetLvl, pol)
+		if extrudedUnderlying == nil {
+			return nil
+		}
+		// Re-wrap with the original provenance
+		return wrappingProvType{SimpleType: extrudedUnderlying, proxyProvenance: t.prov()}
+
+	// case ProxyType: // Scala has this, Go doesn't seem to have a direct equivalent yet
+	// 	return cs.extrude(t.underlying, targetLvl, pol)
+
+	case classTag, traitTag:
+		return t // Level 0
+
+	case typeRef:
+		// Need variance info to extrude type arguments correctly
+		variances, ok := cs.ctx.getTypeDefinitionVariances(t.defName)
+		if !ok {
+			// Cannot extrude if definition is unknown, treat as opaque? Or error?
+			// Scala seems to return the original typeRef here. Let's do that.
+			// This might be incorrect if the typeRef *contains* higher-level variables.
+			// A safer approach might be to report an error.
+			logger.Warn("extrude: unknown type definition, cannot extrude TypeRef arguments", "typeRef", t)
+			return t // Or return nil and report error?
+		}
+		if len(variances) != len(t.typeArgs) {
+			logger.Warn("extrude: variance/type argument mismatch", "typeRef", t)
+			return t // Or return nil and report error?
+		}
+
+		newTargs := make([]SimpleType, len(t.typeArgs))
+		for i, targ := range t.typeArgs {
+			argPol := combinePolarity(polarityFromBool(pol), variances[i])
+			var extrudedArg SimpleType
+			if argPol == invariant {
+				// Extrude as a TypeRange (like Scala's mapTargs N case)
+				extrudedLb := cs.extrude(targ, targetLvl, false)
+				if extrudedLb == nil {
+					return nil
+				}
+				extrudedUb := cs.extrude(targ, targetLvl, true)
+				if extrudedUb == nil {
+					return nil
+				}
+				// Use makeTypeRange for potential simplification
+				extrudedArg = cs.ctx.makeTypeRange(extrudedLb, extrudedUb, targ.prov())
+			} else {
+				// Extrude with the calculated polarity
+				extrudedArg = cs.extrude(targ, targetLvl, argPol == positive)
+				if extrudedArg == nil {
+					return nil
+				}
+			}
+			newTargs[i] = extrudedArg
+		}
+		return typeRef{defName: t.defName, typeArgs: newTargs, withProvenance: t.withProvenance}
+
+	default:
+		panic(fmt.Sprintf("extrude: unhandled type %T", ty))
+	}
+}
+
+// polarityFromBool converts bool (true=positive, false=negative) to polarity enum.
+// Assumes invariant case is handled separately where needed.
+func polarityFromBool(pol bool) polarity {
+	if pol {
+		return positive
+	}
+	return negative
 }
 
 // --- Type Definition Lookup Helpers (Need implementation in TypeCtx) ---
 
-// GetTypeDefinitionVariances retrieves variance information for type parameters.
-func (ctx *TypeCtx) GetTypeDefinitionVariances(name typeName) ([]Variance, bool) {
-	// TODO: Implement lookup in ctx.tyDefs or ctx.tyDefs2
-	fmt.Printf("WARN: GetTypeDefinitionVariances not implemented for %s\n", name)
-	// Placeholder: Assume invariant for now
-	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
-	if !ok {
-		return nil, false
-	}
-	variances := make([]Variance, len(def.typeParamArgs))
-	for i := range variances {
-		variances[i] = Invariant // Default to invariant
-		// TODO: Read actual variance from TypeDef
-	}
-	return variances, true
-}
-
 // IsSubtypeTag checks if tag1 is a subtype of tag2 (class/trait inheritance).
 func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {
-	if tag1.Equivalent(tag2) {
+	if Equal(tag1, tag2) {
 		return true
 	}
 	asClassTag, ok := tag1.(classTag)

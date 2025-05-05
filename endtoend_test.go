@@ -86,9 +86,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		defer func() {
-			//if recover() != nil {
-			//	t.Fatalf("test panicked: %v", recover())
-			//}
+			if recover() != nil {
+				t.Errorf("test panicked: %v", recover())
+			}
 		}()
 		content, err := testSet.ReadFile(path.Join("test", name))
 		assert.NoError(t, err)
@@ -98,7 +98,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		err = i.Use(stdlib.Symbols)
 		assert.NoError(t, err)
 
-		transpiled, cErrs, err := ile.NewPackageFromBytes(content)
+		pkg, cErrs, err := ile.NewPackageFromBytes(content)
 		assert.NoError(t, err)
 		if err != nil {
 			// don't try to keep going if the FE failed
@@ -112,8 +112,8 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))
 		}
 
-		tp := backend.Transpiler{}
-		goAst, err := tp.TranspilePackage(transpiled.Name(), transpiled.Syntax())
+		tp := backend.NewTranspiler(pkg.TypeCtx)
+		goAst, err := tp.TranspilePackage(pkg.Name(), pkg.Syntax())
 		assert.NoError(t, err)
 
 		sourceBuf := bytes.NewBuffer(nil)
@@ -126,9 +126,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 
 		resActual, err := i.Eval(eval)
 		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
-		if logGoAST {
-			println("go AST:\n-------", sourceBuf.String(), "\n-------")
-		}
+		t.Log("go AST:\n-------", sourceBuf.String(), "\n-------")
 
 		iClean := interp.New(interp.Options{})
 		resExpected, err := iClean.Eval(expected)

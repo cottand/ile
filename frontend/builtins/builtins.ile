@@ -1,5 +1,5 @@
 package builtins
 
-True Bool = 0 == 0
-False Bool = 0 != 0
+val True: Bool = 0 == 0
+val False: Bool = 0 != 0
 

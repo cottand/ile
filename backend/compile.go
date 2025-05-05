@@ -4,8 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/hmtypes"
-	"github.com/cottand/ile/frontend/infer"
+	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/util"
 	goast "go/ast"
 	"go/token"
@@ -14,11 +13,21 @@ import (
 
 const goVersion = "1.23.3"
 
+// will need to handle more concrete tags, like random strings and specific ints,
+// but for now we'll just do the basic types
+func typeTagToGoType(t *ast.TypeTag) (goType string, err error) {
+	goType, ok := ileToGoTypes[t.Name]
+	if ok {
+		return goType, nil
+	}
+	return "", fmt.Errorf("failed to convert type tag %s", t.Name)
+}
+
 var ileToGoTypes = map[string]string{
-	"Int":    "int64",
-	"String": "string",
-	"Float":  "float64",
-	"Bool":   "bool",
+	ast.IntTypeName:  "int64",
+	"String":         "string",
+	"Float":          "float64",
+	ast.BoolTypeName: "bool",
 }
 
 var ileToGoVars = map[string]string{
@@ -26,12 +35,46 @@ var ileToGoVars = map[string]string{
 	"False": "false",
 }
 
-type Transpiler struct {
-	types infer.TypeEnv
+var ileToGoOperators = map[string]token.Token{
+	"+":  token.ADD,
+	"/":  token.QUO,
+	"%":  token.REM,
+	"-":  token.SUB,
+	"*":  token.MUL,
+	">":  token.GTR,
+	"<":  token.LSS,
+	"<=": token.LEQ,
+	">=": token.GEQ,
+	"==": token.EQL,
+	"!=": token.NEQ,
 }
 
-func NewTranspiler() *Transpiler {
-	return &Transpiler{}
+func nearestGoType(lit *ast.Literal) (goType string, err error) {
+	switch lit.Kind {
+	case token.INT:
+		// TODO we would like to narrow types here (like 3 becomes uint8, not int64)
+		return "int64", nil
+	default:
+		return "", fmt.Errorf("nearestGoType: unexpected literal type %s", lit.Kind.String())
+	}
+}
+
+func isSuitableForGoConst(t ast.Type) bool {
+	_, ok := t.(*ast.Literal)
+	return ok
+}
+
+type Transpiler struct {
+	types       *types.TypeCtx
+	currentExpr ast.Expr
+	// inFunctionSignature is used during transpileType to determine if we can use const types or not
+	inFunctionSignature bool
+}
+
+func NewTranspiler(typeCtx *types.TypeCtx) *Transpiler {
+	return &Transpiler{
+		types: typeCtx,
+	}
 }
 
 func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.File, error) {
@@ -117,15 +160,19 @@ func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) ([]goast.Gen
 				errs = append(errs, err)
 				continue
 			}
-			if _, isCompTime := decl.E.Type().(*hmtypes.CompTimeConst); isCompTime {
+			var type_ goast.Expr
+			// Always use the inferred type for variables. If the declared type was different, the frontend
+			// would have failed to typecheck, so it is safe to assume that the inferred type is the correct one.
+			declType := tp.types.TypeOf(decl.E)
+			if isSuitableForGoConst(declType) {
+				// we do not explicitly declare the type of a Go const, so that it remains as a Go 'untyped' const type
 				goConstDecls = append(goConstDecls, &goast.ValueSpec{
 					Names:  []*goast.Ident{goast.NewIdent(decl.Name)},
 					Values: []goast.Expr{value},
 				})
 				continue
 			}
-			var type_ goast.Expr
-			type_, err = tp.transpileType(decl.E.Type())
+			type_, err = tp.transpileType(declType)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -168,12 +215,14 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ast.Declaration) ([]goast.Decl
 				continue
 			}
 			var resultList *goast.FieldList
-			t, ok := fn.Type().(*hmtypes.Arrow)
+			t, ok := tp.types.TypeOf(fn).(*ast.FnType)
 			if !ok {
-				errs = append(errs, errors.New("expected a arrow function"))
+				errs = append(errs, errors.New("expected a function type"))
 			}
-			if t.Return != hmtypes.UnitPointer {
+			if t.Return != ast.UnitType {
+				tp.inFunctionSignature = true
 				resultType, err := tp.transpileType(t.Return)
+				tp.inFunctionSignature = false
 				if err != nil {
 					errs = append(errs, err)
 					continue
@@ -199,6 +248,10 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ast.Declaration) ([]goast.Decl
 }
 
 func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
+	oldExpr := tp.currentExpr
+	tp.currentExpr = expr
+	defer func() { tp.currentExpr = oldExpr }()
+
 	switch e := expr.(type) {
 	case *ast.Literal:
 		switch e.Kind {
@@ -209,14 +262,9 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 				Value: "`" + e.Syntax + "`",
 			}, nil
 		case token.INT:
-			return &goast.CallExpr{
-				// TODO we want to use the original type here, not always unt64
-				Fun: goast.NewIdent("int64"),
-				Args: []goast.Expr{
-					&goast.BasicLit{
-						Kind:  e.Kind,
-						Value: e.Syntax,
-					}},
+			return &goast.BasicLit{
+				Kind:  e.Kind,
+				Value: e.Syntax,
 			}, nil
 		default:
 			return nil, fmt.Errorf("for basicLit expr, unexpected token %v for type %v", e.Kind.String(), reflect.TypeOf(expr))
@@ -230,28 +278,6 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 
 		// Go does not have ternary operators or anything that lets us inline logic into an expression,
 		// so we inline a function call
-	case *ast.WhenMatch:
-		whenResultT, err := tp.transpileType(e.Type())
-		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", hmtypes.TypeString(e.Type()), err)
-		}
-		whenBlock, err := tp.transpileExpressionToStatements(e, "return")
-		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile: %v", err)
-		}
-		fLiteral := &goast.FuncLit{
-			Type: &goast.FuncType{
-				TypeParams: &goast.FieldList{List: []*goast.Field{}},
-				Params:     &goast.FieldList{List: []*goast.Field{}},
-				Results:    &goast.FieldList{List: []*goast.Field{{Type: whenResultT}}},
-			},
-			Body: &goast.BlockStmt{List: whenBlock},
-		}
-
-		return &goast.CallExpr{
-			Fun:  fLiteral,
-			Args: []goast.Expr{},
-		}, nil
 	case *ast.RecordSelect:
 		selected, err := tp.transpileExpr(e.Record)
 		if err != nil {
@@ -263,48 +289,46 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 			Sel: goast.NewIdent(e.Label),
 		}, nil
 	case *ast.Call:
-
-		switch fn := e.Func.(type) {
-		// here, e is an operator call, not a normal function call
-		case *ast.Literal:
-			switch len(e.Args) {
-			case 0:
-				panic("TODO nullary operators")
-			case 1:
-				panic("TODO unary operators")
-			case 2:
-				lhs, err1 := tp.transpileExpr(e.Args[0])
-				rhs, err2 := tp.transpileExpr(e.Args[1])
-				if err1 != nil || err2 != nil {
-					return nil, fmt.Errorf("for call expr, unexpected errors: %v", errors.Join(err1, err2))
-				}
-				return &goast.BinaryExpr{
-					X:  lhs,
-					Y:  rhs,
-					Op: fn.Kind,
-				}, nil
-			default:
-				return nil, fmt.Errorf("for call expr, less than 3 arguments, got %d", len(e.Args))
-			}
-
-		default:
-			goFn, err := tp.transpileExpr(fn)
-			if err != nil {
-				return nil, fmt.Errorf("for call expr function, unexpected error: %v", err)
-			}
-			args := make([]goast.Expr, len(e.Args))
-			for i, arg := range e.Args {
-				var err error
-				args[i], err = tp.transpileExpr(arg)
-				if err != nil {
-					return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
+		if asVar, ok := e.Func.(*ast.Var); ok {
+			operator, isOperator := ileToGoOperators[asVar.Name]
+			if isOperator {
+				switch len(e.Args) {
+				case 0:
+					panic("TODO nullary operators")
+				case 1:
+					panic("TODO unary operators")
+				case 2:
+					lhs, err1 := tp.transpileExpr(e.Args[0])
+					rhs, err2 := tp.transpileExpr(e.Args[1])
+					if err1 != nil || err2 != nil {
+						return nil, fmt.Errorf("for call expr, unexpected errors: %v", errors.Join(err1, err2))
+					}
+					return &goast.BinaryExpr{
+						X:  lhs,
+						Y:  rhs,
+						Op: operator,
+					}, nil
+				default:
+					return nil, fmt.Errorf("for call expr, less than 3 arguments, got %d", len(e.Args))
 				}
 			}
-			return &goast.CallExpr{
-				Fun:  goFn,
-				Args: args,
-			}, nil
 		}
+		goFn, err := tp.transpileExpr(e.Func)
+		if err != nil {
+			return nil, fmt.Errorf("for call expr function, unexpected error: %v", err)
+		}
+		args := make([]goast.Expr, len(e.Args))
+		for i, arg := range e.Args {
+			var err error
+			args[i], err = tp.transpileExpr(arg)
+			if err != nil {
+				return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
+			}
+		}
+		return &goast.CallExpr{
+			Fun:  goFn,
+			Args: args,
+		}, nil
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}
@@ -313,7 +337,9 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 func (tp *Transpiler) transpileParameterDecls(decl ast.Declaration, fn *ast.Func) (goast.FieldList, error) {
 	fieldList := goast.FieldList{}
 	errs := make([]error, 0)
-	t, err := tp.transpileType(decl.E.Type())
+	tp.inFunctionSignature = true
+	t, err := tp.transpileType(decl.Type)
+	tp.inFunctionSignature = false
 	if err != nil {
 		errs = append(errs, fmt.Errorf("for declaration %v, error when transpiling type: %v", decl.Name, err))
 	}
@@ -332,12 +358,17 @@ func (tp *Transpiler) transpileParameterDecls(decl ast.Declaration, fn *ast.Func
 	return fieldList, errors.Join(errs...)
 }
 
-func (tp *Transpiler) transpileType(t hmtypes.Type) (goast.Expr, error) {
+func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 	if t == nil {
 		return nil, nil
 	}
-	switch e := hmtypes.RealType(t).(type) {
-	case *hmtypes.Arrow:
+	// some shortcuts
+	switch t.Hash() {
+	case ast.BoolType.Hash():
+		return goast.NewIdent("bool"), nil
+	}
+	switch e := t.(type) {
+	case *ast.FnType:
 		if e == nil {
 			panic("nil type for arrow function")
 		}
@@ -358,28 +389,31 @@ func (tp *Transpiler) transpileType(t hmtypes.Type) (goast.Expr, error) {
 			Results: &goast.FieldList{List: []*goast.Field{{Type: retType}}},
 		}, nil
 
-	case *hmtypes.Const:
+	case *ast.TypeTag:
 		goEquivalent, ok := ileToGoTypes[e.Name]
 		if ok {
 			return goast.NewIdent(goEquivalent), nil
 		}
 		return goast.NewIdent(e.Name), nil
 
-		// generic type!
-	case *hmtypes.Var:
-		return nil, fmt.Errorf("generics are not implemented yet, but got %v", hmtypes.TypeString(t))
+		// inferred to literal value
+	case *ast.Literal:
+		if tp.inFunctionSignature {
+			goType, err := nearestGoType(e)
+			return goast.NewIdent(goType), err
+		}
+		// if we are not in a function signature, we can just use the literal value without a type signature
+		// to rely on Go inference to make literals be const (i.e., untyped types according to Go spec)
+		return nil, nil
 
-	case *hmtypes.CompTimeConst:
-		// FIXME https://github.com/cottand/ile/issues/14
-		//  it means we let a comptime type slip through
-		//  type inference
-		//  it can happen when functions return a literal directly for example
-		//
-		return tp.transpileType(e.DefaultType)
+		// generic type!
+	case *ast.TypeVar:
+		return nil, fmt.Errorf("generics are not implemented yet, but got %v", t.ShowIn(ast.DumbShowCtx, 0))
 
 	default:
-		return nil, fmt.Errorf("unexpected ast.Type type: %v", e)
+		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", ast.TypeString(e), e)
 	}
+	panic("unreachable")
 }
 
 // transpileExpressionToStatements makes a []ast.Stmt
@@ -408,7 +442,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 			return nil, fmt.Errorf("failed to transpile expression: %v", err)
 		}
 		remainder, err := tp.transpileExpressionToStatements(e.Body, finalLocalVarName)
-		t, err := tp.transpileType(e.Type())
+		t, err := tp.transpileType(tp.types.TypeOf(e))
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile type: %v", err)
 		}
@@ -429,9 +463,9 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 
 		// a when without clauses is equivalent to a Go switch without a subject
 	case *ast.WhenMatch:
-		whenResultT, err := tp.transpileType(e.Type())
+		whenResultT, err := tp.transpileType(tp.types.TypeOf(e))
 		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", hmtypes.TypeString(e.Type()), err)
+			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", tp.types.TypeOf(e), err)
 		}
 		switchResultIdent := goast.NewIdent(util.MangledIdentFrom(e, e.ExprName()))
 		statements = append(statements, &goast.DeclStmt{Decl: &goast.GenDecl{

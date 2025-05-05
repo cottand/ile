@@ -1,4 +1,5 @@
-//ile:compilerTest test.someVal | int64(32)
+//ile:compilerTest test.someVal | 32
+// technically this is an untyped in in go, hence we are not checking its int64 type
 package test
 
-someVal = 32
+val someVal = 32

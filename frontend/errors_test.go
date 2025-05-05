@@ -13,7 +13,7 @@ func TestCompileExprErrors(t *testing.T) {
 	exprCases := map[string][]string{
 		`1 + "a"`:             {"type mismatch", "Int", "String"},
 		`"a" + 1`:             {"type mismatch", "Int", "String"},
-		`a = 1; "a" + a`:      {"type mismatch", "Int", "String"},
+		`val a = 1; "a" + a`:  {"type mismatch", "Int", "String"},
 		`b + 1`:               {"variable", "b", "not defined"},
 		`True = 0 != 0; True`: {"True", "identifier", "not", "allowed"},
 	}
@@ -23,7 +23,7 @@ func TestCompileExprErrors(t *testing.T) {
 			progTemplate := fmt.Sprintf(`
 package main
 
-exprTest = (%v)
+val exprTest = (%v)
 		`, expr)
 			_, errs, err := ile.NewPackageFromBytes([]byte(progTemplate))
 			assert.NoError(t, err)

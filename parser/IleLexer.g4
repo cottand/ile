@@ -12,7 +12,8 @@ CONST       : 'const';
 FALLTHROUGH : 'fallthrough' -> mode(NLSEMI);
 TYPE        : 'type';
 IMPORT      : 'import';
-WHEN       : 'when';
+WHEN        : 'when';
+VAL         : 'val';
 
 
 NIL_LIT: 'Nil' -> mode(NLSEMI);

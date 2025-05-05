@@ -2,7 +2,6 @@ package ast
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/internal/log"
 	"go/token"
 	"unicode"
@@ -18,10 +17,6 @@ type Positioner interface {
 	End() token.Pos // position of first character immediately after the node
 }
 
-// TypeAnnotationFn should produce a type at the given binding-level. The constructed type may include
-// types derived from variables which are already in scope (retrieved from the type-environment).
-type TypeAnnotationFn = func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
-
 type Range struct {
 	PosStart token.Pos
 	PosEnd   token.Pos
@@ -30,8 +25,8 @@ type Range struct {
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }
 
-func GetRange(e Expr) Range {
-	return Range{e.Pos(), e.End()}
+func RangeBetween(fst, snd Positioner) Range {
+	return Range{fst.Pos(), snd.End()}
 }
 
 var _ Positioner = (*File)(nil)
@@ -56,6 +51,10 @@ type Declaration struct {
 	Range // of the LHS including '='
 	Name  string
 	E     Expr
+	// Type is the type annotation for the declaration, derived from inference, not from
+	// the type annotation in the declaration. This should be set by the type-checker only.
+	// For the optional type annotation in the declaration, use Ascribe inside E
+	Type Type
 	// Comments keeps a list of lines for comments immediately preceding a declaration.
 	// It may be nil if the declaration was not adjacent to any comments.
 	Comments []string

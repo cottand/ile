@@ -3,7 +3,6 @@ package ilerr
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"runtime/debug"
 	"strings"
 )
@@ -15,8 +14,7 @@ const enableDebugFullStacktrace bool = false
 type ErrCode int
 
 const (
-	None           ErrCode = iota
-	TypeUnifyConst ErrCode = iota
+	None ErrCode = iota
 	Parse
 	MissingDiscardInWhen
 	UndefinedVariable
@@ -24,7 +22,6 @@ const (
 	MissingTypeAnnotationInPublicDeclaration
 	RestrictedIdentName
 	UnsupportedGoType
-	TypeUnifyComptimeConst
 	NameRedeclaration
 	TypeMismatch
 )
@@ -65,23 +62,6 @@ func (e Unclassified) Error() string {
 func (e Unclassified) Code() ErrCode    { return None }
 func (e Unclassified) getStack() []byte { return e.stack }
 func (e Unclassified) withStack(stack []byte) IleError {
-	e.stack = stack
-	return e
-}
-
-type NewTypeUnificationConst struct {
-	ast.Positioner
-	First  hmtypes.Type
-	Second hmtypes.Type
-	stack  []byte
-}
-
-func (e NewTypeUnificationConst) Error() string {
-	return fmt.Sprintf("type mismatch: expected type '%v', but found a different type '%v'", e.First.TypeName(), e.Second.TypeName())
-}
-func (e NewTypeUnificationConst) Code() ErrCode    { return TypeUnifyConst }
-func (e NewTypeUnificationConst) getStack() []byte { return e.stack }
-func (e NewTypeUnificationConst) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }
@@ -199,24 +179,6 @@ func (e NewUnsupportedGoType) Error() string {
 }
 func (e NewUnsupportedGoType) getStack() []byte { return e.stack }
 func (e NewUnsupportedGoType) withStack(stack []byte) IleError {
-	e.stack = stack
-	return e
-}
-
-type NewTypeUnificationComptimeConst struct {
-	ast.Positioner
-	First  hmtypes.Type
-	Second hmtypes.Type
-	Reason string
-	stack  []byte
-}
-
-func (e NewTypeUnificationComptimeConst) Error() string {
-	return fmt.Sprintf("type mismatch: type '%v', cannot accomodate '%v': %v", e.First.TypeName(), e.Second.TypeName(), e.Reason)
-}
-func (e NewTypeUnificationComptimeConst) Code() ErrCode    { return TypeUnifyComptimeConst }
-func (e NewTypeUnificationComptimeConst) getStack() []byte { return e.stack }
-func (e NewTypeUnificationComptimeConst) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

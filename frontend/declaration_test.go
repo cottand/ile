@@ -19,7 +19,7 @@ func TestNoNewlineEndError(t *testing.T) {
 	file := `
 package main
 
-a = 1`
+val a = 1`
 
 	_, errs := testAntlrParse(t, file)
 
@@ -39,7 +39,7 @@ func TestDeclLiteral(t *testing.T) {
 	file := `
 package main
 
-hello = 1
+val hello = 1
 `
 	src, _ := testAntlrParse(t, file)
 
@@ -54,7 +54,7 @@ func TestStrLiteral(t *testing.T) {
 	file := `
 package main
 
-hello = "aa"
+val hello = "aa"
 `
 	src, _ := testAntlrParse(t, file)
 
@@ -83,13 +83,15 @@ func TestListener_ExitFunctionDeclParams(t *testing.T) {
 	file := `
 package main
 
-fn hello(i Int, ii Int) { 1 }
+fn hello(i: Int, ii: Int) { 1 }
 `
 	src, _ := testAntlrParse(t, file)
 
 	assert.Len(t, src.Declarations, 1)
-	assert.IsType(t, &ast.Func{}, src.Declarations[0].E)
-	fn := src.Declarations[0].E.(*ast.Func)
+	assert.IsType(t, &ast.Ascribe{}, src.Declarations[0].E)
+	as := src.Declarations[0].E.(*ast.Ascribe)
+	assert.IsType(t, &ast.Func{}, as.Expr)
+	fn := as.Expr.(*ast.Func)
 
 	assert.Len(t, fn.ArgNames, 2)
 	assert.Equal(t, "i", fn.ArgNames[0])
@@ -101,13 +103,15 @@ func TestExitFunction_Body(t *testing.T) {
 	file := `
 package main
 
-fn hello(i Int, ii Int) { 1 }
+fn hello(i: Int, ii: Int) { 1 }
 `
 	src, _ := testAntlrParse(t, file)
 
 	assert.Len(t, src.Declarations, 1)
-	assert.IsType(t, &ast.Func{}, src.Declarations[0].E)
-	fn := src.Declarations[0].E.(*ast.Func)
+	assert.IsType(t, &ast.Ascribe{}, src.Declarations[0].E)
+	as := src.Declarations[0].E.(*ast.Ascribe)
+	assert.IsType(t, &ast.Func{}, as.Expr)
+	fn := as.Expr.(*ast.Func)
 
 	assert.IsType(t, &ast.Literal{}, fn.Body)
 	assert.Equal(t, "1", fn.Body.(*ast.Literal).Syntax)
@@ -117,7 +121,7 @@ func TestExitOperand(t *testing.T) {
 	file := `
 package main
 
-a = 1 + a
+val a = 1 + a
 
 `
 	src, _ := testAntlrParse(t, file)

@@ -1,24 +1,22 @@
 package frontend
 
 import (
-	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/hmtypes"
 	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/frontend/infer"
+	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/internal/log"
 	gopackages "golang.org/x/tools/go/packages"
 )
 
-// Universe is the *infer.TypeEnv which corresponds to all symbols that do not need Imports to be used,
-// and as such do not constitute a Package
-var Universe = func() *infer.TypeEnv {
-	env := infer.NewTypeEnv(nil)
-	env.Declare("True", &hmtypes.Const{Name: "Bool"})
-	env.Declare("False", &hmtypes.Const{Name: "Bool"})
-	return env
-}()
+//// Universe is the *infer.TypeEnv which corresponds to all symbols that do not need Imports to be used,
+//// and as such do not constitute a Package
+//var Universe = func() *infer.TypeEnv {
+//	env := infer.NewTypeEnv(nil)
+//	env.Declare("True", &hmtypes.Const{Name: "Bool"})
+//	env.Declare("False", &hmtypes.Const{Name: "Bool"})
+//	return env
+//}()
 
 var inferenceLogger = log.DefaultLogger.With("section", "inference")
 
@@ -30,11 +28,11 @@ type InferenceEnv struct {
 	Syntax  []ast.File
 }
 
-type PackagePublicEnv = map[string]ast.TypeAnnotation
+type PackagePublicEnv = map[string]ast.Type
 
 // InferencePhase mutates pkg to assign types from inference as well as existing ast.TypeAnnotation.
 // It should populate both pkg's Syntax and declarations
-func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
+func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Errors, error) {
 	errs := &ilerr.Errors{}
 	files := make([]ast.File, len(env.Syntax))
 
@@ -43,37 +41,24 @@ func InferencePhase(env InferenceEnv) ([]ast.File, *ilerr.Errors, error) {
 		return files, nil, nil
 	}
 	errs = errs.Merge(err)
+
+	vars := make(map[types.TypeVarID]types.SimpleType)
 	for i, file := range env.Syntax {
 		for j, decl := range file.Declarations {
-			ctx := infer.NewContext()
-			env := infer.NewTypeEnv(Universe)
 
 			groupedPkg.Body = &ast.Var{
 				Name: decl.Name,
 			}
-			newExpr, err := ctx.Annotate(groupedPkg, env)
-			if err != nil {
-				var ileErr ilerr.IleError
-				ok := errors.As(err, &ileErr)
-				if !ok {
-					errs = errs.With(ilerr.Unclassified{
-						From:       err,
-						Positioner: file,
-					})
-				} else {
-					errs = errs.With(ileErr)
-				}
+			_ = ctx.TypeExpr(groupedPkg, vars)
+			if len(ctx.Failures) != 0 {
+				panic("TODO handle this more gracefully")
 			}
-			asLetGroup := newExpr.(*ast.LetGroup)
-			for _, annotated := range asLetGroup.Vars {
-				if annotated.Var == decl.Name {
-					inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", hmtypes.TypeString(newExpr.Type()))
-					// skip over the Imports legGroup as Imports will be in scope in the compile phase
-					body := annotated.Value.(*ast.LetGroup).Body
-					file.Declarations[j].E = body
-					inferenceLogger.Debug("successfully annotated decl", "name", decl.Name, "type", hmtypes.TypeString(body.Type()))
-				}
-			}
+			errs = errs.With(ctx.Errors...)
+
+			typed := ctx.TypeOf(decl.E)
+			inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", typed.ShowIn(ast.DumbShowCtx, 0))
+			decl.Type = typed
+			file.Declarations[j] = decl
 		}
 		files[i] = file
 	}
@@ -156,7 +141,7 @@ func goPkgAsRecord(at ast.Positioner, pkg *gopackages.Package) (_ *ast.RecordExt
 			continue
 		}
 
-		t := convertGoType(obj.Type())
+		t := convertGoType(obj.Type(), ast.Range{PosStart: obj.Pos(), PosEnd: obj.Pos()})
 		if t == nil {
 			errs = errs.With(ilerr.New(ilerr.NewUnsupportedGoType{
 				Positioner: at,
@@ -166,9 +151,9 @@ func goPkgAsRecord(at ast.Positioner, pkg *gopackages.Package) (_ *ast.RecordExt
 		}
 		labels = append(labels, ast.LabelValue{
 			Label: decl,
-			Value: &ast.Literal{
-				Syntax:    fmt.Sprint("< ", decl, "@", pkg.PkgPath, " >"),
-				Construct: t.ConstructType,
+			Value: &ast.Ascribe{
+				Expr:  &ast.Var{Name: fmt.Sprint("< ", decl, "@", pkg.PkgPath, " >")},
+				Type_: t,
 			},
 		})
 
@@ -185,10 +170,12 @@ func asRecord(pkg PackagePublicEnv) *ast.RecordExtend {
 		// we could swap out the literal with the actual expression and that should work, but we only
 		// care about its type (and it is known, we do not need to infer it) so we just use an artificially
 		// annotated literal
-		exprValue := &ast.Literal{
-			// the string below can be changed safely as it has no meaning, it's for debugging
-			Syntax:    fmt.Sprint("< ", declName, " >"),
-			Construct: type_.ConstructType,
+		exprValue := &ast.Ascribe{
+			Expr: &ast.Var{
+				// the string below can be changed safely as it has no meaning, it's for debugging
+				Name: declName,
+			},
+			Type_: type_,
 		}
 		recordEntries = append(recordEntries, ast.LabelValue{
 			Label: declName,

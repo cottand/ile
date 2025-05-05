@@ -1,7 +1,7 @@
 //ile:compilerTest test.MakeInt(1) | int64(2)
 package test
 
-fn MakeInt(a Int) Int {
-  b = 1
+fn MakeInt(a: Int): Int {
+  val b = 1
   a + b
 }

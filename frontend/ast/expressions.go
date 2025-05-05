@@ -1,50 +1,11 @@
-// The MIT License (MIT)
-//
-// Copyright (c) 2019 West Damron
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
-// Package ast
-// The following expressions are supported:
-//
-//	Literal:         semi-opaque literal value
-//	Var:             variable
-//	Deref:           dereference
-//	DerefAssign:     dereference and assign
-//	ControlFlow:     control-flow graph
-//	Pipe:            pipeline
-//	Call:            function call
-//	Func:            function abstraction
-//	Assign:             let-binding
-//	LetGroup:        grouped let-bindings
-//	RecordSelect:    selecting (scoped) value of label
-//	RecordExtend:    extending record
-//	RecordRestrict:  deleting (scoped) label
-//	RecordEmpty:     empty record
-//	Variant:         tagged (ad-hoc) variant
-//	WhenMatch:           variant-matching switch
 package ast
 
 import (
-	"github.com/cottand/ile/frontend/hmtypes"
-	"github.com/cottand/ile/util"
+	"encoding/binary"
+	"github.com/hashicorp/go-set/v3"
 	"go/token"
+	"hash/fnv"
+	"strconv"
 	"strings"
 )
 
@@ -52,8 +13,6 @@ var (
 	_ Expr = (*Literal)(nil)
 	_ Expr = (*Var)(nil)
 	_ Expr = (*Deref)(nil)
-	_ Expr = (*DerefAssign)(nil)
-	_ Expr = (*Pipe)(nil)
 	_ Expr = (*Call)(nil)
 	_ Expr = (*Ascribe)(nil)
 	_ Expr = (*Func)(nil)
@@ -75,6 +34,36 @@ var (
 	_ AtomicExpr = (*Var)(nil)
 	_ AtomicExpr = (*Literal)(nil)
 )
+
+func (e *Literal) Describe() string {
+	var kindStr string
+	switch e.Kind {
+	case token.INT:
+		kindStr = "int"
+	case token.FLOAT:
+		kindStr = "float"
+	default:
+		panic("unhandled default case")
+	}
+	return kindStr + " literal"
+}
+
+func (e *Var) Describe() string            { return "variable" }
+func (e *Deref) Describe() string          { return "dereference" }
+func (e *Call) Describe() string           { return "function call" }
+func (e *Ascribe) Describe() string        { return "type annotation" }
+func (e *Func) Describe() string           { return "function" }
+func (e *Assign) Describe() string         { return "declaration" }
+func (e *LetGroup) Describe() string       { return "let group" }
+func (e *RecordSelect) Describe() string   { return "record select" }
+func (e *RecordExtend) Describe() string   { return "record extend" }
+func (e *RecordRestrict) Describe() string { return "record restrict" }
+func (e *RecordEmpty) Describe() string    { return "empty record" }
+func (e *Variant) Describe() string        { return "variant" }
+func (e *WhenMatch) Describe() string      { return "variant-matching switch" }
+func (e *Unused) Describe() string         { return "expression" }
+func (e *ListLiteral) Describe() string    { return "list literal" }
+func (e *ErrorExpr) Describe() string      { return "error expression" }
 
 // Expr is the base for all expressions.
 //
@@ -100,6 +89,8 @@ type Expr interface {
 	Positioner
 	// ExprName is the Name of the syntax-type of the expression.
 	ExprName() string
+	// Describe is what to call this expression in error messages
+	Describe() string
 
 	// Transform should, in order:
 	//  - copy the expression
@@ -108,9 +99,19 @@ type Expr interface {
 	// In practice this means first copying the entire tree, applying f to each component bottom-up,
 	// and returning the result
 	Transform(f func(Expr) Expr) Expr
+	Hash() uint64
 }
 
 func RangeOf(expr Positioner) Range {
+	if expr == nil {
+		return Range{}
+	}
+	if asRange, ok := expr.(*Range); ok {
+		return *asRange
+	}
+	if asRange, ok := expr.(Range); ok {
+		return asRange
+	}
 	return Range{expr.Pos(), expr.End()}
 }
 
@@ -120,6 +121,7 @@ func RangeOf(expr Positioner) Range {
 // It is called SimpleTerm in the mlstruct scala implementation
 type AtomicExpr interface {
 	Expr
+
 	// CanonicalSyntax should return equal strings for equal AtomicExpr
 	// for example, 1.0 and 1.00 for floats
 	//
@@ -129,42 +131,6 @@ type AtomicExpr interface {
 	Equivalent(other AtomicExpr) bool
 }
 
-var a = 1e1
-var b = a
-
-// TAnnotated can apply to an Expr if its type can be directly annotated in the source.
-// This should only be used in the frontend, not in the backend (where we rely on the inferred
-// types.Type
-//
-// If the Expr is a TAnnotated that did not have a declared type, it
-// may return nil
-type TAnnotated interface {
-	GetTAnnotation() TypeAnnotation
-	SetTAnnotation(TypeAnnotation)
-}
-
-// tAnnotationContainer can be embedded into a node so
-// that it becomes TAnnotated
-type tAnnotationContainer struct {
-	annotation TypeAnnotation
-}
-
-func (t *tAnnotationContainer) GetTAnnotation() TypeAnnotation {
-	return t.annotation
-}
-
-// SetTAnnotation can be called on an existing TAnnotated in order
-// to give it an annotation after generating it.
-//
-// This is useful when building the AST as when we make an expression we do not know its
-// parent node, so we won't know if it is annotated or not!
-func (t *tAnnotationContainer) SetTAnnotation(a TypeAnnotation) {
-	t.annotation = a
-}
-
-// PredeclaredScope is a placeholder scope for variables bound outside an expression, or top-level variables.
-var PredeclaredScope = &Scope{}
-
 // Scope is a variable-binding scope, such as a let-binding or function.
 type Scope struct {
 	// Expr is an expression which introduces a new variable-binding scope
@@ -173,38 +139,23 @@ type Scope struct {
 	Parent *Scope
 }
 
-// Semi-opaque literal value
 type Literal struct {
 	// Syntax is a string representation of the literal value. The syntax will be printed when the literal is printed.
 	Syntax string
-	// Using may contain identifiers which will be looked up in the type-environment when the type is constructed.
-	Using []string
-	// Construct should produce a type at the given binding-level. The constructed type may include
-	// types derived from variables which are already in scope (retrieved from the type-environment).
-	Construct func(env hmtypes.TypeEnv, level uint, using []hmtypes.Type) (hmtypes.Type, error)
-	inferred  hmtypes.Type
 
 	// Kind indicates what literal this is originally
-	// this is useful for the transpiling phase, and is not used during type inference.
 	//
 	// Should be one of
 	// token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
 	Kind token.Token
 
 	Range
-	tAnnotationContainer
 }
 
 func (e *Literal) isAtomicExpr() {}
 
 // Returns the syntax of e.
 func (e *Literal) ExprName() string { return e.Syntax }
-
-// Get the inferred (or assigned) type of e.
-func (e *Literal) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Literal) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *Literal) Copy() Expr {
 	copied := *e
@@ -216,16 +167,53 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// TODO desugar identical literals (01 == 1)
-func (e *Literal) CanonicalSyntax() string { return e.Syntax }
-func (e *Literal) BaseTypes() util.MSet[string] {
+// CanonicalSyntax must TODO desugar identical literals (01 == 1)
+func (e *Literal) CanonicalSyntax() string {
+	switch e.Kind {
+	case token.STRING:
+		return e.Syntax
+	case token.INT:
+		logger := logger.With("type", e.Kind.String(), "syntax", e.Syntax)
+		if strings.HasPrefix(e.Syntax, "0x") {
+			logger.Warn("CanonicalSyntax: cannot do integer hex notation yet")
+			return e.Syntax
+		}
+		if strings.HasPrefix(e.Syntax, "0b") {
+			logger.Warn("CanonicalSyntax: cannot do integer binary notation yet")
+			return e.Syntax
+		}
+		if strings.HasPrefix(e.Syntax, "0o") {
+			logger.Warn("CanonicalSyntax: cannot do integer octal notation yet")
+			return e.Syntax
+		}
+		return strings.TrimPrefix(e.Syntax, "0")
+	default:
+		logger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax")
+		return e.Syntax
+	}
+}
+
+var intSuperTypes = []string{IntTypeName, NumberTypeName}
+var stringSuperTypes = []string{StringTypeName}
+var floatSuperTypes = []string{FloatTypeName, NumberTypeName}
+
+// BaseTypes lists the TypeTag these literals are subtypes of
+//
+// These do not include the Any type, which is already a subtype of all
+func (e *Literal) BaseTypes() set.Collection[string] {
 	switch e.Kind {
 	case token.INT:
-		return util.NewSetOf(IntBuiltinType, NumberBuiltinType)
+		return set.From(intSuperTypes)
+	case token.STRING:
+		return set.From(stringSuperTypes)
+	case token.FLOAT:
+		return set.From(floatSuperTypes)
+
+
 	default:
-		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind)
+		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
 		// TODO add base types for each lit type (LitImpl in reference scala implementation)
-		return util.MSet[string]{}
+		return set.New[string](0)
 	}
 }
 func (e *Literal) Equivalent(other AtomicExpr) bool {
@@ -233,26 +221,27 @@ func (e *Literal) Equivalent(other AtomicExpr) bool {
 	return ok && e.Syntax == otherAsLiteral.Syntax
 }
 
+// Hash returns a hash value for the Literal, based on its structural characteristics
+func (e *Literal) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(e.Syntax))
+	_, _ = h.Write([]byte(e.Kind.String()))
+	return h.Sum64()
+}
+
 // Variable (or Identifier)
 type Var struct {
 	Name     string
-	inferred hmtypes.Type
+	inferred Type
 	scope    *Scope
 	Range
-	tAnnotationContainer
 }
 
 // "Var"
 func (e *Var) ExprName() string { return "Var" }
 
-// Get the inferred (or assigned) type of e.
-func (e *Var) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Get the inferred (or assigned) scope where e is defined.
+// getCached the inferred (or assigned) scope where e is defined.
 func (e *Var) Scope() *Scope { return e.scope }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Var) SetType(t hmtypes.Type) { e.inferred = t }
 
 // Assign a binding scope for e. Scope assignments should occur indirectly, during inference.
 func (e *Var) SetScope(scope *Scope) { e.scope = scope }
@@ -273,59 +262,22 @@ func (e *Var) Equivalent(other AtomicExpr) bool {
 	return ok && e.Name == otherAsVar.Name
 }
 
-// We might not need QualifiedIdent after all if we represent packages as records!
-/*// QualifiedIdent is a Qualified variable or Identifier
-type QualifiedIdent struct {
-	Qualifier string
-	Name      string
-	inferred  types.Type
-	scope     *Scope
-	Range
-	tAnnotationContainer
+// Hash returns a hash value for the Var, based on its structural characteristics
+func (e *Var) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(e.Name))
+	return h.Sum64()
 }
-
-func (e *QualifiedIdent) ExprName() string { return "QualifiedIdent" }
-
-func (e *QualifiedIdent) Type() types.Type { return types.RealType(e.inferred) }
-
-func (e *QualifiedIdent) Scope() *Scope { return e.scope }
-
-func (e *QualifiedIdent) SetType(t types.Type) { e.inferred = t }
-
-func (e *QualifiedIdent) SetScope(scope *Scope) { e.scope = scope }
-
-func (e *QualifiedIdent) Copy() Expr {
-	copied := *e
-	return &copied
-}
-func (e *QualifiedIdent) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	return f(&copied)
-}
-
-// FormattedName is just Qualifier . Name
-// Qualifier may contain `.`, but not Name
-func (e *QualifiedIdent) FormattedName() string {
-	return e.Qualifier + "." + e.Name
-}
-*/
 
 // Dereference: `*x`
 type Deref struct {
 	Ref      Expr
-	inferred hmtypes.Type
+	inferred Type
 	Range
-	tAnnotationContainer
 }
 
 // "Deref"
 func (e *Deref) ExprName() string { return "Deref" }
-
-// Get the inferred (or assigned) type of e.
-func (e *Deref) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Deref) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *Deref) Copy() Expr {
 	copied := *e
@@ -336,57 +288,19 @@ func (e *Deref) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
-// Dereference and assign: `*x = y`
-type DerefAssign struct {
-	Ref      Expr
-	Value    Expr
-	inferred hmtypes.Type
-	Range
-	tAnnotationContainer
-}
-
-// "DerefAssign"
-func (e *DerefAssign) ExprName() string { return "DerefAssign" }
-
-// Get the inferred (or assigned) type of e.
-func (e *DerefAssign) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *DerefAssign) SetType(t hmtypes.Type) { e.inferred = t }
-
-func (e *DerefAssign) Copy() Expr {
-	copied := *e
-	return &copied
-}
-func (e *DerefAssign) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	return f(&copied)
+func (e *Deref) Hash() uint64 {
+	return e.Hash() ^ 31
 }
 
 // Application: `f(x)`
 type Call struct {
-	Func         Expr
-	Args         []Expr
-	inferred     hmtypes.Type
-	inferredFunc *hmtypes.Arrow
-	Range        // of the entire expression
-	tAnnotationContainer
+	Func  Expr
+	Args  []Expr
+	Range // of the entire expression
 }
 
 // "Call"
 func (e *Call) ExprName() string { return "Call" }
-
-// Get the inferred (or assigned) type of e.
-func (e *Call) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetType(t hmtypes.Type) { e.inferred = t }
-
-// Get the inferred (or assigned) function/method called in e.
-func (e *Call) FuncType() *hmtypes.Arrow { return e.inferredFunc }
-
-// Assign the function/method called in e. Type assignments should occur indirectly, during inference.
-func (e *Call) SetFuncType(t *hmtypes.Arrow) { e.inferredFunc = t }
 
 func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
@@ -398,9 +312,20 @@ func (e *Call) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
+func (e *Call) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Call")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Func.Hash())
+	for _, arg := range e.Args {
+		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 type Ascribe struct {
 	Expr  Expr
-	type_ Type
+	Type_ Type
 	Range // of the type annotating operator (':')
 }
 
@@ -410,22 +335,38 @@ func (e *Ascribe) Transform(f func(expr Expr) Expr) Expr {
 	copied.Expr = e.Expr.Transform(f)
 	return f(&copied)
 }
+func (e *Ascribe) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Ascribe" + e.Type_.ShowIn(DumbShowCtx, 0))
+	arr = binary.LittleEndian.AppendUint64(arr, e.Expr.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
-// Function abstraction: `fn (x, y) -> x`
+// Func abstraction: `fn x, y -> x`
 type Func struct {
 	ArgNames []string
 	Body     Expr
 	Range    // of the declaration including parameters but not the body
-	tAnnotationContainer
 }
 
-// "Func"
 func (e *Func) ExprName() string { return "Func" }
 
 func (e *Func) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Body = e.Body.Transform(f)
 	return f(&copied)
+}
+func (e *Func) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Func")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Body.Hash())
+	for _, arg := range e.ArgNames {
+		_, _ = h.Write([]byte(arg))
+	}
+
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 // Assign is an expression that sets a Var to an Expr for the rest of the body
@@ -435,8 +376,9 @@ type Assign struct {
 	Var   string
 	Value Expr
 	Body  Expr
+	// Recursive can be true for functions only
+	Recursive bool
 	Range
-	tAnnotationContainer
 }
 
 func (e *Assign) ExprName() string { return "Assign" }
@@ -447,6 +389,14 @@ func (e *Assign) Transform(f func(expr Expr) Expr) Expr {
 	copied.Value = copied.Value.Transform(f)
 	return f(&copied)
 }
+func (e *Assign) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Assign" + e.Var + strconv.FormatBool(e.Recursive))
+	arr = binary.LittleEndian.AppendUint64(arr, e.Body.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // Unused is like Assign, except it does not store the Value in a Var
 // it is useful for calling expressions with side effects
@@ -454,7 +404,6 @@ type Unused struct {
 	Value Expr
 	Body  Expr
 	Range
-	tAnnotationContainer
 }
 
 func (e *Unused) ExprName() string { return "Unused" }
@@ -465,57 +414,59 @@ func (e *Unused) Transform(f func(expr Expr) Expr) Expr {
 	copied.Value = e.Value.Transform(f)
 	return f(&copied)
 }
+func (e *Unused) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Unused")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Body.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // ListLiteral can be used to represent lists as well as tuples of known width and subtypes (["aa", 1])
 type ListLiteral struct {
 	Args []Expr
 	Positioner
+	inferred Type
 }
 
-func (l *ListLiteral) ExprName() string { return "list literal" }
+func (e *ListLiteral) ExprName() string { return "list literal" }
 
-func (l *ListLiteral) String() string {
-	var exprArgs = make([]string, len(l.Args))
-	for i, arg := range l.Args {
+func (e *ListLiteral) String() string {
+	var exprArgs = make([]string, len(e.Args))
+	for i, arg := range e.Args {
 		exprArgs[i] = arg.ExprName()
 	}
 	return "[" + strings.Join(exprArgs, ", ") + "]"
 }
 
-func (l *ListLiteral) Transform(f func(expr Expr) Expr) Expr {
-	copied := *l
-	copied.Args = make([]Expr, len(l.Args))
-	for i, arg := range l.Args {
+func (e *ListLiteral) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	copied.Args = make([]Expr, len(e.Args))
+	for i, arg := range e.Args {
 		copied.Args[i] = arg.Transform(f)
 	}
 	return f(&copied)
+}
+func (e *ListLiteral) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("ListLiteral")
+	for _, arg := range e.Args {
+		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 // Grouped let-bindings: `let a = 1 and b = 2 in e`
 type LetGroup struct {
 	Vars []LetBinding
 	Body Expr
-	sccs [][]LetBinding
 	Range
-	tAnnotationContainer
 }
 
 // "LetGroup"
 func (e *LetGroup) ExprName() string { return "LetGroup" }
-
-// Get the strongly connected components inferred for e, in dependency order.
-// The strongly connected components will be assigned if e is inferred with
-// annotation enabled.
-//
-// Each component is a variable bound by e.
-func (e *LetGroup) StronglyConnectedComponents() [][]LetBinding { return e.sccs }
-
-// Assign the strongly connected components for e. Assignments should occur indirectly,
-// during inference.
-//
-// Each component should be a variable bound by e.
-func (e *LetGroup) SetStronglyConnectedComponents(sccs [][]LetBinding) { e.sccs = sccs }
-
 func (e *LetGroup) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Vars = make([]LetBinding, len(e.Vars))
@@ -530,6 +481,18 @@ func (e *LetGroup) Transform(f func(expr Expr) Expr) Expr {
 	return f(&copied)
 }
 
+func (e *LetGroup) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("LetGroup")
+	for _, b := range e.Vars {
+		arr = binary.LittleEndian.AppendUint64(arr, b.Value.Hash())
+		_, _ = h.Write([]byte(b.Var))
+	}
+	arr = binary.LittleEndian.AppendUint64(arr, e.Body.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 // Paired Identifier and value
 type LetBinding struct {
 	Var   string
@@ -540,43 +503,36 @@ type LetBinding struct {
 type RecordSelect struct {
 	Record   Expr
 	Label    string
-	inferred hmtypes.Type
+	inferred Type
 	Range
-	tAnnotationContainer
 }
 
 // "RecordSelect"
 func (e *RecordSelect) ExprName() string { return "RecordSelect" }
-
-// Get the inferred (or assigned) type of e.
-func (e *RecordSelect) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordSelect) SetType(t hmtypes.Type) { e.inferred = t }
 
 func (e *RecordSelect) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	copied.Record = e.Record.Transform(f)
 	return f(&copied)
 }
+func (e *RecordSelect) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("RecordSelect" + e.Label)
+	arr = binary.LittleEndian.AppendUint64(arr, e.Record.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // Extending record: `{a = 1, b = 2 | r}`
 type RecordExtend struct {
 	Record   Expr
 	Labels   []LabelValue
-	inferred *hmtypes.Record
+	inferred Type
 	Range
-	tAnnotationContainer
 }
 
 // "RecordExtend"
 func (e *RecordExtend) ExprName() string { return "RecordExtend" }
-
-// Get the inferred (or assigned) type of e.
-func (e *RecordExtend) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordExtend) SetType(rt *hmtypes.Record) { e.inferred = rt }
 
 func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied := *e
@@ -594,6 +550,17 @@ func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied.Record = record
 	return f(&copied)
 }
+func (e *RecordExtend) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("RecordExtend")
+	for _, v := range e.Labels {
+		arr = binary.LittleEndian.AppendUint64(arr, v.Value.Hash())
+		_, _ = h.Write([]byte(v.Label))
+	}
+	arr = binary.LittleEndian.AppendUint64(arr, e.Record.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // Paired label and value
 type LabelValue struct {
@@ -610,45 +577,44 @@ func (e *LabelValue) Copy() *LabelValue {
 type RecordRestrict struct {
 	Record   Expr
 	Label    string
-	inferred *hmtypes.Record
+	inferred *RecordType
 	Range
-	tAnnotationContainer
 }
 
 // "RecordRestrict"
 func (e *RecordRestrict) ExprName() string { return "RecordRestrict" }
-
-// Get the inferred (or assigned) type of e.
-func (e *RecordRestrict) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordRestrict) SetType(rt *hmtypes.Record) { e.inferred = rt }
 
 func (e *RecordRestrict) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	e.Record = e.Record.Transform(f)
 	return f(&copied)
 }
+func (e *RecordRestrict) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("RecordRestrict" + e.Label)
+	arr = binary.LittleEndian.AppendUint64(arr, e.Record.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // Empty record: `{}`
 type RecordEmpty struct {
-	inferred *hmtypes.Record
+	inferred *RecordType
 	Range
-	tAnnotationContainer
 }
 
 // "RecordEmpty"
 func (e *RecordEmpty) ExprName() string { return "RecordEmpty" }
 
-// Get the inferred (or assigned) type of e.
-func (e *RecordEmpty) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *RecordEmpty) SetType(rt *hmtypes.Record) { e.inferred = rt }
-
 func (e *RecordEmpty) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
+}
+func (e *RecordEmpty) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("RecordEmpty")
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 // Tagged (ad-hoc) variant: `:X a`
@@ -656,7 +622,6 @@ type Variant struct {
 	Label string
 	Value Expr
 	Range
-	tAnnotationContainer
 }
 
 // "Variant"
@@ -666,6 +631,13 @@ func (e *Variant) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	e.Value = e.Value.Transform(f)
 	return f(&copied)
+}
+func (e *Variant) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("Variant" + e.Label)
+	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 // WhenMatch is a Variant-matching switch:
@@ -680,24 +652,16 @@ type WhenMatch struct {
 	Value      Expr
 	Cases      []WhenCase
 	Default    *LabelValue
-	inferred   hmtypes.Type
+	inferred   Type
 	Positioner // of the match operator and the matched first expression (not the clauses)
-	tAnnotationContainer
 }
 
 // "WhenMatch"
 func (e *WhenMatch) ExprName() string { return "WhenMatch" }
 
-// Get the inferred (or assigned) type of e.
-func (e *WhenMatch) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *WhenMatch) SetType(t hmtypes.Type) { e.inferred = t }
-
 type WhenCase struct {
-	Pattern  MatchPattern
-	Value    Expr
-	inferred *hmtypes.Record
+	Pattern MatchPattern
+	Value   Expr
 }
 
 func (e *WhenCase) TransformChildExprs(f func(expr Expr) Expr) WhenCase {
@@ -722,6 +686,20 @@ func (e *WhenMatch) Transform(f func(expr Expr) Expr) Expr {
 	copied.Cases = cases
 	return f(&copied)
 }
+func (e *WhenMatch) Hash() uint64 {
+	panic("TODO implement hash for when matching")
+	h := fnv.New64a()
+	arr := []byte("WhenMatch")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
+	for _, v := range e.Cases {
+		arr = binary.LittleEndian.AppendUint64(arr, v.Value.Hash())
+	}
+	if e.Default != nil {
+		arr = binary.LittleEndian.AppendUint64(arr, e.Default.Value.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
 
 // MatchPattern describes a types.Type or an Expr that we would like to match against
 type MatchPattern interface {
@@ -745,66 +723,22 @@ func (e *ValueLiteralPattern) TransformChildExprs(f func(expr Expr) Expr) MatchP
 	return &copied
 }
 
-// Predicate expression within WhenMatch: `:X a -> expr1`
-type VariantPattern struct {
-	Label string
-	Var   string
-	//Value   Expr deprecated in favour of
-	varType hmtypes.Type
-	Positioner
-}
-
-func (e *VariantPattern) matchPattern() {}
-func (e *VariantPattern) TransformChildExprs(f func(expr Expr) Expr) MatchPattern {
-	copied := *e
-	return &copied
-}
-
-// Get the inferred (or assigned) variant-type of e.
-func (e *VariantPattern) VariantType() hmtypes.Type { return hmtypes.RealType(e.varType) }
-
-// Assign a variant-type to e. Type assignments should occur indirectly, during inference.
-func (e *VariantPattern) SetVariantType(t hmtypes.Type) { e.varType = t }
-
-// Pipeline: `pipe $ = xs |> fmap($, fn (x) -> to_y(x)) |> fmap($, fn (y) -> to_z(y))`
-type Pipe struct {
-	Source   Expr
-	As       string
-	Sequence []Expr
-	inferred hmtypes.Type
-	Range    // of the first pipe operator?
-	tAnnotationContainer
-}
-
-// "Pipe"
-func (e *Pipe) ExprName() string { return "Pipe" }
-
-// Get the inferred (or assigned) type of e.
-func (e *Pipe) Type() hmtypes.Type { return hmtypes.RealType(e.inferred) }
-
-// Assign a type to e. Type assignments should occur indirectly, during inference.
-func (e *Pipe) SetType(t hmtypes.Type) { e.inferred = t }
-
-func (e *Pipe) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	copied.Sequence = make([]Expr, len(e.Sequence))
-	for i, expr := range e.Sequence {
-		copied.Sequence[i] = expr.Transform(f)
-	}
-	copied.Source = e.Source.Transform(f)
-	return f(&copied)
-}
-
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be
 type ErrorExpr struct {
 	Range
 	Syntax string
-	tAnnotationContainer
 }
 
-func (e *ErrorExpr) Type() hmtypes.Type { return hmtypes.NewUnit() }
-func (e *ErrorExpr) ExprName() string   { return "Error" }
+func (e *ErrorExpr) ExprName() string { return "Error" }
 func (e *ErrorExpr) Transform(f func(expr Expr) Expr) Expr {
 	copied := *e
 	return f(&copied)
+}
+
+// Hash generates a structural hash for ErrorExpr nodes, excluding location information
+func (e *ErrorExpr) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("ErrorExpr"))
+	_, _ = h.Write([]byte(e.Syntax))
+	return h.Sum64()
 }
