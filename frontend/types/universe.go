@@ -45,18 +45,23 @@ var comparisonBinOp = funcType{
 
 // universe are the built-in bindings
 func universe() map[string]typeInfo {
+	numberOp := funcType{
+		args:           []SimpleType{intType, intType},
+		ret:            intType,
+		withProvenance: withProvenance{builtinProv},
+	}
 	return map[string]typeInfo{
-		"+": funcType{
-			args:           []SimpleType{intType, intType},
-			ret:            intType,
-			withProvenance: withProvenance{builtinProv},
-		},
-		"true":  trueType,
-		"false": falseType,
-		">":     comparisonBinOp,
-		"<":     comparisonBinOp,
-		"==":    comparisonBinOp,
-		"!=":    comparisonBinOp,
+		"+":           numberOp,
+		"*":           numberOp,
+		"-":           numberOp,
+		"/":           numberOp,
+		"%":           numberOp,
+		ast.TrueName:  trueType,
+		ast.FalseName: falseType,
+		">":           comparisonBinOp,
+		"<":           comparisonBinOp,
+		"==":          comparisonBinOp,
+		"!=":          comparisonBinOp,
 	}
 }
 
@@ -67,5 +72,17 @@ var errorTypeInstance = classTag{
 		provenance: typeProvenance{
 			desc: "Error",
 		},
+	},
+}
+
+var builtinTypes = []TypeDefinition{
+	{
+		defKind:          ast.KindClass,
+		name:             ast.IntTypeName,
+		typeVars:         nil,
+		typeParamArgs:    nil,
+		typeVarVariances: nil,
+		bodyType:         topType,
+		baseClasses:      intType.parents,
 	},
 }

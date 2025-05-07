@@ -42,7 +42,7 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Er
 	}
 	errs = errs.Merge(err)
 
-	vars := make(map[types.TypeVarID]types.SimpleType)
+	vars := make(map[string]types.SimpleType)
 	for i, file := range env.Syntax {
 		for j, decl := range file.Declarations {
 

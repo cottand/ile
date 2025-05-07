@@ -20,7 +20,7 @@ func (ctx *TypeCtx) typeIsAliasOf(t SimpleType) bool {
 
 func getVariables(t SimpleType) []*typeVariable {
 	//found := set.New[*typeVariable](1)
-	found := make(map[TypeVarID]*typeVariable, 0)
+	found := make(map[TypeVarID]*typeVariable)
 	remaining := []SimpleType{t}
 	for {
 		if len(remaining) == 0 {
@@ -45,6 +45,9 @@ func getVariables(t SimpleType) []*typeVariable {
 }
 
 func boundsString(t SimpleType) string {
+	if t == nil {
+		return "<nil>"
+	}
 	vars := getVariables(t)
 	sb := strings.Builder{}
 	for i, variable := range vars {

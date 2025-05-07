@@ -89,11 +89,16 @@ type TypeState struct {
 //
 // TypeState is shared across nested levels of TypeCtx
 func NewEmptyTypeCtx() *TypeCtx {
+	defs := make(map[string]TypeDefinition, len(builtinTypes))
+	for _, def := range builtinTypes {
+		defs[def.name] = def
+	}
 	return &TypeCtx{
 		parent:    nil,
 		env:       universe(),
 		level:     0,
 		inPattern: false,
+		typeDefs:  defs,
 		TypeState: &TypeState{
 			fresher:           NewFresher(),
 			cache:             make(map[uint64]nodeCacheEntry, 1),
@@ -103,11 +108,14 @@ func NewEmptyTypeCtx() *TypeCtx {
 }
 
 func (ctx *TypeCtx) nest() *TypeCtx {
-	copied := *ctx
+	copied := ctx.copy()
 	copied.parent = ctx
 	copied.env = make(map[string]typeInfo, len(ctx.env))
+	return copied
+}
+func (ctx *TypeCtx) copy() *TypeCtx {
+	copied := *ctx
 	return &copied
-
 }
 
 // ctxCache stores a map of pairs of types' hashes to whether they are subtypes
@@ -152,6 +160,7 @@ func (ctx *TypeCtx) TypesEquivalent(this, that SimpleType) bool {
 
 // isSubtype carries the notation <:< in the scala implementation
 func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
+	this, that = unwrapProvenance(this), unwrapProvenance(that)
 	if Equal(this, that) {
 		return true
 	}
@@ -318,7 +327,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
 			// invariant: all types in argTypes should be of type variable
 			typeParamsArgsMap[arg.Name] = fresh
 		}
-		bodyType, typeVars := ctx.typeType2(td0.Body, false, typeParamsArgsMap, defsInfo)
+		bodyType, typeVars := ctx.typeAstType(td0.Body, typeParamsArgsMap, false, defsInfo)
 		baseClasses := baseClassesOfDef(td0)
 		var td1 TypeDefinition
 		typeParamsArgsAsSlice := make([]util.Pair[typeName, *typeVariable], 0, len(typeParamsArgsMap))
@@ -396,16 +405,6 @@ func baseClassesOfType(typ ast.Type) set.Collection[typeName] {
 	}
 }
 
-// wtf are these names
-func (ctx *TypeCtx) typeType2(
-	typ ast.Type,
-	simplify bool,
-	vars map[string]SimpleType,
-	newDefsInfo map[string]util.Pair[ast.TypeDefKind, int],
-) (SimpleType, []typeVariable) {
-	panic("TODO implement me")
-}
-
 // ComputeVariances Finds the variances of all type variables in the given type definitions with the given
 // context using a fixed point computation. The algorithm starts with each type variable
 // as bivariant by default and each type definition position as covariant and
@@ -470,7 +469,7 @@ func (ctx *TypeCtx) variancesForTypeDef(defName string, id TypeVarID) varianceIn
 
 // getTypeDefinitionVariances retrieves variance information for type parameters.
 func (ctx *TypeCtx) getTypeDefinitionVariances(name typeName) ([]Variance, bool) {
-	fmt.Printf("WARN: getTypeDefinitionVariances not implemented for %s\n", name)
+	logger.Warn("getTypeDefinitionVariances not implemented", "type", name)
 	// Placeholder: Assume invariant for now
 	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
 	if !ok {

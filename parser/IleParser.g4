@@ -81,9 +81,7 @@ functionDecl
 qualifiedIdent
     : IDENTIFIER DOT IDENTIFIER
     ;
-functionType
-    : FN signature // fn (Int, String) Int
-    ;
+
 
 signature // (a Int, b String) Int
     : parameters result?
@@ -91,10 +89,10 @@ signature // (a Int, b String) Int
 
 result
 //    : parameters // TODO return several types? or tuples?
-    : type_ // Int
+    : COLON type_ // Int
     ;
 
-// (a Int, b String)
+// (a: Int, b, c: String)
 parameters
     : L_PAREN (parameterDecl (COMMA parameterDecl)* COMMA?)? R_PAREN
     ;

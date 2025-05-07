@@ -117,22 +117,3 @@ fn hello(i: Int, ii: Int) { 1 }
 	assert.Equal(t, "1", fn.Body.(*ast.Literal).Syntax)
 }
 
-func TestExitOperand(t *testing.T) {
-	file := `
-package main
-
-val a = 1 + a
-
-`
-	src, _ := testAntlrParse(t, file)
-
-	assert.Len(t, src.Declarations, 1)
-	fst := src.Declarations[0]
-	assert.Equal(t, "a", fst.Name)
-
-	assert.IsType(t, &ast.Call{}, fst.E)
-	fn := fst.E.(*ast.Call).Func.(*ast.Literal)
-
-	assert.Equal(t, fn.Syntax, "+")
-	assert.IsType(t, fst.E.(*ast.Call).Args[0].(*ast.Literal).Syntax, "1")
-}

@@ -1,7 +1,7 @@
 //ile:compilerTest test.CallOther() | int64(2)
 package test
 
-fn AddOne(a Int): Int {
+fn AddOne(a: Int): Int {
     a + 1
 }
 

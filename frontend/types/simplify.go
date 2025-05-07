@@ -504,6 +504,7 @@ func (a2 *analysis2State) analyze2(st SimpleType, pol polarity) {
 
 // TODO might need to replace all usages with analyze2 here not analyzeImpl
 func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
+	st = unwrapProvenance(st)
 	key := simpleTypePolarity{st: st, pol: pol}
 	if a2.analyzed.Contains(key) {
 		return

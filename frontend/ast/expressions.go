@@ -27,8 +27,6 @@ var (
 	_ Expr = (*Unused)(nil)
 	_ Expr = (*ListLiteral)(nil)
 
-	_ AtomicExpr = (*Literal)(nil)
-
 	_ Expr = (*ErrorExpr)(nil)
 
 	_ AtomicExpr = (*Var)(nil)

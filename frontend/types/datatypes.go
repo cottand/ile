@@ -60,31 +60,25 @@ func errorType() SimpleType {
 	return errorTypeInstance
 }
 
-func (tp *typeProvenance) embed() withProvenance {
+func (tp typeProvenance) embed() withProvenance {
 	return withProvenance{
-		provenance: *tp,
+		provenance: tp,
 	}
 
 }
 
-func (tp *typeProvenance) IsOrigin() bool {
+func (tp typeProvenance) IsOrigin() bool {
 	return tp.originName != ""
 }
 
-func (tp *typeProvenance) Wrapping(new typeProvenance) *typeProvenance {
+func (tp typeProvenance) Wrapping(new typeProvenance) *typeProvenance {
 	new.Range = tp.Range
 	return &new
 }
-func (tp *typeProvenance) Pos() token.Pos {
-	if tp == nil {
-		return token.NoPos
-	}
+func (tp typeProvenance) Pos() token.Pos {
 	return tp.Range.Pos()
 }
-func (tp *typeProvenance) End() token.Pos {
-	if tp == nil {
-		return token.NoPos
-	}
+func (tp typeProvenance) End() token.Pos {
 	return tp.Range.End()
 }
 

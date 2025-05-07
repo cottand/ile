@@ -24,6 +24,7 @@ const (
 	UnsupportedGoType
 	NameRedeclaration
 	TypeMismatch
+	ExpectedTypeParams
 )
 
 type IleError interface {
@@ -214,6 +215,22 @@ func (e NewTypeMismatch) Error() string {
 func (e NewTypeMismatch) Code() ErrCode    { return TypeMismatch }
 func (e NewTypeMismatch) getStack() []byte { return e.stack }
 func (e NewTypeMismatch) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewExpectedTypeParams struct {
+	ast.Positioner
+	Name string
+	ExpectedParams int
+	stack []byte
+}
+func (e NewExpectedTypeParams) Error() string {
+	return fmt.Sprintf("expected %d type parameters for '%s'", e.ExpectedParams, e.Name)
+}
+func (e NewExpectedTypeParams) Code() ErrCode    { return ExpectedTypeParams }
+func (e NewExpectedTypeParams) getStack() []byte { return e.stack }
+func (e NewExpectedTypeParams) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

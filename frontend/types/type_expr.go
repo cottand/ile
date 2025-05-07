@@ -17,7 +17,7 @@ func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
 // TypeExpr infers the type of a ast.Expr
 //
 // it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret SimpleType) {
+func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
 	logger := logger.With("expr.name", expr.ExprName(), "expr.string", expr, "expr.hash", fmt.Sprintf("%x", expr.Hash()))
 	if cached, ok := ctx.cache.getCached(expr); ok && cached.at == ctx.level {
 		logger.Debug("typeExpr: using cached type")
@@ -142,6 +142,12 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[TypeVarID]SimpleType) (ret 
 			ret:            bodyType,
 			withProvenance: withProvenance{newOriginProv(expr, expr.Describe(), "")},
 		}
+	case *ast.Ascribe:
+		bodyType := ctx.TypeExpr(expr.Expr, vars)
+		processedType, _ := ctx.typeAstType(expr.Type_, vars, false, nil)
+		ctx.constrain(bodyType, processedType, prov.provenance, constrainOnErr)
+		return processedType
+
 	default:
 		panic("not implemented: unexpected expression type for " + reflect.TypeOf(expr).String())
 	}

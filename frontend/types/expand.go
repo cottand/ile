@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	set "github.com/hashicorp/go-set/v3"
@@ -60,15 +61,10 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
 
 		// Sort constraints for deterministic output
 		slices.SortFunc(constraints, func(a, b ast.ConstrainedEntry) int {
-			// Sort by TypeVar UID for consistency
-			// Assuming ast.TypeVar has a comparable UID field (using Identifier for now)
-			if a.Var.Identifier < b.Var.Identifier {
-				return -1
+			if a.Var.Identifier == b.Var.Identifier {
+				return cmp.Compare(a.Bounds.Hash(), b.Bounds.Hash())
 			}
-			if a.Var.Identifier > b.Var.Identifier {
-				return 1
-			}
-			return 0
+			return cmp.Compare(a.Var.Identifier, b.Var.Identifier)
 		})
 
 		// Use the range of the original type for the constrained type
@@ -294,12 +290,9 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 
 		switch id := ty.id.(type) {
 		case *ast.Var:
-			// Check if it's a primitive type name
-			if st.ctx.IsPrimitive(id.Name) {
-				return &ast.TypeName{Name: id.Name, Positioner: tagRange}
-			}
-			// It's a user-defined class tag
-			return &ast.TypeTag{Name: id.Name, Positioner: tagRange} // Assuming ast.TypeTag has Name field
+			// note - scala reference differentiates TypeName and TypeTag - we treat these
+			// as interchangeable here.
+			return &ast.TypeName{Name: id.Name, Positioner: tagRange}
 		case *ast.Literal: // Handle literal types
 			// Convert the literal expression to ast.Literal type node
 			copied := *id
@@ -317,7 +310,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		}
 		switch id := ty.id.(type) {
 		case *ast.Var:
-			return &ast.TypeTag{Name: id.Name, Positioner: tagRange} // Assuming ast.TypeTag has Name field
+			return &ast.TypeName{Name: id.Name, Positioner: tagRange} // Assuming ast.TypeTag has Name field
 		case *ast.Literal:
 			copied := *id
 			copied.Range = ast.RangeOf(tagRange)
@@ -417,20 +410,4 @@ func (st *expanderState) expandFieldType(ft fieldType) ast.Field {
 	// }
 
 	// return ast.Field{In: lbPtr, Out: ub, Positioner: fieldRange}
-}
-
-// IsPrimitive checks if a type name corresponds to a built-in primitive.
-// TODO: Move this to TypeCtx and use the actual list of primitives.
-func (ctx *TypeCtx) IsPrimitive(name string) bool {
-	// Placeholder implementation - adapt based on your language's primitives
-	switch name {
-	case "Int", "Number", "Bool", "String", "Unit", // Base types
-		ast.AnyTypeName, ast.NothingTypeName, // Top/Bottom
-		"True", "False", // Bool literals treated as types
-		"Undefined", "Null", // Common JS/TS-like concepts
-		"Object", "Array", "Error": // Common structural/runtime types
-		return true
-	default:
-		return false
-	}
 }

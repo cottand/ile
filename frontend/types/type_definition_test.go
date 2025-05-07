@@ -30,7 +30,7 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 			}
 		}()
 		ctx := types.NewEmptyTypeCtx()
-		vars := make(map[types.TypeVarID]types.SimpleType)
+		vars := make(map[string]types.SimpleType)
 
 		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {
@@ -64,7 +64,7 @@ func TestInferIntOps(t *testing.T) {
 		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
 	}
 
-	testType(t, onePlusTwo, &ast.TypeTag{Name: "int"})
+	testType(t, onePlusTwo, ast.IntType)
 
 	plusThree := &ast.Call{
 		Func: &ast.Var{
@@ -75,7 +75,7 @@ func TestInferIntOps(t *testing.T) {
 			onePlusTwo,
 		},
 	}
-	testType(t, plusThree, &ast.TypeTag{Name: "int"})
+	testType(t, plusThree, ast.IntType)
 }
 
 func TestInferPlusFunc(t *testing.T) {
@@ -84,10 +84,10 @@ func TestInferPlusFunc(t *testing.T) {
 	}
 	testType(t, expr, &ast.FnType{
 		Args: []ast.Type{
-			&ast.TypeTag{Name: "int"},
-			&ast.TypeTag{Name: "int"},
+			ast.IntType,
+			ast.IntType,
 		},
-		Return: &ast.TypeTag{Name: "int"},
+		Return: ast.IntType,
 	})
 }
 
@@ -103,7 +103,7 @@ func TestAssign(t *testing.T) {
 			Range: ast.Range{},
 		},
 	}
-	testType(t, expr, &ast.TypeTag{Name: "int"})
+	testType(t, expr, ast.IntType)
 }
 
 func TestIdentityFunc(t *testing.T) {
@@ -188,13 +188,19 @@ func TestMutuallyRecursive(t *testing.T) {
 	expr := &ast.LetGroup{
 		Vars: []ast.LetBinding{
 			{
-				// fn rec1(x) = rec2(x)
+				// fn rec1(x) = x + rec2(x)
 				Var: "rec1",
 				Value: &ast.Func{
 					ArgNames: []string{"x"},
 					Body: &ast.Call{
-						Func: &ast.Var{Name: "rec2"},
-						Args: []ast.Expr{&ast.Var{Name: "x"}},
+						Func: &ast.Var{Name: "+"},
+						Args: []ast.Expr{
+							&ast.Call{
+								Func: &ast.Var{Name: "rec2"},
+								Args: []ast.Expr{&ast.Var{Name: "x"}},
+							},
+							&ast.Var{Name: "x"},
+						},
 					},
 				},
 			},
@@ -216,15 +222,13 @@ func TestMutuallyRecursive(t *testing.T) {
 				},
 			},
 		},
-		Body:
-		//&ast.Call{
-		//Func:
-		&ast.Var{Name: "rec2"},
-		//Args: []ast.Expr{ast.IntLiteral("2", ast.Range{})},
-		//},
+		Body: &ast.Call{
+			Func: &ast.Var{Name: "rec2"},
+			Args: []ast.Expr{ast.IntLiteral("2", ast.Range{})},
+		},
 	}
 
-	testType(t, expr, &ast.TypeTag{Name: "int"})
+	testType(t, expr, ast.IntType)
 }
 
 func TestSimpleBoolFunc(t *testing.T) {

@@ -13,7 +13,6 @@ var enabledSections = []string{
 	//"package",
 	"inference",
 	//"inference-each",
-	"unify",
 }
 
 var LoggerOpts = &slog.HandlerOptions{

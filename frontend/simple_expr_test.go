@@ -32,7 +32,7 @@ val exprTest = ` + exprStr + "\n"
 		assert.Empty(t, ilerrs.Errors(), "expected no errors, but got:\n%s", ilerrs.Errors())
 		expr := file.Declarations[0].E
 		ctx := types.NewEmptyTypeCtx()
-		vars := make(map[types.TypeVarID]types.SimpleType)
+		vars := make(map[string]types.SimpleType)
 
 		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {

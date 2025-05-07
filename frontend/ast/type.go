@@ -349,13 +349,16 @@ func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 		argShow = append(argShow, arg.ShowIn(ctx, 20))
 	}
 
-	return withParensIf(outerPrecedence > 30, "fn "+strings.Join(argShow, ", ")+" -> "+t.Return.ShowIn(ctx, 30))
+	args := strings.Join(argShow, ", ")
+	if args != "" {
+		args = args + " "
+	}
+	return withParensIf(outerPrecedence > 30, "fn "+args+"-> "+t.Return.ShowIn(ctx, 30))
 }
 
 func (t *FnType) Hash() uint64 {
 	h := fnv.New64a()
-	_, _ = h.Write([]byte("FnType"))
-	arr := make([]byte, 0)
+	arr := []byte("FnType")
 	for _, arg := range t.Args {
 		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
 	}

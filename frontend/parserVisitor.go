@@ -543,9 +543,9 @@ func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPat
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	typeName := ctx.TypeName()
 	if typeName != nil {
-		typeLit := &ast.TypeVar{
-			Identifier: typeName.GetText(),
-			Range:      intervalTo2Pos(ctx.GetSourceInterval()),
+		typeLit := &ast.TypeName{
+			Name: typeName.GetText(),
+			Positioner:      intervalTo2Pos(ctx.GetSourceInterval()),
 		}
 		if typeName.QualifiedIdent() != nil {
 			panic("qualified type names not implemented")

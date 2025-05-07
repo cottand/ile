@@ -121,39 +121,14 @@ func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.
 	}}, nil
 }
 
-func (tp *Transpiler) TranspileFile(file ast.File) (*goast.File, error) {
-	var decls []goast.Decl
-	var err error
-
-	if len(file.Declarations) > 0 {
-		declarations, err := tp.transpileDeclarations(file.Declarations)
-		if err != nil {
-			return nil, err
-		}
-		for _, decl := range declarations {
-			decls = append(decls, &decl)
-		}
-	}
-
-	functions, err := tp.transpileFunctionDecls(file.Declarations)
-	if err != nil {
-		return nil, err
-	}
-	decls = append(decls, functions...)
-	return &goast.File{
-		Name:      &goast.Ident{Name: file.PkgName},
-		GoVersion: goVersion,
-		Decls:     decls,
-	}, nil
-}
-
 // transpileDeclarations works at the top level of the file
 func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) ([]goast.GenDecl, error) {
 	goDecls := make([]goast.Spec, 0)
 	goConstDecls := make([]goast.Spec, 0)
 	errs := make([]error, 0)
 	for _, decl := range vars {
-		_, ok := decl.E.(*ast.Func)
+		// we skip top-level functions, as they are transpiled separately
+		_, ok := unwrapAscribe(decl.E).(*ast.Func)
 		if !ok {
 			value, err := tp.transpileExpr(decl.E)
 			if err != nil {
@@ -198,11 +173,18 @@ func (tp *Transpiler) transpileDeclarations(vars []ast.Declaration) ([]goast.Gen
 	}, joined
 }
 
+func unwrapAscribe(expr ast.Expr) ast.Expr {
+	if ascribe, ok := expr.(*ast.Ascribe); ok {
+		return unwrapAscribe(ascribe.Expr)
+	}
+	return expr
+}
+
 func (tp *Transpiler) transpileFunctionDecls(fs []ast.Declaration) ([]goast.Decl, error) {
 	var goDecls []goast.Decl
 	var errs []error
 	for _, irFunc := range fs {
-		if fn, ok := irFunc.E.(*ast.Func); ok {
+		if fn, ok := unwrapAscribe(irFunc.E).(*ast.Func); ok {
 			paramDecl, err := tp.transpileParameterDecls(irFunc, fn)
 			if err != nil {
 				errs = append(errs, err)
@@ -248,6 +230,7 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ast.Declaration) ([]goast.Decl
 }
 
 func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
+	expr = unwrapAscribe(expr)
 	oldExpr := tp.currentExpr
 	tp.currentExpr = expr
 	defer func() { tp.currentExpr = oldExpr }()
@@ -338,10 +321,11 @@ func (tp *Transpiler) transpileParameterDecls(decl ast.Declaration, fn *ast.Func
 	fieldList := goast.FieldList{}
 	errs := make([]error, 0)
 	tp.inFunctionSignature = true
-	t, err := tp.transpileType(decl.Type)
+	t, err := tp.transpileType(tp.types.TypeOf(decl.E))
 	tp.inFunctionSignature = false
 	if err != nil {
 		errs = append(errs, fmt.Errorf("for declaration %v, error when transpiling type: %v", decl.Name, err))
+		return fieldList, errors.Join(errs...)
 	}
 	arrowT, ok := t.(*goast.FuncType)
 	if !ok {
@@ -389,7 +373,7 @@ func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 			Results: &goast.FieldList{List: []*goast.Field{{Type: retType}}},
 		}, nil
 
-	case *ast.TypeTag:
+	case *ast.TypeName:
 		goEquivalent, ok := ileToGoTypes[e.Name]
 		if ok {
 			return goast.NewIdent(goEquivalent), nil
