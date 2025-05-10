@@ -12,6 +12,7 @@ var enabledSections = []string{
 	//"desugar",
 	//"package",
 	"inference",
+	//"inference.simplify",
 	//"inference-each",
 }
 

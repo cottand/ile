@@ -303,50 +303,6 @@ func (t typeRef) Hash() uint64 {
 	return h.Sum64() ^ hash
 }
 
-// corresponds to mapTArgs in the scala reference
-func (t typeRef) forEachTypeArg(ctx *TypeCtx, pol polarity, fn func(polarity, SimpleType)) {
-	def, ok := ctx.typeDefs[t.defName]
-	if !ok {
-		panic("type reference to unknown type! Not handled here")
-	}
-
-	if len(def.typeVarVariances) == 0 {
-		for _, arg := range t.typeArgs {
-			fn(invariant, arg)
-			return
-		}
-	}
-
-	if len(def.typeVarVariances) != len(t.typeArgs) {
-		panic("mismatched types - expected as many variances as args")
-	}
-
-	for i, arg := range t.typeArgs {
-		tv := def.typeParamArgs[i]
-		vari, ok := def.typeVarVariances[tv.Snd.id]
-		if !ok {
-			vari = varianceInvariant
-		}
-		if vari == varianceBivaraint {
-			fn(invariant, typeRange{
-				lowerBound: bottomType,
-				upperBound: topType,
-			})
-			return
-		}
-		var paramVariance polarity
-		if vari.covariant {
-			paramVariance = pol
-		} else if vari.contravariant {
-			paramVariance = pol.inverse()
-		} else {
-			paramVariance = invariant
-		}
-		fn(paramVariance, arg)
-	}
-
-}
-
 func newOriginProv(pos ast.Positioner, description string, name string) typeProvenance {
 	return typeProvenance{
 		Range:      ast.RangeOf(pos),
@@ -457,6 +413,31 @@ func (t traitTag) children(includeBounds bool) iter.Seq[SimpleType] { return emp
 type typeRange struct {
 	lowerBound, upperBound SimpleType
 	withProvenance
+}
+
+// newTypeRange handles some edge cases that can be simplified to other types
+func (ctx *TypeCtx) newTypeRange(t typeRange) SimpleType {
+	// t..t => t
+	if Equal(t.lowerBound, t.upperBound) || ctx.TypesEquivalent(t.lowerBound, t.upperBound) {
+		return t.lowerBound
+	}
+	// (a..b)..t => a..t
+	if lower, ok := t.lowerBound.(typeRange); ok {
+		return ctx.newTypeRange(typeRange{
+			lowerBound:     lower.lowerBound,
+			upperBound:     t.upperBound,
+			withProvenance: t.withProvenance,
+		})
+	}
+	// t..(a..b) => t..b
+	if upper, ok := t.upperBound.(typeRange); ok {
+		return ctx.newTypeRange(typeRange{
+			lowerBound:     t.lowerBound,
+			upperBound:     upper.upperBound,
+			withProvenance: t.withProvenance,
+		})
+	}
+	return t
 }
 
 func (t typeRange) uninstantiatedBody() SimpleType         { return t }

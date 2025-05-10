@@ -478,8 +478,9 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 		newTargs := make([]SimpleType, len(t.typeArgs))
 		changed := false
 		idx := 0
+
 		// Use forEachTypeArg to handle variance correctly
-		t.forEachTypeArg(o.ctx, pol, func(argPol polarity, arg SimpleType) {
+		for argPol, arg := range o.ctx.typeRefTraverseTypeArguments(t, pol) {
 			if idx >= len(newTargs) { // Should not happen if forEachTypeArg is correct
 				panic("forEachTypeArg yielded more arguments than expected")
 			}
@@ -488,7 +489,7 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 				changed = true
 			}
 			idx++
-		})
+		}
 		if idx != len(t.typeArgs) { // Should not happen
 			panic("forEachTypeArg yielded fewer arguments than expected")
 		}

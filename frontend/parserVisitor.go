@@ -544,8 +544,8 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	typeName := ctx.TypeName()
 	if typeName != nil {
 		typeLit := &ast.TypeName{
-			Name: typeName.GetText(),
-			Positioner:      intervalTo2Pos(ctx.GetSourceInterval()),
+			Name:       typeName.GetText(),
+			Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
 		}
 		if typeName.QualifiedIdent() != nil {
 			panic("qualified type names not implemented")

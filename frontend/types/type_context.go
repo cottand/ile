@@ -424,7 +424,10 @@ func (ctx *TypeState) addError(ileError ilerr.IleError) {
 }
 
 // TypeOf must be called after running inference
-func (ctx *TypeCtx) TypeOf(expr ast.Expr) ast.Type {
+func (ctx *TypeCtx) TypeOf(expr ast.Expr) (ret ast.Type) {
+	defer func() {
+		logger.Info("resolved type post-inference", "expr", expr, "expr.hash", expr.Hash(), "type", ret.ShowIn(ast.DumbShowCtx, 1))
+	}()
 	// check if simplified before
 	expanded, ok := ctx.expandedTypeCache[expr.Hash()]
 	if ok {

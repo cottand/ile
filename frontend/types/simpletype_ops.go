@@ -7,13 +7,16 @@ type unionOpts struct {
 	swapped bool
 }
 
-// unionOf corresponds to the `|` operation in the scala mlstruct implementation
+// unionOf corresponds to the `|` operation in the scala reference
 func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	if Equal(this, topType) {
 		return topType
 	}
 	if Equal(this, bottomType) {
 		return that
+	}
+	if Equal(this, that) {
+		return this
 	}
 	if !opts.swapped {
 		return unionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
@@ -26,10 +29,9 @@ func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	}
 	logger.Warn(fmt.Sprintf("union not implemented for %s | %s (returning plain union)", this, that))
 	return unionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
-
 }
 
-// intersectionOf corresponds to the `&` operation in the scala mlstruct implementation
+// intersectionOf corresponds to the `&` operation in the scala reference
 func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	if Equal(this, bottomType) {
 		return bottomType

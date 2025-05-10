@@ -349,7 +349,7 @@ func (cs *constraintSolver) recImpl(
 	if lhsExtreme, ok := lhs.(extremeType); ok && lhsExtreme.polarity {
 		return false
 	}
-	if rhsExtreme, ok := rhs.(extremeType); ok && !rhsExtreme.polarity {
+	if rhsExtreme, ok := rhs.(extremeType); ok && rhsExtreme.isTop() {
 		return false
 	}
 	if rhs, ok := rhs.(recordType); ok && len(rhs.fields) == 0 {
