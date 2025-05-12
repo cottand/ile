@@ -467,6 +467,47 @@ func (cs *constraintSolver) recImpl(
 	//     typeRef <: typeRef
 	//     typeRef <: _
 	//           _ <: typeRef
+
+	lhsTypeRef, okLhsTypeRef := lhs.(typeRef)
+	rhsTypeRef, okRhsTypeRef := rhs.(typeRef)
+	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ast.ArrayTypeName {
+		if lhsTypeRef.defName == rhsTypeRef.defName {
+			if len(lhsTypeRef.typeArgs) != len(rhsTypeRef.typeArgs) {
+				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName), lhs, rhs, cctx)
+			}
+			def, ok := cs.ctx.typeDefs[lhsTypeRef.defName]
+			if !ok {
+				cs.ctx.addFailure(fmt.Sprintf("type definition not found: %s", lhsTypeRef.defName), lhs.prov())
+			}
+			for i, arg := range def.typeParamArgs {
+				tv := arg.Snd
+				leftArg := lhsTypeRef.typeArgs[i]
+				rightArg := rhsTypeRef.typeArgs[i]
+				variance := def.typeVarVariances[tv.id]
+				if !variance.contravariant {
+					cs.rec(leftArg, rightArg, false, cctx, shadows)
+				}
+				if !variance.covariant {
+					cs.rec(rightArg, leftArg, false, cctx, shadows)
+				}
+			}
+			return false
+		}
+
+		if lhsTag, ok := cs.ctx.classTagFrom(lhsTypeRef); ok {
+			if rhsTag, ok := cs.ctx.classTagFrom(rhsTypeRef); ok && !cs.ctx.isSubtype(lhsTag, rhsTag, nil) {
+				return cs.reportError("type mismatch", lhs, rhs, cctx)
+			}
+		}
+		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
+	}
+	if okLhsTypeRef {
+		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), rhs, true, cctx, shadows)
+	}
+	if okRhsTypeRef {
+		return cs.rec(lhs, cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
+	}
+
 	if lhsIsErr || rhsIsErr {
 		return false
 	}
@@ -636,8 +677,8 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 	if lhs.defName != rhs.defName {
 		// Different definitions, try expanding both
 		// Need cycle detection for expansion
-		expandedLhs := cs.ctx.expand(lhs)
-		expandedRhs := cs.ctx.expand(rhs)
+		expandedLhs := cs.ctx.expand(lhs, expandOpts{})
+		expandedRhs := cs.ctx.expand(rhs, expandOpts{})
 		if Equal(expandedLhs, lhs) && Equal(expandedRhs, rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error

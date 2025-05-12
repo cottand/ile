@@ -51,7 +51,7 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Er
 			}
 			_ = ctx.TypeExpr(groupedPkg, vars)
 			if len(ctx.Failures) != 0 {
-				panic("TODO handle this more gracefully")
+				return files, nil, fmt.Errorf("failures found: %s", ctx.Failures)
 			}
 			errs = errs.With(ctx.Errors...)
 

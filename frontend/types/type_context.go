@@ -6,6 +6,7 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
+	"iter"
 	"maps"
 	"runtime/debug"
 	"slices"
@@ -484,4 +485,31 @@ func (ctx *TypeCtx) getTypeDefinitionVariances(name typeName) ([]Variance, bool)
 		// TODO: Read actual variance from TypeDef
 	}
 	return variances, true
+}
+
+func (ctx *TypeCtx) baseClassesOf(names ...string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, name := range names {
+			def, ok := ctx.typeDefs[name]
+			if !ok {
+				continue
+			}
+			for base := range def.baseClasses.Items() {
+				if !yield(base) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (ctx *TypeCtx) classTagFrom(name typeRef) (c classTag, ok bool) {
+	def, ok := ctx.typeDefs[name.defName]
+	if !ok || def.defKind != ast.KindClass {
+		return c, false
+	}
+	return classTag{
+		id:      &ast.Var{Name: name.defName},
+		parents: util.SetFromSeq(ctx.baseClassesOf(name.defName), 2),
+	}, true
 }

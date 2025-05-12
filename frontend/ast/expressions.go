@@ -332,8 +332,9 @@ func (e *Ascribe) Transform(f func(expr Expr) Expr) Expr {
 }
 func (e *Ascribe) Hash() uint64 {
 	h := fnv.New64a()
-	arr := []byte("Ascribe" + e.Type_.ShowIn(DumbShowCtx, 0))
+	arr := []byte("Ascribe")
 	arr = binary.LittleEndian.AppendUint64(arr, e.Expr.Hash())
+	arr = binary.LittleEndian.AppendUint64(arr, e.Type_.Hash())
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }

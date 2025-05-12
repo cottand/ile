@@ -330,6 +330,9 @@ func (t *ConstrainedType) Hash() uint64 {
 	return h.Sum64()
 }
 
+// FnType represents a function type like fn A, B -> C
+//
+// Exceptionally, Args or Return may be nil, because we allow partially specifying the type of a function in the AST
 type FnType struct {
 	Args   []Type
 	Return Type
@@ -346,23 +349,39 @@ func withParensIf(when bool, str string) string {
 func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	argShow := make([]string, 0, len(t.Args))
 	for _, arg := range t.Args {
-		argShow = append(argShow, arg.ShowIn(ctx, 20))
+		str := "_"
+		if arg != nil {
+			str = arg.ShowIn(ctx, 20)
+		}
+		argShow = append(argShow, str)
 	}
 
 	args := strings.Join(argShow, ", ")
 	if args != "" {
 		args = args + " "
 	}
-	return withParensIf(outerPrecedence > 30, "fn "+args+"-> "+t.Return.ShowIn(ctx, 30))
+	retStr := "_"
+	if t.Return != nil {
+		retStr = t.Return.ShowIn(ctx, 30)
+	}
+	return withParensIf(outerPrecedence > 30, "fn "+args+"-> "+retStr)
 }
 
 func (t *FnType) Hash() uint64 {
 	h := fnv.New64a()
 	arr := []byte("FnType")
 	for _, arg := range t.Args {
-		arr = binary.LittleEndian.AppendUint64(arr, arg.Hash())
+		hash := uint64(1)
+		if arg != nil {
+			hash = arg.Hash()
+		}
+		arr = binary.LittleEndian.AppendUint64(arr, hash)
 	}
-	arr = binary.LittleEndian.AppendUint64(arr, t.Return.Hash())
+	hash := uint64(1)
+	if hash == 0 {
+		hash = t.Return.Hash()
+	}
+	arr = binary.LittleEndian.AppendUint64(arr, hash)
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }

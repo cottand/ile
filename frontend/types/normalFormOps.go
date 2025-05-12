@@ -349,7 +349,7 @@ func (o *opsDNF) mk(ty SimpleType, pol bool) dnf {
 			return o.of(&lhsRefined{base: baseTag, typeRefs: refs, reft: emptyRecord})
 		}
 		// Expand the TypeRef and create DNF from the expansion
-		return o.mk(o.ctx.expand(t), pol) // Assuming ctx.expand exists
+		return o.mk(o.ctx.expand(t, expandOpts{}), pol) // Assuming ctx.expand exists
 	case typeRange:
 		// In positive context, use upper bound. In negative, use lower bound.
 		boundToUse := t.upperBound
@@ -715,7 +715,7 @@ func (o *opsCNF) mk(ty SimpleType, pol bool) cnf {
 			return cnf{newDisjunct(lhsTop{}, rnf, nil, nil)}
 		}
 		// Expand and create CNF
-		return o.mk(o.ctx.expand(t), pol)
+		return o.mk(o.ctx.expand(t, expandOpts{}), pol)
 
 	case typeRange:
 		boundToUse := t.upperBound

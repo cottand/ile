@@ -143,6 +143,11 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 			withProvenance: withProvenance{newOriginProv(expr, expr.Describe(), "")},
 		}
 	case *ast.Ascribe:
+		// empty Ascribe is meaningless in the AST, and the compiler should ideally never generate it,
+		// but we can guard against it here easily because it is a no-op
+		if expr.Type_ == nil {
+			return ctx.TypeExpr(expr.Expr, vars)
+		}
 		bodyType := ctx.TypeExpr(expr.Expr, vars)
 		processedType, _ := ctx.typeAstType(expr.Type_, vars, false, nil)
 		ctx.constrain(bodyType, processedType, prov.provenance, constrainOnErr)

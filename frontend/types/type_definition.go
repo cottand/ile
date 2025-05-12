@@ -16,6 +16,7 @@ type TypeDefinition struct {
 	name             typeName
 	typeParamArgs    []util.Pair[typeName, *typeVariable]
 	typeVars         []typeVariable
+	// typeVarVariances correctly returns invariant when not found, because it is the zero value of varianceInfo
 	typeVarVariances map[TypeVarID]varianceInfo
 	bodyType         SimpleType
 	baseClasses      set.Collection[typeName]
@@ -120,13 +121,13 @@ func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ SimpleType,
 				}
 				return true
 			} else {
-				return ctx.checkParents(originalTypeDef, ctx.expand(typ), parentsClasses)
+				return ctx.checkParents(originalTypeDef, ctx.expand(typ, expandOpts{}), parentsClasses)
 			}
 		case ast.KindAlias:
 			ctx.addFailure("cannot inherit from type alias", ctx.currentPos)
 			return false
 		case ast.KindTrait:
-			return ctx.checkParents(originalTypeDef, ctx.expand(typ), parentsClasses)
+			return ctx.checkParents(originalTypeDef, ctx.expand(typ, expandOpts{}), parentsClasses)
 		default:
 			panic("unreachable: unexpected type definition kind: " + otherTypeDef.defKind.String())
 		}
@@ -148,7 +149,7 @@ func (ctx *TypeCtx) checkCycle(
 			ctx.addFailure(fmt.Sprintf("illegal cycle detected fpr type=%s", typ.defName), ctx.currentPos)
 			return false
 		}
-		return ctx.checkCycle(ctx.expand(typ), traversedNames.Add(typ.defName), traversedVars)
+		return ctx.checkCycle(ctx.expand(typ, expandOpts{}), traversedNames.Add(typ.defName), traversedVars)
 	case unionType:
 		return ctx.checkCycle(typ.lhs, traversedNames, traversedVars) &&
 			ctx.checkCycle(typ.rhs, traversedNames, traversedVars)
@@ -205,14 +206,14 @@ func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ SimpleType, 
 			if typeDef.name == typ.defName && !util.SlicesEquivalent(existingTs, typ.typeArgs) {
 				ctx.addFailure(fmt.Sprintf(
 					"type definition is not regular - it occurs within itself as %s, but it is defined as %s",
-					ctx.expand(typ),
-					ctx.expand(typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())})), pos)
+					ctx.expand(typ, expandOpts{}),
+					ctx.expand(typeRef{defName: typ.defName, typeArgs: slices.Collect(typeDef.typeParameters())}, expandOpts{})), pos)
 				return false
 
 			}
 			return true
 		}
-		return ctx.typeDefCheckRegular(typeDef, ctx.expandWith(typ, false), reached.Set(typ.defName, typ.typeArgs), nil)
+		return ctx.typeDefCheckRegular(typeDef, ctx.expand(typ, expandOpts{withoutParamTags: true}), reached.Set(typ.defName, typ.typeArgs), nil)
 	}
 	for childT := range typ.children(false) {
 		if !ctx.typeDefCheckRegular(typeDef, childT, reached, pos) {

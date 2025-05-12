@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
@@ -88,6 +89,7 @@ type SimpleType interface {
 	fmt.Stringer
 	Hash() uint64
 	level() level
+	doMap(func(SimpleType) SimpleType) SimpleType
 	children(includeBounds bool) iter.Seq[SimpleType]
 }
 
@@ -170,12 +172,26 @@ func (t wrappingProvType) Hash() uint64 {
 	return t.SimpleType.Hash()
 }
 
+// doMap for wrappingProvType applies the function to the underlying type and creates a new wrappingProvType
+func (t wrappingProvType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedType := f(t.SimpleType)
+	return wrappingProvType{
+		SimpleType:      mappedType,
+		proxyProvenance: t.proxyProvenance,
+	}
+}
+
 // Hash generates a hash for extremeType using its polarity
 func (t extremeType) Hash() uint64 {
 	if t.polarity {
 		return 16777619 // FNV-1a prime for true/bottom
 	}
 	return 1099511628211 // FNV-1a prime for false/top
+}
+
+// doMap for extremeType returns itself since it has no children
+func (t extremeType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return t
 }
 
 // Hash generates a hash for unionType using its lhs and rhs
@@ -217,6 +233,17 @@ func (t unionType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+// doMap for unionType applies the function to its children and creates a new unionType
+func (t unionType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedLhs := f(t.lhs)
+	mappedRhs := f(t.rhs)
+	return unionType{
+		lhs:            mappedLhs,
+		rhs:            mappedRhs,
+		withProvenance: t.withProvenance,
+	}
+}
+
 // intersectionType is a composedType with negative polarity in the scala reference
 type intersectionType struct {
 	lhs, rhs SimpleType
@@ -237,6 +264,17 @@ func (t intersectionType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+// doMap for intersectionType applies the function to its children and creates a new intersectionType
+func (t intersectionType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedLhs := f(t.lhs)
+	mappedRhs := f(t.rhs)
+	return intersectionType{
+		lhs:            mappedLhs,
+		rhs:            mappedRhs,
+		withProvenance: t.withProvenance,
+	}
+}
+
 type negType struct {
 	withProvenance
 	negated SimpleType
@@ -248,6 +286,15 @@ func (t negType) level() level                                         { return 
 func (t negType) String() string                                       { return "~(" + t.negated.String() + ")" }
 func (t negType) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) { yield(t.negated) }
+}
+
+// doMap for negType applies the function to its negated type and returns a new negType
+func (t negType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedNegated := f(t.negated)
+	return negType{
+		negated:        mappedNegated,
+		withProvenance: t.withProvenance,
+	}
 }
 
 type typeEnv struct {
@@ -283,15 +330,132 @@ func (t typeRef) level() level {
 	return maxSoFar
 }
 
-func (ctx *TypeCtx) expand(t typeRef) SimpleType {
-	return ctx.expandWith(t, true)
+type expandOpts struct {
+	withoutParamTags bool
 }
-func (ctx *TypeCtx) expandWith(t typeRef, withParamTags bool) SimpleType {
-	panic("implement me")
+
+func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
+	def, ok := ctx.typeDefs[t.defName]
+	if !ok {
+		ctx.addError(ilerr.New(ilerr.NewUndefinedVariable{Positioner: t.prov(), Name: t.defName}))
+		return errorType()
+	}
+	if len(def.typeParamArgs) != len(t.typeArgs) {
+		ctx.addFailure("unexpected number of type arguments mismatch", t.prov())
+		return errorType()
+	}
+	var expandedTag SimpleType
+	switch def.defKind {
+	case ast.KindAlias:
+		expandedTag = def.bodyType
+	case ast.KindClass:
+		tag, ok := ctx.classTagFrom(t)
+		if !ok {
+			ctx.addFailure(fmt.Sprintf("class %s not found", t.defName), t.prov())
+			return errorType()
+		}
+		tagAndBody := intersectionOf(tag, def.bodyType, unionOpts{})
+		var paramTags SimpleType = topType
+		if !ops.withoutParamTags {
+			logger.Warn("recordType make not implemented, using plain struct instead")
+			r := recordType{}
+			for _, arg := range def.typeParamArgs {
+				tName, tVar := arg.Fst, arg.Snd
+				tParamField := ast.Var{Name: t.defName + "#" + tName}
+				varInfo := def.typeVarVariances[tVar.id]
+				field := fieldType{lowerBound: tVar, upperBound: tVar, withProvenance: t.withProvenance}
+				if varInfo.covariant {
+					field.lowerBound = bottomType
+				}
+				if varInfo.contravariant {
+					field.upperBound = topType
+				}
+				r.fields = append(r.fields, util.NewPair(tParamField, field))
+			}
+			paramTags = r
+		}
+		expandedTag = intersectionOf(tagAndBody, paramTags, unionOpts{})
+	case ast.KindTrait:
+		ctx.addFailure("traits not implemented", t.prov())
+		return errorType()
+	default:
+		ctx.addFailure(fmt.Sprintf("unexpected type definition kind for %s: %s", def.name, def.defKind), t.prov())
+		return errorType()
+	}
+
+	substitutions := make(map[TypeVarID]SimpleType)
+	for i, arg := range def.typeParamArgs {
+		argTypeVar := arg.Snd
+		substitutions[argTypeVar.id] = t.typeArgs[i]
+	}
+
+	substCtx := &substContext{ctx: ctx, substituteInMap: true, cache: make(map[TypeVarID]SimpleType), substitutions: substitutions}
+	return substCtx.substitute(expandedTag)
 }
+
+type substContext struct {
+	ctx             *TypeCtx
+	substituteInMap bool
+	cache           map[TypeVarID]SimpleType
+	substitutions   map[uint64]SimpleType
+}
+
+// substitute corresponds to subst in the scala reference
+//
+// substitutions is a map of SimpleType hashes to SimpleType
+func (ctx *substContext) substitute(st SimpleType) SimpleType {
+	sub, ok := ctx.substitutions[st.Hash()]
+	if ok && ctx.substituteInMap {
+		return ctx.substitute(sub)
+	}
+	if ok {
+		return sub
+	}
+	tv, isTypeVar := st.(*typeVariable)
+	if !isTypeVar {
+		return st.doMap(ctx.substitute)
+	}
+	if len(tv.lowerBounds) == 0 && len(tv.upperBounds) == 0 {
+		ctx.cache[tv.id] = st
+		return tv
+	}
+	cached, ok := ctx.cache[tv.id]
+	if ok {
+		return cached
+	}
+	fresh := ctx.ctx.newTypeVariable(
+		tv.prov(),
+		tv.nameHint,
+		make([]SimpleType, 0, len(tv.lowerBounds)),
+		make([]SimpleType, 0, len(tv.upperBounds)),
+	)
+	ctx.cache[tv.id] = fresh
+	for _, lb := range tv.lowerBounds {
+		fresh.lowerBounds = append(fresh.lowerBounds, ctx.substitute(lb))
+	}
+	for _, ub := range tv.upperBounds {
+		fresh.upperBounds = append(fresh.upperBounds, ctx.substitute(ub))
+	}
+	return fresh
+}
+
 func (t typeRef) children(bool) iter.Seq[SimpleType] {
 	return slices.Values(t.typeArgs)
 }
+
+// doMap for typeRef applies the function to its type arguments and creates a new typeRef
+func (t typeRef) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedArgs := make([]SimpleType, len(t.typeArgs))
+	for i, arg := range t.typeArgs {
+		mappedArgs[i] = f(arg)
+	}
+	return typeRef{
+		defName:        t.defName,
+		typeArgs:       mappedArgs,
+		withProvenance: t.withProvenance,
+	}
+}
+
 func (t typeRef) Hash() uint64 {
 	const prime1 uint64 = 14695981039346656037
 	var hash = prime1
@@ -348,6 +512,11 @@ func (t *typeVariable) children(includeBounds bool) iter.Seq[SimpleType] {
 	return util.ConcatIter[SimpleType](slices.Values(t.lowerBounds), slices.Values(t.upperBounds))
 }
 
+// doMap for typeVariable returns itself to avoid modifying mutable bounds
+func (t *typeVariable) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return t
+}
+
 type objectTag interface {
 	SimpleType
 	Compare(other objectTag) int
@@ -376,6 +545,9 @@ func (t classTag) containsParentST(other ast.AtomicExpr) bool {
 	asVar, isVar := other.(*ast.Var)
 	return isVar && t.parents.Contains(asVar.Name)
 }
+func (t classTag) doMap(func(simpleType SimpleType) SimpleType) SimpleType {
+	return t
+}
 
 type traitTag struct {
 	id ast.AtomicExpr
@@ -394,6 +566,11 @@ func (t traitTag) Compare(other objectTag) int {
 }
 
 func (t traitTag) children(includeBounds bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
+
+// doMap for traitTag returns itself since it has no children
+func (t traitTag) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return t
+}
 
 // typeRange represents an unknown type between bounds `lb` and `ub`,
 // where `lb` is in negative position and `ub` is in positive position.
@@ -472,6 +649,15 @@ func (t typeRange) Hash() uint64 {
 	return 31*t.upperBound.Hash() + 91*t.lowerBound.Hash()
 }
 
+// doMap for typeRange applies the function to both bounds
+func (t typeRange) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return typeRange{
+		lowerBound:     f(t.lowerBound),
+		upperBound:     f(t.upperBound),
+		withProvenance: t.withProvenance,
+	}
+}
+
 type funcType struct {
 	args []SimpleType
 	ret  SimpleType
@@ -500,6 +686,20 @@ func (t funcType) children(bool) iter.Seq[SimpleType] {
 			}
 		}
 		yield(t.ret)
+	}
+}
+
+// doMap for funcType applies the function to all arguments and return type
+func (t funcType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedArgs := make([]SimpleType, len(t.args))
+	for i, arg := range t.args {
+		mappedArgs[i] = f(arg)
+	}
+	mappedRet := f(t.ret)
+	return funcType{
+		args:           mappedArgs,
+		ret:            mappedRet,
+		withProvenance: t.withProvenance,
 	}
 }
 
@@ -549,6 +749,18 @@ func (t tupleType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+// doMap for tupleType applies the function to all fields
+func (t tupleType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedFields := make([]SimpleType, len(t.fields))
+	for i, field := range t.fields {
+		mappedFields[i] = f(field)
+	}
+	return tupleType{
+		fields:         mappedFields,
+		withProvenance: t.withProvenance,
+	}
+}
+
 // namedTupleType is a tupleType where fields also have names.
 // It is useful for function parameters for example
 //
@@ -594,6 +806,21 @@ func (t namedTupleType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+// doMap for namedTupleType applies the function to all field types
+func (t namedTupleType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+	for i, field := range t.fields {
+		mappedFields[i] = util.Pair[ast.Var, SimpleType]{
+			Fst: field.Fst,
+			Snd: f(field.Snd),
+		}
+	}
+	return namedTupleType{
+		fields:         mappedFields,
+		withProvenance: t.withProvenance,
+	}
+}
+
 var emptyRecord = recordType{}
 
 type recordType struct {
@@ -627,6 +854,25 @@ func (t recordType) String() string {
 }
 func (t recordType) children(bool) iter.Seq[SimpleType] {
 	panic("TODO what is the child of a record type?")
+}
+
+// doMap for recordType applies the function to all field types
+func (t recordType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	mappedFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+	for i, field := range t.fields {
+		mappedFields[i] = util.Pair[ast.Var, fieldType]{
+			Fst: field.Fst,
+			Snd: fieldType{
+				lowerBound:     f(field.Snd.lowerBound),
+				upperBound:     f(field.Snd.upperBound),
+				withProvenance: field.Snd.withProvenance,
+			},
+		}
+	}
+	return recordType{
+		fields:         mappedFields,
+		withProvenance: t.withProvenance,
+	}
 }
 
 // fieldType represents either a normal record field OR a type parameter in a class,
@@ -673,6 +919,14 @@ func (t arrayType) inner() SimpleType                      { return t.innerT }
 func (t arrayType) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) {
 		yield(t.innerT)
+	}
+}
+
+// doMap for arrayType applies the function to the inner type
+func (t arrayType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return arrayType{
+		innerT:         f(t.innerT),
+		withProvenance: t.withProvenance,
 	}
 }
 
@@ -726,6 +980,15 @@ func (p PolymorphicType) Hash() uint64 {
 	hash = hash*prime1 ^ levelHash
 
 	return hash
+}
+
+// doMap for PolymorphicType applies the function to the body
+func (p PolymorphicType) doMap(f func(SimpleType) SimpleType) SimpleType {
+	return PolymorphicType{
+		Body:           f(p.Body),
+		_level:         p._level,
+		withProvenance: p.withProvenance,
+	}
 }
 
 func (t arrayType) Hash() uint64 {
@@ -814,3 +1077,5 @@ func (t recordType) Hash() uint64 {
 
 	return hash * hasher.Sum64()
 }
+
+// implement doMap for all types:

@@ -42,7 +42,7 @@ type typeAstTypeContext struct {
 	tempVars     map[string]SimpleType
 }
 
-func (ctx *typeAstTypeContext) typeNamedTyoe(name typeName, pos ast.Range) (kind ast.TypeDefKind, nParams int, ok bool) {
+func (ctx *typeAstTypeContext) typeNamedType(name typeName, pos ast.Range) (kind ast.TypeDefKind, nParams int, ok bool) {
 	foundInNewDefs, ok := ctx.newDefsInfo[name]
 	if ok {
 		return foundInNewDefs.Fst, foundInNewDefs.Snd, true
@@ -107,7 +107,7 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ast.Type) SimpleType {
 		if ok {
 			return foundVar
 		}
-		_, nParams, ok := ctx.typeNamedTyoe(typ.Name, ast.RangeOf(typ))
+		_, nParams, ok := ctx.typeNamedType(typ.Name, ast.RangeOf(typ))
 		if !ok {
 			return errorType()
 		}
@@ -124,6 +124,12 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ast.Type) SimpleType {
 			withProvenance: prov.embed(),
 		}
 	case *ast.FnType:
+		var retType SimpleType
+		if typ.Return == nil {
+			retType = ctx.newTypeVariable(typeProvenance{Range: typ.Range, desc: "type declaration", isType: true}, "", nil, nil)
+		} else {
+			retType = ctx.typeAstTypeRec(typ.Return)
+		}
 		prov := typeProvenance{
 			Range:  ast.RangeOf(typ),
 			desc:   "function type",
@@ -131,11 +137,17 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ast.Type) SimpleType {
 		}
 		argTypes := make([]SimpleType, 0, len(typ.Args))
 		for _, arg := range typ.Args {
-			argTypes = append(argTypes, ctx.typeAstTypeRec(arg))
+			var argType SimpleType
+			if arg == nil {
+				argType = ctx.newTypeVariable(typeProvenance{Range: typ.Range, desc: "type declaration", isType: true}, "", nil, nil)
+			} else {
+				argType = ctx.typeAstTypeRec(arg)
+			}
+			argTypes = append(argTypes, argType)
 		}
 		return funcType{
 			args:           argTypes,
-			ret:            ctx.typeAstTypeRec(typ.Return),
+			ret:            retType,
 			withProvenance: prov.embed(),
 		}
 	default:

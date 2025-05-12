@@ -11,11 +11,11 @@ import (
 
 func TestCompileExprErrors(t *testing.T) {
 	exprCases := map[string][]string{
-		`1 + "a"`:             {"type mismatch", "Int", "String"},
-		`"a" + 1`:             {"type mismatch", "Int", "String"},
-		`val a = 1; "a" + a`:  {"type mismatch", "Int", "String"},
-		`b + 1`:               {"variable", "b", "not defined"},
-		`True = 0 != 0; True`: {"True", "identifier", "not", "allowed"},
+		`1 + "a"`:                 {"type mismatch", "Int", "String"},
+		`"a" + 1`:                 {"type mismatch", "Int", "String"},
+		`val a = 1; "a" + a`:      {"type mismatch", "Int", "String"},
+		`b + 1`:                   {"variable", "b", "not defined"},
+		`val True = 0 != 0; True`: {"True", "identifier", "not", "allowed"},
 	}
 
 	for expr, expected := range exprCases {

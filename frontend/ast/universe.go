@@ -11,6 +11,7 @@ const (
 	UnitTypeName    = "Unit"
 	TrueName        = "True"
 	FalseName       = "False"
+	ArrayTypeName   = "Array"
 )
 
 var (
