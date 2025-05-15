@@ -7,7 +7,6 @@ const (
 	FloatTypeName   = "Float"
 	StringTypeName  = "String"
 	BoolTypeName    = "Bool"
-	NumberTypeName  = "Number"
 	UnitTypeName    = "Unit"
 	TrueName        = "True"
 	FalseName       = "False"

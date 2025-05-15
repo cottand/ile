@@ -195,6 +195,9 @@ func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 		// we will deal with in ExitPrimaryExpr
 		return
 	}
+	if ctx.WhenBlock() != nil {
+		return
+	}
 
 	var binOp int
 	switch {
@@ -343,7 +346,6 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	}
 
 	if ctx.Integer() != nil {
-
 		l.expressionStack.Push(ast.IntLiteral(
 			ctx.Integer().GetText(),
 			intervalTo2Pos(ctx.GetSourceInterval()),
@@ -481,9 +483,8 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	}
 	var astCases []ast.WhenCase
 	// we must parse when cases from the bottom since that is the order expressions are pushed to the stack in
-
-	for i := len(cases) - 1; i >= 0; i-- {
-		astCase, err := l.doWhenCase(cases[i])
+	for _, branch := range slices.Backward(cases) {
+		astCase, err := l.doWhenCase(branch)
 		if err != nil {
 			l.visitErrors = append(l.visitErrors, err)
 			continue
@@ -537,30 +538,56 @@ func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ast.WhenCase, error)
 }
 
 func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPattern, error) {
-	panic("implement me")
+	if ctx.Type_() == nil {
+		return nil, fmt.Errorf("match pattern: expected type but got none (is this a pattern not implemented?)")
+	}
+	parsedType, ok := l.typeStack.Pop()
+	if !ok {
+		return nil, fmt.Errorf("match pattern: expected type but got none (is this a pattern not implemented?)")
+	}
+	return &ast.MatchTypePattern{
+		Type_:      parsedType,
+		Positioner: getPos(ctx.Type_()),
+	}, nil
+}
+
+func (l *listener) doType(ctx parser.IType_Context) ast.Type {
+	typeName := ctx.TypeName()
+	if typeName != nil {
+		type_ := &ast.TypeName{
+			Name:       typeName.GetText(),
+			Positioner: getPos(ctx),
+		}
+		if typeName.QualifiedIdent() != nil {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("qualified type names not implemented: %s", ctx.GetText()))
+			//type_.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
+			//type_.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
+		}
+
+		return type_
+	}
+	if typeLiteral := ctx.Literal(); typeLiteral != nil {
+		type_, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("type literal: expression stack is empty"))
+			return &ast.NothingType{Positioner: getPos(ctx)}
+		}
+		asLit, ok := type_.(*ast.Literal)
+		// when well written, this should be a type literal in the stack, because more complex expressions
+		// cannot appear in the position of a type
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("type literal: expected literal but got %T", type_))
+			return &ast.NothingType{Positioner: getPos(ctx)}
+		}
+		return asLit
+	}
+	l.visitErrors = append(l.visitErrors, fmt.Errorf("type not implemented: '%v'", ctx.GetText()))
+	return &ast.NothingType{Positioner: getPos(ctx)}
 }
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {
-	typeName := ctx.TypeName()
-	if typeName != nil {
-		typeLit := &ast.TypeName{
-			Name:       typeName.GetText(),
-			Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
-		}
-		if typeName.QualifiedIdent() != nil {
-			panic("qualified type names not implemented")
-			//typeLit.Package = typeName.QualifiedIdent().IDENTIFIER(0).GetText()
-			//typeLit.Name = typeName.QualifiedIdent().IDENTIFIER(1).GetText()
-		} else {
-			//typeLit.Name = typeName.GetText()
-		}
-
-		l.typeStack.Push(typeLit)
-		return
-	}
-	panic(fmt.Sprintf("more complicated types not implemented: '%v'", ctx.TypeName()))
-	// TODO type annotations
-	// TODO composite types!
+	t := l.doType(ctx)
+	l.typeStack.Push(t)
 }
 
 //

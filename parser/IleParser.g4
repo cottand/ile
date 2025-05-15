@@ -46,6 +46,7 @@ blockExpr
 
 type_
     : typeName
+    | literal
 //    : typeName typeArgs?
 //    | typeLit
     ;
@@ -139,7 +140,7 @@ arithmeticExpr
     ) arithmeticExpr
     | arithmeticExpr LOGICAL_AND arithmeticExpr
     | arithmeticExpr LOGICAL_OR arithmeticExpr
-    | whenBlock // TODO
+    | whenBlock
     | L_PAREN blockExpr R_PAREN
 //    | fnLit
     ;
@@ -161,8 +162,7 @@ whenCase
     ;
 
 matchPattern
-    : literal       // matches literal equality
-    | operandName   // instantiates a new variable
+    : type_
     ;
 
 operand

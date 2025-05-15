@@ -150,6 +150,16 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ast.Type) SimpleType {
 			ret:            retType,
 			withProvenance: prov.embed(),
 		}
+	case *ast.Literal:
+		return classTag{
+			id:      typ,
+			parents: typ.BaseTypes(),
+			withProvenance: typeProvenance{
+				Range:  typ.Range,
+				desc:   "type literal",
+				isType: true,
+			}.embed(),
+		}
 	default:
 		panic(fmt.Sprintf("typeAstType: implement me for: %s (%T)", ast.TypeString(typ), typ))
 	}

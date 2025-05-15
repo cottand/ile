@@ -53,6 +53,8 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 		}
 		instance := known.instantiate(ctx.fresher, ctx.level)
 		return makeProxy(instance, prov.prov())
+	case *ast.WhenMatch:
+		return ctx.typeWhenMatch(expr, vars)
 	case *ast.Literal:
 		return classTag{
 			id:             expr,
@@ -176,6 +178,57 @@ func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvena
 		}
 	})
 	return res
+}
+
+func (ctx *TypeCtx) typeWhenMatch(expr *ast.WhenMatch, vars map[typeName]SimpleType) (ret SimpleType) {
+	subjectType := ctx.TypeExpr(expr.Value, vars)
+	if len(expr.Cases) == 0 {
+		ctx.addError(ilerr.New(ilerr.NewEmptyWhen{Positioner: expr}))
+		return errorType()
+	}
+	subjectVarName := ""
+	if asVar, ok := expr.Value.(*ast.Var); ok {
+		subjectVarName = asVar.Name
+	}
+	var finalType SimpleType = bottomType
+	var reqType SimpleType = bottomType
+	for _, branch := range expr.Cases {
+		branchT, resultT, tVar := ctx.typeWhenMatchBranch(subjectVarName, branch, vars)
+		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ast.RangeOf(branch.Value), desc: "when match branch"}})
+		reqType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(reqType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})
+	}
+	return ctx.typeExprConstrain(subjectType, reqType, finalType, typeProvenance{Range: ast.RangeOf(expr), desc: "when match subject type"})
+}
+
+func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ast.WhenCase, vars map[typeName]SimpleType) (branchT SimpleType, resultT SimpleType, tVar SimpleType) {
+	tVar = topType
+	pattern, ok := branch.Pattern.(*ast.MatchTypePattern)
+	if !ok {
+		ctx.addFailure(fmt.Sprintf("non-type pattern not implemented: %T", branch.Pattern), branch.Pattern)
+		return errorType(), errorType(), tVar
+	}
+	tVars := make([]typeVariable, 0)
+	if isWildcard := Equal(pattern.Type_, &ast.TypeName{Name: "_"}); isWildcard {
+		branchT = topType
+	} else {
+		ctx.inPattern = true
+		branchT, tVars = ctx.typeAstType(pattern.Type_, vars, false, nil)
+		ctx.inPattern = false
+		if len(tVars) != 0 {
+			ctx.addFailure(fmt.Sprintf("type pattern not supported yet: %T", branch.Pattern), branch.Pattern)
+			return errorType(), errorType(), tVar
+		}
+	}
+	branchT = makeProxy(branchT, typeProvenance{desc: "pattern", Range: ast.RangeOf(branch.Pattern)})
+	newCtx := ctx.nest()
+	// if there is a subject, do 'smart casting' by creating a new type variable for it, and constraining the branch type to it
+	// so that it is present on the branch scope with the refined type of the pattern
+	if subject != "" {
+		tVar = newCtx.newTypeVariable(typeProvenance{Range: ast.RangeOf(branch.Pattern), desc: "refined pattern match subject"}, subject, nil, nil)
+		newCtx.env[subject] = tVar
+	}
+	resultT = newCtx.TypeExpr(branch.Value, vars)
+	return branchT, resultT, tVar
 }
 
 func (ctx *TypeCtx) GetLowerBoundFunctionType(t SimpleType) []funcType {

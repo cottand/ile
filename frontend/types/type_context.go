@@ -168,6 +168,17 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 	if cache == nil {
 		cache = make(ctxCache)
 	}
+	// class tags
+	{
+		this, okThis := this.(classTag)
+		that, okThat := that.(classTag)
+		if okThis && okThat {
+			return this.id == that.id || this.containsParentST(that.id)
+		}
+		if okThis || okThat {
+			return false
+		}
+	}
 	// functypes
 	{
 		this, okThis := this.(funcType)
@@ -224,17 +235,6 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 			panic("isSubtype: implement for non empty records")
 		}
 	}
-	// class tags
-	{
-		this, okThis := this.(classTag)
-		that, okThat := that.(classTag)
-		if okThis && okThat {
-			return this.id == that.id || this.containsParentST(that.id)
-		}
-		if okThis || okThat {
-			return false
-		}
-	}
 	// type variables
 	{
 		thisTV, okThis := this.(*typeVariable)
@@ -266,6 +266,15 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 			return tmp
 		}
 	}
+	// extremes
+	{
+		if Equal(that, topType) || Equal(this, bottomType) {
+			return true
+		}
+		if Equal(that, bottomType) || Equal(this, topType) {
+			return false
+		}
+	}
 	// negation types
 	{
 		thatNeg, okThat := that.(negType)
@@ -279,7 +288,8 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 			return ctx.isSubtype(topType, unionOf(thisNeg.negated, that, unionOpts{}), cache)
 		}
 	}
-	panic(fmt.Sprintf("implement me for: %s: %T and %s: %T", this, this, that, that))
+	ctx.addFailure(fmt.Sprintf("isSubtype not implemented for: %s: %T and %s: %T", this, this, that, that), this.prov())
+	return false
 }
 
 func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ast.TypeDefinition) *TypeCtx {
@@ -417,10 +427,12 @@ func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
 }
 
 func (ctx *TypeState) addFailure(message string, pos ast.Positioner) {
+	logger.Error("failure during inference", "message", message)
 	ctx.Failures = append(ctx.Failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
 }
 
 func (ctx *TypeState) addError(ileError ilerr.IleError) {
+	logger.Warn("error during inference", "message", ileError.Error(), "at", ilerr.FormatWithCode(ileError))
 	ctx.Errors = append(ctx.Errors, ileError)
 }
 

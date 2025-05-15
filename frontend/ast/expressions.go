@@ -171,6 +171,9 @@ func (e *Literal) CanonicalSyntax() string {
 	case token.STRING:
 		return e.Syntax
 	case token.INT:
+		if e.Syntax == "0" {
+			return "0"
+		}
 		logger := logger.With("type", e.Kind.String(), "syntax", e.Syntax)
 		if strings.HasPrefix(e.Syntax, "0x") {
 			logger.Warn("CanonicalSyntax: cannot do integer hex notation yet")
@@ -191,19 +194,21 @@ func (e *Literal) CanonicalSyntax() string {
 	}
 }
 
-var intSuperTypes = []string{IntTypeName, NumberTypeName, AnyTypeName}
-var stringSuperTypes = []string{StringTypeName, AnyTypeName}
-var floatSuperTypes = []string{FloatTypeName, NumberTypeName, AnyTypeName}
+var superTypes = map[string][]string{
+	IntTypeName:    {IntTypeName, AnyTypeName},
+	StringTypeName: {StringTypeName, AnyTypeName},
+	FloatTypeName:  {FloatTypeName, AnyTypeName},
+}
 
 // BaseTypes lists the TypeTag these literals are subtypes of
 func (e *Literal) BaseTypes() set.Collection[string] {
 	switch e.Kind {
 	case token.INT:
-		return set.From(intSuperTypes)
+		return set.From(superTypes[IntTypeName])
 	case token.STRING:
-		return set.From(stringSuperTypes)
+		return set.From(superTypes[StringTypeName])
 	case token.FLOAT:
-		return set.From(floatSuperTypes)
+		return set.From(superTypes[FloatTypeName])
 
 	default:
 		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
@@ -636,24 +641,14 @@ func (e *Variant) Hash() uint64 {
 	return h.Sum64()
 }
 
-// WhenMatch is a Variant-matching switch:
-//
-//	WhenMatch e {
-//	    :X a -> expr1
-//	  | :Y b -> expr2
-//	  |  ...
-//	  | z -> default_expr (optional)
-//	}
 type WhenMatch struct {
 	Value      Expr
 	Cases      []WhenCase
-	Default    *LabelValue
-	inferred   Type
 	Positioner // of the match operator and the matched first expression (not the clauses)
 }
 
 // "WhenMatch"
-func (e *WhenMatch) ExprName() string { return "WhenMatch" }
+func (e *WhenMatch) ExprName() string { return "When" }
 
 type WhenCase struct {
 	Pattern MatchPattern
@@ -673,31 +668,22 @@ func (e *WhenMatch) Transform(f func(expr Expr) Expr) Expr {
 	for i, v := range e.Cases {
 		cases[i] = v.TransformChildExprs(f)
 	}
-	if e.Default != nil {
-		defaultCase := *e.Default
-		copied.Default = &defaultCase
-		copied.Default.Value = e.Default.Value.Transform(f)
-	}
 	copied.Value = e.Value.Transform(f)
 	copied.Cases = cases
 	return f(&copied)
 }
 func (e *WhenMatch) Hash() uint64 {
-	panic("TODO implement hash for when matching")
 	h := fnv.New64a()
-	arr := []byte("WhenMatch")
+	arr := []byte(e.ExprName())
 	arr = binary.LittleEndian.AppendUint64(arr, e.Value.Hash())
 	for _, v := range e.Cases {
 		arr = binary.LittleEndian.AppendUint64(arr, v.Value.Hash())
-	}
-	if e.Default != nil {
-		arr = binary.LittleEndian.AppendUint64(arr, e.Default.Value.Hash())
 	}
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }
 
-// MatchPattern describes a types.Type or an Expr that we would like to match against
+// MatchPattern describes a case we would like to match against
 type MatchPattern interface {
 	matchPattern() // marker
 
@@ -705,17 +691,14 @@ type MatchPattern interface {
 	Positioner
 }
 
-// ValueLiteralPattern represents matching a value.
-// Value can be any Expr but the grammar has restrictions on what Value can be (eg, literals only)
-type ValueLiteralPattern struct {
-	Value Expr
+type MatchTypePattern struct {
+	Type_ Type
 	Positioner
 }
 
-func (e *ValueLiteralPattern) matchPattern() {}
-func (e *ValueLiteralPattern) TransformChildExprs(f func(expr Expr) Expr) MatchPattern {
+func (e *MatchTypePattern) matchPattern() {}
+func (e *MatchTypePattern) TransformChildExprs(_ func(expr Expr) Expr) MatchPattern {
 	copied := *e
-	copied.Value = e.Value.Transform(f)
 	return &copied
 }
 

@@ -778,6 +778,14 @@ func (cs *constraintSolver) goToWork(
 	shadows *shadowsState,
 ) bool {
 	opsDnf := &opsDNF{ctx: cs.ctx}
+	// constrainDNF is not resilient yet to partial implementation, which can result in a panic
+	// I dislike recovering a panic deep inside the inference engine, but the alternative
+	// is to rethink the entire normal forms implementation and this should only be temporary.
+	defer func() {
+		if recover() != nil {
+			cs.ctx.addFailure("constrainDNF not implemented", lhs.prov())
+		}
+	}()
 	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
 	return false
 }

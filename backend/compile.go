@@ -15,19 +15,18 @@ const goVersion = "1.23.3"
 
 // will need to handle more concrete tags, like random strings and specific ints,
 // but for now we'll just do the basic types
-func typeTagToGoType(t *ast.TypeTag) (goType string, err error) {
-	goType, ok := ileToGoTypes[t.Name]
-	if ok {
-		return goType, nil
+func typeTagToGoType(t string) (goType string, ok bool) {
+	switch t {
+	case ast.IntTypeName:
+		return "int64", true
+	case ast.StringTypeName:
+		return "string", true
+	case ast.FloatTypeName:
+		return "float64", true
+	case ast.BoolTypeName, ast.TrueName, ast.FalseName:
+		return "bool", true
 	}
-	return "", fmt.Errorf("failed to convert type tag %s", t.Name)
-}
-
-var ileToGoTypes = map[string]string{
-	ast.IntTypeName:  "int64",
-	"String":         "string",
-	"Float":          "float64",
-	ast.BoolTypeName: "bool",
+	return "", false
 }
 
 var ileToGoVars = map[string]string{
@@ -374,7 +373,7 @@ func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 		}, nil
 
 	case *ast.TypeName:
-		goEquivalent, ok := ileToGoTypes[e.Name]
+		goEquivalent, ok := typeTagToGoType(e.Name)
 		if ok {
 			return goast.NewIdent(goEquivalent), nil
 		}
@@ -468,7 +467,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 		}
 		var caseClauses []goast.Stmt
 		for _, case_ := range e.Cases {
-			goPredicate, err := tp.transpileExpr(case_.Pattern.(*ast.ValueLiteralPattern).Value)
+			goPredicate, err := tp.transpileExpr(case_.Pattern.(*ast.MatchTypePattern).Type_.(*ast.Literal))
 			if err != nil {
 				return nil, fmt.Errorf("failed to transpile when case predicate expression: %v", err)
 			}

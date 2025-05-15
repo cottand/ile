@@ -25,6 +25,7 @@ const (
 	NameRedeclaration
 	TypeMismatch
 	ExpectedTypeParams
+	EmptyWhen
 )
 
 type IleError interface {
@@ -231,6 +232,20 @@ func (e NewExpectedTypeParams) Error() string {
 func (e NewExpectedTypeParams) Code() ErrCode    { return ExpectedTypeParams }
 func (e NewExpectedTypeParams) getStack() []byte { return e.stack }
 func (e NewExpectedTypeParams) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewEmptyWhen struct {
+	ast.Positioner
+	stack []byte
+}
+func (e NewEmptyWhen) Error() string {
+	return "when block is empty, but at least one case is required"
+}
+func (e NewEmptyWhen) Code() ErrCode    { return EmptyWhen }
+func (e NewEmptyWhen) getStack() []byte { return e.stack }
+func (e NewEmptyWhen) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }
