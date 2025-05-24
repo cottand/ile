@@ -7,6 +7,8 @@ import (
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
+	"log/slog"
+	"slices"
 )
 
 // opsDNF corresponds to the DNF companion object in the scala reference
@@ -16,10 +18,11 @@ type opsDNF struct {
 	ctx *TypeCtx
 	// preserveTypeRefs controls whether TypeRefs are expanded during normalization
 	preserveTypeRefs bool
+	*slog.Logger
 }
 
 func newOpsDNF(ctx *TypeCtx, preserveTypeRefs bool) *opsDNF {
-	return &opsDNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs}
+	return &opsDNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs, Logger: logger.With("section", "inference.DNF")}
 }
 
 // --- DNF Methods (Corresponds to methods on DNF class in Scala) ---
@@ -105,75 +108,65 @@ func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 
 // orConjunct computes the union of a DNF and a single Conjunct (this | c).
 // This involves checking for subsumption and trying to merge conjuncts.
-func (o *opsDNF) orConjunct(d dnf, c conjunct) dnf {
-	newConjuncts := make([]conjunct, 0, len(d)+1)
-	merged := false
-	subsumed := false // If the new conjunct `c` is subsumed by an existing one
+func (o *opsDNF) orConjunct(d dnf, c conjunct) (ret dnf) {
+	acc := make([]conjunct, 0, len(d)+1)
+	toMerge := c
 
-	for _, existingC := range d {
-		if subsumed { // If c was already subsumed, just keep the rest
-			newConjuncts = append(newConjuncts, existingC)
-			continue
+	defer func() {
+		slices.SortFunc(ret, func(a, b conjunct) int {
+			return cmp.Compare(a.Hash(), b.Hash())
+		})
+	}()
+
+	for i, c := range d {
+
+		if c.lessThanOrEqual(toMerge) {
+			remaining := d[i+1:]
+			ret = append(acc, toMerge)
+			ret = append(ret, remaining...)
+
+			return ret
 		}
-		if existingC.lessThanOrEqual(c) {
-			// `c` is larger or equal, keep `c` and potentially discard `existingC` later if strictly larger
-			// For now, we just know `c` is not subsumed by `existingC`.
-			// Try merging:
-			if mergedC, ok := o.tryMergeUnion(existingC, c); ok {
-				// Successfully merged, replace existingC with mergedC and mark c as handled
-				newConjuncts = append(newConjuncts, mergedC)
-				merged = true // Mark that we performed a merge (c is now part of mergedC)
-			} else {
-				// Cannot merge, keep existingC
-				newConjuncts = append(newConjuncts, existingC)
-			}
-		} else if c.lessThanOrEqual(existingC) { // c <:< existingC
-			// `c` is smaller or equal, it's subsumed by `existingC`. Keep `existingC`.
-			newConjuncts = append(newConjuncts, existingC)
-			subsumed = true // Mark `c` as handled (subsumed)
-		} else {
-			// No subsumption, try merging:
-			if mergedC, ok := o.tryMergeUnion(existingC, c); ok {
-				// Successfully merged
-				newConjuncts = append(newConjuncts, mergedC)
-				merged = true
-			} else {
-				// Cannot merge, keep existingC
-				newConjuncts = append(newConjuncts, existingC)
-			}
+		if toMerge.lessThanOrEqual(c) {
+			remainingWithExistingC := d[i:]
+			return append(acc, remainingWithExistingC...)
 		}
+
+		if mergedC, ok := o.tryMergeUnion(c, toMerge); ok {
+			remaining := d[i+1:]
+			ret = append(acc, mergedC)
+			ret = append(ret, remaining...)
+			return ret
+		}
+
+		// cannot merge, so we keep looking
+		acc = append(acc, c)
 	}
 
-	// If the new conjunct `c` was not merged or subsumed, add it.
-	if !merged && !subsumed {
-		newConjuncts = append(newConjuncts, c)
-	}
-
-	// Final sort might be needed if strict canonical form is required,
-	// but the logic above maintains relative order and handles merging/subsumption.
-	// Sorting might be expensive. Let's skip explicit sorting for now.
-	// slices.SortFunc(newConjuncts, func(a, b conjunct) int { ... })
-	return newConjuncts
+	return append(acc, toMerge)
 }
 
 func (o *opsDNF) tryMergeIntersection(left, right rhsNF) (rhsNF, bool) {
 	panic(fmt.Sprintf("opsDNF.tryMergeIntersection: not implemented"))
 }
 
-// tryMergeUnion attempts to merge two conjuncts in a union.
-// Returns a new conjunct if the merge is possible, or nil if not.
-// Result might be nil
+// tryMergeUnion attempts to merge two conjuncts in a union
 func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
-	// Case 1: If both conjuncts have the same variable sets
-	if left.vars.EqualSet(right.vars) && left.nvars.EqualSet(right.nvars) {
-		// Try merging LHS components first
-		mergedLhs, ok := left.lhs.and(right.lhs, o.ctx)
-		if !ok {
-			return ret, false // Cannot merge LHS, so overall merge fails
-		}
+	defer func() {
+		o.Debug("DNF.tryMergeUnion", "left", left, "right", right, "result", ret, "ok", ok)
+	}()
+	if left.lessThanOrEqual(right) {
+		return right, true
+	}
+	if right.lessThanOrEqual(left) {
+		return left, true
+	}
 
-		// Then try merging RHS components
+	// Case 1: If both conjuncts have the same variable sets
+	if left.vars.EqualSet(right.vars) && left.nvars.EqualSet(right.nvars) && left.lhs.isLeftNfTop() && right.lhs.isLeftNfTop() {
+		// Try merging LHS components first
 		var mergedRhs rhsNF
+
 		if _, isBot := left.rhs.(rhsBot); isBot {
 			mergedRhs = right.rhs
 		} else if _, isBot := right.rhs.(rhsBot); isBot {
@@ -186,11 +179,12 @@ func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
 			}
 			mergedRhs = mergedRhsOpt
 		}
-
 		// Create the merged conjunct
-		result := newConjunct(mergedLhs, mergedRhs, left.vars, left.nvars)
+		result := newConjunct(lhsTop{}, mergedRhs, left.vars, left.nvars)
 		return result, true
 	}
+
+	o.Warn("DNF.tryMergeUnion: potentially not implemented", "left", left, "right", right)
 
 	// Case 2: Handle situations where one conjunct has variables the other doesn't
 	// If lhs has all variables of rhs, and their common structures are compatible
@@ -301,8 +295,11 @@ func (o *opsDNF) merge(pol bool, l, r dnf) dnf {
 // mk creates a DNF representation of a SimpleType.
 // pol=true means positive polarity (interpret unions as unions, intersections as intersections).
 // pol=false means negative polarity (interpret unions as intersections, intersections as unions - effectively CNF).
-func (o *opsDNF) mk(ty SimpleType, pol bool) dnf {
+func (o *opsDNF) mk(ty SimpleType, pol bool) (ret dnf) {
 	ty = unwrapProvenance(ty) // Work with the underlying type
+	defer func() {
+		o.Debug("DNF.mk", "type", ty, "polarity", pol, "result", ret)
+	}()
 
 	switch t := ty.(type) {
 	case funcType:
@@ -363,7 +360,8 @@ func (o *opsDNF) mk(ty SimpleType, pol bool) dnf {
 		logger.Warn("Normalizing polymorphic type body directly", "type", t)
 		return o.mk(t.Body, pol)
 	default:
-		panic(fmt.Sprintf("opsDNF.mk: unhandled type %T", ty))
+		o.ctx.addFailure(fmt.Sprintf("DNF.mk: unhandled type %T", ty), ty.prov())
+		return o.extr(pol)
 	}
 }
 
@@ -846,7 +844,7 @@ func (o *opsCNF) rhsOrRhs(left, right rhsNF) rhsNF {
 			// {f: T} | {g: U} -> Top if f != g
 			// {f: T} | {f: U} -> {f: T | U}
 			if l.name == r.name {
-				newTy := fieldTypeUnion(l.ty, r.ty) // Need fieldTypeUnion helper
+				newTy := o.fieldTypeUnion(l.ty, r.ty) // Need fieldTypeUnion helper
 				return &rhsField{name: l.name, ty: newTy}
 			}
 			return nil // Represents Top
@@ -857,7 +855,7 @@ func (o *opsCNF) rhsOrRhs(left, right rhsNF) rhsNF {
 			if r.rest != nil {
 				if rField, ok := r.rest.(*rhsField); ok {
 					if l.name == rField.name {
-						newTy := fieldTypeUnion(l.ty, rField.ty)
+						newTy := o.fieldTypeUnion(l.ty, rField.ty)
 						newRest := &rhsField{name: l.name, ty: newTy}
 						return &rhsBases{tags: r.tags, rest: newRest, typeRefs: r.typeRefs}
 					}
@@ -923,7 +921,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 
 			if lIsArray && rIsArray {
 				// Array<T> | Array<U> = Array<T | U>
-				newInner := unionOf(lArray.inner(), rArray.inner(), unionOpts{})
+				newInner := unionOf(lArray.inner(o.ctx), rArray.inner(o.ctx), unionOpts{})
 				return arrayType{innerT: newInner}
 			} else if lIsTuple && rIsTuple {
 				// Tuple<T...> | Tuple<U...>
@@ -937,17 +935,17 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 					return tupleType{fields: newFields}
 				}
 				// Tuples of different sizes -> Array<innerL | innerR>
-				newInner := unionOf(lTuple.inner(), rTuple.inner(), unionOpts{})
+				newInner := unionOf(lTuple.inner(o.ctx), rTuple.inner(o.ctx), unionOpts{})
 				return arrayType{innerT: newInner}
 			} else {
 				// Array | Tuple or Tuple | Array -> Array<innerA | innerT>
 				var arrInner, tupInner SimpleType
 				if lIsArray {
-					arrInner = lArray.inner()
-					tupInner = rTuple.inner()
+					arrInner = lArray.inner(o.ctx)
+					tupInner = rTuple.inner(o.ctx)
 				} else {
-					arrInner = rArray.inner()
-					tupInner = lTuple.inner()
+					arrInner = rArray.inner(o.ctx)
+					tupInner = lTuple.inner(o.ctx)
 				}
 				newInner := unionOf(arrInner, tupInner, unionOpts{})
 				return arrayType{innerT: newInner}
@@ -958,7 +956,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 			// {f: T} | {g: U} -> Top if f != g
 			// {f: T} | {f: U} -> {f: T | U}
 			if l.name == r.name {
-				newTy := fieldTypeUnion(l.ty, r.ty)
+				newTy := o.fieldTypeUnion(l.ty, r.ty)
 				return &rhsField{name: l.name, ty: newTy}
 			}
 		}
@@ -971,7 +969,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 // --- Helper functions for CNF ---
 
 // fieldTypeUnion computes the union of two field types.
-func fieldTypeUnion(ft1, ft2 fieldType) fieldType {
+func (o *opsCNF) fieldTypeUnion(ft1, ft2 fieldType) fieldType {
 	// (L1..U1) | (L2..U2) = (L1 & L2)..(U1 | U2)
 	lb := intersectionOf(ft1.lowerBound, ft2.lowerBound, unionOpts{})
 	ub := unionOf(ft1.upperBound, ft2.upperBound, unionOpts{})

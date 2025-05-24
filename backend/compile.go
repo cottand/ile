@@ -311,6 +311,23 @@ func (tp *Transpiler) transpileExpr(expr ast.Expr) (goast.Expr, error) {
 			Fun:  goFn,
 			Args: args,
 		}, nil
+	case *ast.WhenMatch:
+		statements, err := tp.transpileExpressionToStatements(expr, "return")
+		if err != nil {
+			return nil, err
+		}
+		exprType, err := tp.transpileType(tp.types.TypeOf(expr))
+		if err != nil {
+			return nil, fmt.Errorf("for when match, unexpected error transpiling type: %v", err)
+		}
+
+		return &goast.CallExpr{
+			Fun: &goast.FuncLit{Type: &goast.FuncType{Results: &goast.FieldList{
+				List: []*goast.Field{{Type: exprType}},
+			}},
+				Body: &goast.BlockStmt{List: statements}},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}
@@ -396,7 +413,111 @@ func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 	default:
 		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", ast.TypeString(e), e)
 	}
-	panic("unreachable")
+}
+
+func (tp *Transpiler) transpileWhen(e *ast.WhenMatch) (statements []goast.Stmt, finalExpr goast.Expr, err error) {
+	whenResultT, err := tp.transpileType(tp.types.TypeOf(e))
+	if err != nil {
+		return nil, nil, fmt.Errorf("for when, failed to transpile type %v: %v", tp.types.TypeOf(e), err)
+	}
+	resultIdent := goast.NewIdent(util.MangledIdentFrom(e, "whenResult"))
+	finalExpr = resultIdent
+	subjectExpr, err := tp.transpileExpr(e.Value)
+	if err != nil {
+		return nil, nil, fmt.Errorf("for when, failed to transpile when subject expression: %v", err)
+	}
+	var subjectIdent *goast.Ident
+	if ident, ok := subjectExpr.(*goast.Ident); ok {
+		subjectIdent = ident
+	} else {
+		// if the subject is not an identifier, store it in a temporary variable to not evaluate it twice
+		// -> `var subjectIdent = (subjectExpr)`
+		subjectIdent = goast.NewIdent(util.MangledIdentFrom(e, e.ExprName()))
+		statements = append(statements,
+			&goast.DeclStmt{Decl: &goast.GenDecl{
+				Tok: token.VAR,
+				Specs: []goast.Spec{&goast.ValueSpec{
+					Names: []*goast.Ident{subjectIdent},
+					//Type: nil, // rely on go inference for now
+					Values: []goast.Expr{subjectExpr},
+				}},
+			}})
+	}
+	// declare the variable that will hold the result of the when
+	// -> `var result whenResultT`
+	statements = append(statements,
+		&goast.DeclStmt{Decl: &goast.GenDecl{
+			Tok: token.VAR,
+			Specs: []goast.Spec{&goast.ValueSpec{
+				Names: []*goast.Ident{resultIdent},
+				Type:  whenResultT,
+			}},
+		}})
+	var currentIf *goast.IfStmt
+
+	// addIf adds a new if statement to the current chain, or starts a new chain if currentIf is nil
+	addIf := func(cond *goast.IfStmt) {
+		if currentIf == nil {
+			statements = append(statements, cond)
+		} else {
+			currentIf.Else = cond
+		}
+		currentIf = cond
+	}
+	for _, case_ := range e.Cases {
+		branchResultPath, err := tp.transpileExpressionToStatements(case_.Value, resultIdent.Name)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to transpile when case value expression: %v", err)
+		}
+		// TODO here we want to transpile when cases directly with their own helper
+		pattern := case_.Pattern.(*ast.MatchTypePattern)
+		switch astType := pattern.Type_.(type) {
+		// type check against a literal - we do a simple equality check
+		case *ast.Literal:
+			goPredicate, err := tp.transpileExpr(astType)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to transpile when case literal expression: %v", err)
+			}
+			// -> `if subjectIdent == goPredicate { branchResultPath }`
+			addIf(&goast.IfStmt{
+				Cond: &goast.BinaryExpr{
+					X:  subjectIdent,
+					Op: token.EQL,
+					Y:  goPredicate,
+				},
+				Body: &goast.BlockStmt{List: branchResultPath},
+			})
+			// type check against a type name - we do a Go type assertion
+		case *ast.TypeName:
+			// this is the discard pattern - this is the final else case, so we do not need a new if condition
+			// -> `else { branchResultPath }`
+			if astType.Name == "_" {
+				currentIf.Else = &goast.BlockStmt{List: branchResultPath}
+				continue
+			}
+			goType, err := tp.transpileType(astType)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to transpile when case type name expression: %v", err)
+			}
+			okIdent := goast.NewIdent("ok")
+			asserted := goast.NewIdent("asserted")
+			// -> `if asserted, ok := subjectIdent.(goType) { branchResultPath }`
+			addIf(&goast.IfStmt{
+				Init: &goast.AssignStmt{
+					Lhs: []goast.Expr{asserted, okIdent},
+					Rhs: []goast.Expr{&goast.TypeAssertExpr{X: subjectIdent, Type: goType}},
+					Tok: token.DEFINE,
+				},
+				Cond: okIdent,
+				Body: &goast.BlockStmt{List: branchResultPath},
+			})
+
+		default:
+			return nil, nil, fmt.Errorf("unsupported type in when pattern case: %T", pattern.Type_)
+
+		}
+	}
+	return statements, finalExpr, nil
 }
 
 // transpileExpressionToStatements makes a []ast.Stmt
@@ -415,14 +536,14 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 	case *ast.RecordSelect, *ast.Literal, *ast.Call, *ast.Var:
 		goExpr, err := tp.transpileExpr(e)
 		if err != nil {
-			return nil, fmt.Errorf("failed to transpile expression: %v", err)
+			return nil, fmt.Errorf("failed to transpile when expression: %v", err)
 		}
 		finalExpr = goExpr
 
 	case *ast.Assign:
 		goRHSExpr, err := tp.transpileExpr(e.Value)
 		if err != nil {
-			return nil, fmt.Errorf("failed to transpile expression: %v", err)
+			return nil, fmt.Errorf("failed to transpile when expression: %v", err)
 		}
 		remainder, err := tp.transpileExpressionToStatements(e.Body, finalLocalVarName)
 		t, err := tp.transpileType(tp.types.TypeOf(e))
@@ -446,45 +567,11 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 
 		// a when without clauses is equivalent to a Go switch without a subject
 	case *ast.WhenMatch:
-		whenResultT, err := tp.transpileType(tp.types.TypeOf(e))
+		var err error
+		statements, finalExpr, err = tp.transpileWhen(e)
 		if err != nil {
-			return nil, fmt.Errorf("for when, failed to transpile type %v: %v", tp.types.TypeOf(e), err)
+			return nil, err
 		}
-		switchResultIdent := goast.NewIdent(util.MangledIdentFrom(e, e.ExprName()))
-		statements = append(statements, &goast.DeclStmt{Decl: &goast.GenDecl{
-			Tok: token.VAR,
-			Specs: []goast.Spec{&goast.ValueSpec{
-				Names: []*goast.Ident{switchResultIdent},
-				Type:  whenResultT,
-			}},
-		}})
-		assignToResult := func(expr goast.Expr) *goast.AssignStmt {
-			return &goast.AssignStmt{
-				Tok: token.ASSIGN,
-				Lhs: []goast.Expr{switchResultIdent},
-				Rhs: []goast.Expr{expr},
-			}
-		}
-		var caseClauses []goast.Stmt
-		for _, case_ := range e.Cases {
-			goPredicate, err := tp.transpileExpr(case_.Pattern.(*ast.MatchTypePattern).Type_.(*ast.Literal))
-			if err != nil {
-				return nil, fmt.Errorf("failed to transpile when case predicate expression: %v", err)
-			}
-			goValue, err := tp.transpileExpr(case_.Value)
-			if err != nil {
-				return nil, fmt.Errorf("failed to transpile when case value expression: %v", err)
-			}
-			caseClauses = append(caseClauses, &goast.CaseClause{
-				List: []goast.Expr{goPredicate},
-				Body: []goast.Stmt{assignToResult(goValue)},
-			})
-		}
-		statements = append(statements,
-			&goast.SwitchStmt{
-				Body: &goast.BlockStmt{List: caseClauses},
-			})
-		finalExpr = switchResultIdent
 
 	// we do like in Go, and add a statement that should evaluate the expression,
 	// but we do not actually do anything with it
@@ -520,7 +607,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ast.Expr, finalLocalV
 		finalStatement = &goast.AssignStmt{
 			Lhs: []goast.Expr{goast.NewIdent(finalLocalVarName)},
 			Rhs: []goast.Expr{finalExpr},
-			Tok: token.DEFINE,
+			Tok: token.ASSIGN,
 		}
 	}
 

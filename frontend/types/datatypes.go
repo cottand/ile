@@ -133,7 +133,7 @@ func (t wrappingProvType) prov() typeProvenance   { return t.proxyProvenance }
 // arrayBase is implemented by types which wrap other types
 type arrayBase interface {
 	SimpleType
-	inner() SimpleType
+	inner(ctx *TypeCtx) SimpleType
 }
 
 // typeInfo is what we store in TypeCtx.env to store info about the current scope
@@ -541,6 +541,7 @@ func (t classTag) Compare(other objectTag) int {
 }
 func (t classTag) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
 
+// containsParentST returns true if (not only if) other is a parent of this classTag (meaning t <: other)
 func (t classTag) containsParentST(other ast.AtomicExpr) bool {
 	asVar, isVar := other.(*ast.Var)
 	return isVar && t.parents.Contains(asVar.Name)
@@ -722,7 +723,7 @@ func (t tupleType) level() level {
 }
 
 // inner makes a union out of all subtypes
-func (t tupleType) inner() SimpleType {
+func (t tupleType) inner(ctx *TypeCtx) SimpleType {
 	var acc SimpleType = bottomType
 	for _, field := range t.fields {
 		acc = unionOf(acc, field, unionOpts{})
@@ -732,9 +733,9 @@ func (t tupleType) inner() SimpleType {
 func (t tupleType) String() string {
 	return "(" + util.JoinString(t.fields, ", ") + ")"
 }
-func (t tupleType) toArray() SimpleType {
+func (t tupleType) toArray(ctx *TypeCtx) SimpleType {
 	return arrayType{
-		innerT:         t.inner(),
+		innerT:         t.inner(ctx),
 		withProvenance: t.withProvenance,
 	}
 }
@@ -781,7 +782,7 @@ func (t namedTupleType) level() level {
 }
 
 // inner makes a union out of all subtypes
-func (t namedTupleType) inner() SimpleType {
+func (t namedTupleType) inner(ctx *TypeCtx) SimpleType {
 	var acc SimpleType = bottomType
 	for _, field := range t.fields {
 		acc = unionOf(acc, field.Snd, unionOpts{})
@@ -838,7 +839,7 @@ func (t recordType) level() level {
 	return l
 }
 
-func (t recordType) inner() SimpleType {
+func (t recordType) inner(ctx *TypeCtx) SimpleType {
 	var acc SimpleType = bottomType
 	for _, field := range t.fields {
 		acc = unionOf(acc, field.Snd.upperBound, unionOpts{})
@@ -914,7 +915,7 @@ func (t arrayType) uninstantiatedBody() SimpleType         { return t }
 func (t arrayType) instantiate(*Fresher, level) SimpleType { return t }
 func (t arrayType) level() level                           { return t.innerT.level() }
 func (t arrayType) String() string                         { return "Array<" + t.innerT.String() + ">" }
-func (t arrayType) inner() SimpleType                      { return t.innerT }
+func (t arrayType) inner(_ *TypeCtx) SimpleType            { return t.innerT }
 
 func (t arrayType) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) {

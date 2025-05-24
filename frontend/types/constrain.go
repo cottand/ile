@@ -406,7 +406,7 @@ func (cs *constraintSolver) recImpl(
 		}
 		if r, ok := rhs.(arrayType); ok {
 			// Array subtyping: Tuple<T1,..Tn> <: Array<U> if (T1|...|Tn) <: U
-			innerLhs := lhsTuple.inner() // Needs implementation
+			innerLhs := lhsTuple.inner(cs.ctx) // Needs implementation
 			return cs.rec(innerLhs, r.innerT, false, cctx, shadows)
 			// TODO: Handle bounds correctly (recLb in Scala)
 		}
@@ -782,9 +782,9 @@ func (cs *constraintSolver) goToWork(
 	// I dislike recovering a panic deep inside the inference engine, but the alternative
 	// is to rethink the entire normal forms implementation and this should only be temporary.
 	defer func() {
-		if recover() != nil {
-			cs.ctx.addFailure("constrainDNF not implemented", lhs.prov())
-		}
+		//if recover() != nil {
+		//	cs.ctx.addFailure("constrainDNF not implemented", lhs.prov())
+		//}
 	}()
 	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
 	return false

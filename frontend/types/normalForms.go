@@ -6,6 +6,7 @@ import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
+	"hash/fnv"
 	"slices"
 	"strings"
 )
@@ -95,6 +96,20 @@ func (j conjunct) String() string {
 	return sb.String()
 }
 
+func (j conjunct) Hash() uint64 {
+	hash := uint64(31)
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(j.lhs.String()))
+	_, _ = h.Write([]byte(j.rhs.String()))
+	for v := range j.vars.Items() {
+		hash = hash * v.Hash()
+	}
+	for v := range j.nvars.Items() {
+		hash = hash * v.Hash()
+	}
+	return hash * h.Sum64()
+}
+
 func (j conjunct) negate() disjunct {
 	return newDisjunct(j.lhs, j.rhs, j.nvars, j.vars)
 }
@@ -118,22 +133,31 @@ func (j conjunct) level() level {
 // the scala reference allows choosing whether to sort type variables
 // we are using sorted sets anyway so we sort all the time.
 func (j conjunct) toType() SimpleType {
+	return j.toTypeWith(
+		func(nf lhsNF) SimpleType { return nf.toType() },
+		func(nf rhsNF) SimpleType { return nf.toType() },
+	)
+}
+
+func (j conjunct) toTypeWith(lhsToType func(lhsNF) SimpleType, rhsToType func(rhsNF) SimpleType) SimpleType {
 	negatedNVars := util.MapIter(j.nvars.Items(), func(nvar *typeVariable) SimpleType { // nvars.map(!_)
 		return negateType(nvar, emptyProv)
 	})
+	// should be a noop, but we do this so that we can Set[*typeVariable] -> Set[SimpleType]
 	vars := util.MapIter(j.vars.Items(), func(tv *typeVariable) SimpleType {
 		return tv
 	})
 	types := util.ConcatIter[SimpleType](
 		vars, // our vars
-		util.SingleIter(negateType(j.rhs.toType(), emptyProv)), // !(rhs.toType())
+		util.SingleIter(negateType(rhsToType(j.rhs), emptyProv)), // !(rhs.toType())
 		negatedNVars,
 	)
-	current := j.lhs.toType()
+	current := lhsToType(j.lhs)
 	for type_ := range types {
 		current = intersectionOf(current, type_, unionOpts{})
 	}
 	return current
+
 }
 
 func (j conjunct) lessThanOrEqual(other conjunct) bool {
@@ -171,6 +195,7 @@ type lhsNF interface {
 	and(nf lhsNF, ctx *TypeCtx) (lhs lhsNF, ok bool)
 	normalForm
 	isLeftNf() // marker for sealed hierarchy
+	isLeftNfTop() bool
 }
 
 var (
@@ -193,6 +218,10 @@ type lhsRefined struct {
 	reft recordType
 	// Slice of type references (needs sorting for canonical representation)
 	typeRefs []typeRef
+}
+
+func (*lhsRefined) isLeftNfTop() bool {
+	return false
 }
 
 func (l *lhsRefined) isLeftNf() {}
@@ -334,7 +363,7 @@ func (l *lhsRefined) lessThanOrEqual(other lhsNF) bool {
 		baseSubtype := l.base != nil && lhs.base != nil && ctx.isSubtype(*l.base, *lhs.base, nil)
 		fnSubtype := l.fn != nil && lhs.fn != nil && ctx.isSubtype(*l.fn, *lhs.fn, nil)
 		arrSubtype := l.arr != nil && lhs.arr != nil && ctx.isSubtype(l.arr, lhs.arr, nil)
-		allTraitTagsSub := l.traitTags != nil && lhs.traitTags != nil && l.traitTags.Subset(lhs.traitTags)
+		allTraitTagsSub := (l.traitTags == nil && lhs.traitTags == nil) || (l.traitTags != nil && lhs.traitTags != nil && l.traitTags.Subset(lhs.traitTags))
 		rTypeSub := ctx.isSubtype(l.reft, lhs.reft, nil)
 		if !((baseSubtype || fnSubtype || arrSubtype) && allTraitTagsSub && rTypeSub) {
 			return false
@@ -556,6 +585,7 @@ func (lhsTop) lessThanOrEqual(nf lhsNF) bool {
 func (lhsTop) and(nf lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 	return nf, true
 }
+func (t lhsTop) isLeftNfTop() bool { return true }
 
 // --- Right Normal Form (RhsNf) ---
 
@@ -564,6 +594,7 @@ type rhsNF interface {
 	// lessThanOrEqual is written as <:< in the scala reference
 	lessThanOrEqual(rhsNF) bool
 	isRhsNf() // marker for sealed hierarchy
+	isRhsBot() bool
 }
 
 var (
@@ -575,17 +606,14 @@ var (
 // rhsBot corresponds to RhsBot in Scala. Represents the bottom type (empty union).
 type rhsBot struct{}
 
-func (b rhsBot) lessThanOrEqual(nf rhsNF) bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (rhsBot) String() string         { return "⊥" }
-func (rhsBot) isRhsNf()               {}
-func (rhsBot) toType() SimpleType     { return bottomType }
-func (rhsBot) level() level           { return bottomType.level() }
-func (rhsBot) hasTag(_ traitTag) bool { return false }
-func (rhsBot) size() int              { return 0 }
+func (b rhsBot) isRhsBot() bool                { return true }
+func (b rhsBot) lessThanOrEqual(nf rhsNF) bool { return true }
+func (rhsBot) String() string                  { return "⊥" }
+func (rhsBot) isRhsNf()                        {}
+func (rhsBot) toType() SimpleType              { return bottomType }
+func (rhsBot) level() level                    { return bottomType.level() }
+func (rhsBot) hasTag(_ traitTag) bool          { return false }
+func (rhsBot) size() int                       { return 0 }
 
 // rhsField corresponds to RhsField in Scala. Represents a single record field {name: type}.
 type rhsField struct {
@@ -593,9 +621,10 @@ type rhsField struct {
 	ty   fieldType
 }
 
+func (_ *rhsField) isRhsBot() bool { return false }
 func (r *rhsField) lessThanOrEqual(nf rhsNF) bool {
-	//TODO implement me
-	panic("implement me")
+	ctx := NewEmptyTypeCtx()
+	return ctx.isSubtype(r.toType(), nf.toType(), nil)
 }
 
 func (r *rhsField) isRhsNf() {}
@@ -643,11 +672,11 @@ type rhsBases struct {
 	typeRefs []typeRef
 }
 
+func (*rhsBases) isRhsBot() bool { return false }
 func (r *rhsBases) lessThanOrEqual(nf rhsNF) bool {
-	//TODO implement me
-	panic("implement me")
+	ctx := NewEmptyTypeCtx()
+	return ctx.isSubtype(r.toType(), nf.toType(), nil)
 }
-
 func (r *rhsBases) isRhsNf() {}
 
 // toType reconstructs the SimpleType representation of the union.

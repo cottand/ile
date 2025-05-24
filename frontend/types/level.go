@@ -11,13 +11,22 @@ import (
 type Fresher struct {
 	freshCount uint64
 	freshened  map[TypeVarID]SimpleType
+
+	// universe is the built-in bindings, which are usually the same across all TypeCtx
+	// instances.
+	//
+	// universe is strongly coupled to a specific Fresher instance because of the type variables
+	// it instantiates, so once generated, you can only use its typeInfo with that Fresher instance.
+	universe universeStruct
 }
 
 func NewFresher() *Fresher {
-	return &Fresher{
+	f := Fresher{
 		freshCount: 0,
 		freshened:  make(map[TypeVarID]SimpleType),
 	}
+	f.universe = f.universeInit()
+	return &f
 }
 
 func (t *Fresher) newTypeVariable(

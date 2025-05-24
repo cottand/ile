@@ -94,14 +94,15 @@ func NewEmptyTypeCtx() *TypeCtx {
 	for _, def := range builtinTypes {
 		defs[def.name] = def
 	}
+	fresher := NewFresher()
 	return &TypeCtx{
 		parent:    nil,
-		env:       universe(),
+		env:       fresher.universeEnv(),
 		level:     0,
 		inPattern: false,
 		typeDefs:  defs,
 		TypeState: &TypeState{
-			fresher:           NewFresher(),
+			fresher:           fresher,
 			cache:             make(map[uint64]nodeCacheEntry, 1),
 			expandedTypeCache: make(map[uint64]ast.Type, 1),
 		},

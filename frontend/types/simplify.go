@@ -88,15 +88,15 @@ var simplifyLogger = logger.With("section", "inference.simplify")
 
 // simplifyPipeline orchestrates the type simplification process.
 // Corresponds to the SimplifyPipeline class in Scala.
-func (ctx *TypeCtx) simplifyPipeline(st SimpleType) SimpleType {
-	simplifyLogger.Info("begin simplification for", "simpleType", st, "bounds", boundsString(st))
+func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
+	defer func() {
+		simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret, "result.bounds", boundsString(ret))
+	}()
 
 	// Corresponds to the first simplifyType call in Scala
 	cur := ctx.simplifyType(st, positive, simplifyRemovePolarVars, simplifyInlineBounds)
-	//logger.Debug("⬤ Type after first simplification:", "type", cur, "bounds", boundsString(cur))
 
-	// TODO: Implement and insert normalization step (normalizeTypes_!) here.
-	// logger.Debug("⬤ Normalized:", "type", cur, "bounds", boundsString(cur))
+	cur = ctx.normaliseType(cur, positive)
 
 	// TODO: Implement and insert cleanup steps (removeIrrelevantBounds, unskidTypes_!) here.
 	// logger.Debug("⬤ Cleaned up:", "type", cur, "bounds", boundsString(cur))
@@ -356,7 +356,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 	simplifiedType := transformer.transform(st, pol, nil) // Use initial polarity for transformation
 
-	simplifyLogger.Debug("simplify (simplifyType): done", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr.String(), "recVars", recVars.Slice())
+	simplifyLogger.Debug("simplified type successfully", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr.String(), "recVars", recVars.Slice())
 
 	return simplifiedType
 }
@@ -716,8 +716,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			}
 			if pol == invariant {
 				return ts.ctx.newTypeRange(typeRange{
-					lowerBound: ts.transform(mergeBounds(ty.lowerBounds, true), positive, parent),
-					upperBound: ts.transform(mergeBounds(ty.upperBounds, false), negative, parent),
+					lowerBound: ts.transform(ts.ctx.mergeBounds(ty.lowerBounds, true), positive, parent),
+					upperBound: ts.transform(ts.ctx.mergeBounds(ty.upperBounds, false), negative, parent),
 				})
 			}
 
@@ -725,7 +725,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			if pol == negative { // Negative polarity
 				boundsToInline = ty.upperBounds
 			}
-			mergedBound := mergeBounds(boundsToInline, pol == positive)
+			mergedBound := ts.ctx.mergeBounds(boundsToInline, pol == positive)
 			logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty, "mergedBounds", mergedBound, "polarity", pol.String())
 			// Need to pass parent variable to recursive call to handle cycles during inlining
 			return ts.transform(mergedBound, pol, ty) // Pass 'ty' as parent
@@ -759,7 +759,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			} else {
 				boundsToInline = ty.upperBounds
 			}
-			mergedTransform = ts.transform(mergeBounds(boundsToInline, pol == positive), pol, ty)
+			mergedTransform = ts.transform(ts.ctx.mergeBounds(boundsToInline, pol == positive), pol, ty)
 			if pol == positive {
 				// Positive polarity: MergedLowerBound | RenewedVar
 				return unionOf(mergedTransform, renewedVar, unionOpts{})
@@ -792,7 +792,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			if onlyVarAsBounds {
 				logger.Debug("simplify: transform: inlining var bounds", "var", ty, "bounds", bounds)
 				ts.varSubst[ty.id] = nil
-				return ts.transform(mergeBounds(bounds, pol == positive), pol, parent)
+				return ts.transform(ts.ctx.mergeBounds(bounds, pol == positive), pol, parent)
 			}
 			// else fall back to setting bounds
 		}
@@ -911,7 +911,7 @@ func (ts *transformerState) transformFieldType(ft fieldType, pol polarity, paren
 
 // mergeBounds combines bounds with | (for lower=true) or & (for lower=false).
 // It is called mergeTransform in the scala reference
-func mergeBounds(bounds []SimpleType, lower bool) SimpleType {
+func (ctx *TypeCtx) mergeBounds(bounds []SimpleType, lower bool) SimpleType {
 	var current SimpleType
 	if lower {
 		current = bottomType

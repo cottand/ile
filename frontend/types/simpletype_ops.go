@@ -1,13 +1,20 @@
 package types
 
-import "fmt"
-
 type unionOpts struct {
 	prov    typeProvenance
 	swapped bool
 }
 
 // unionOf corresponds to the `|` operation in the scala reference
+//
+// it does not strictly need to do premature optimisation with simplifications (like A | A = A)
+// because those will be likely covered in normalisation.
+// But we can still take some shortcuts, just in case we might be able to avoid triggering normalisation
+// altogether.
+//
+// Because of this, it is undesirable to do expensive computations here that might dramatically increase complexity,
+// such as `isSubtype` being called here. We constantly use them when folding, so we want composed types to be O(1) to
+// instantiate
 func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	if Equal(this, topType) {
 		return topType
@@ -18,16 +25,25 @@ func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	if Equal(this, that) {
 		return this
 	}
-	if !opts.swapped {
-		return unionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+
+	unwrapped := unwrapProvenance(this)
+
+	// A | B where B contains A = B
+	if tag, ok := unwrapped.(classTag); ok {
+		if otherObject, ok := unwrapProvenance(that).(objectTag); ok && tag.containsParentST(otherObject.Id()) {
+			return that
+		}
 	}
-	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
+
+	// ~A | A = top
+	if thisAsNeg, thisIsNeg := unwrapped.(negType); thisIsNeg {
 		if Equal(thisAsNeg.negated, that) {
-			// ~A | A = any
 			return topType
 		}
 	}
-	logger.Warn(fmt.Sprintf("union not implemented for %s | %s (returning plain union)", this, that))
+	if !opts.swapped {
+		return unionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+	}
 	return unionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
 }
 
@@ -46,16 +62,23 @@ func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	if thisIsRecord && len(thisRecord.fields) == 0 {
 		return that
 	}
-	if !opts.swapped {
-		return intersectionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+	unwrapped := unwrapProvenance(this)
+
+	// A & B where B contains A => A
+	if tag, ok := unwrapped.(classTag); ok {
+		if otherObject, ok := unwrapProvenance(that).(objectTag); ok && tag.containsParentST(otherObject.Id()) {
+			return this
+		}
 	}
 
+	// ~A & A = bottom
 	if thisAsNeg, thisIsNeg := this.(negType); thisIsNeg {
 		if Equal(thisAsNeg.negated, that) {
-			// ~A & A = nothing
 			return bottomType
 		}
 	}
-	logger.Warn(fmt.Sprintf("intersection not implemented for %s & %s (returning plain intersection)", this, that))
+	if !opts.swapped {
+		return intersectionOf(that, this, unionOpts{prov: opts.prov, swapped: true})
+	}
 	return intersectionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
 }
