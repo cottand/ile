@@ -119,12 +119,18 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 	// Simplified error reporting. A full implementation would mirror the Scala version's
 	// detailed provenance tracking and message generation.
 	lhsProv := lhs.prov()
-	if len(cctx.lhsChain) > 0 {
-		lhsProv = cctx.lhsChain[0].prov() // Use the start of the chain
+	for _, c := range cctx.lhsChain {
+		if c.prov() != emptyProv && !c.prov().IsOrigin() {
+			lhsProv = c.prov()
+			break
+		}
 	}
 	rhsProv := rhs.prov()
-	if len(cctx.rhsChain) > 0 {
-		rhsProv = cctx.rhsChain[0].prov() // Use the start of the chain
+	for c := range util.Reverse(cctx.rhsChain) {
+		if c.prov() != emptyProv && !c.prov().IsOrigin() {
+			rhsProv = c.prov()
+			break
+		}
 	}
 
 	// Use the most relevant Range - often the top-level one
@@ -133,10 +139,18 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 		pos = lhsProv.Range // Or maybe lhs? Needs refinement based on Scala logic
 	}
 
+	if lhsAsTag, ok := lhs.(objectTag); ok {
+		if rhsAsTag, ok := rhs.(objectTag); ok {
+			failureMsg = fmt.Sprintf("%s is not a subtype of %s", lhsAsTag.Id().CanonicalSyntax(), rhsAsTag.Id().CanonicalSyntax())
+		}
+	}
+
+	lhsStr := ast.TypeString(cs.ctx.expandSimpleType(lhs, true))
+	rhsStr := ast.TypeString(cs.ctx.expandSimpleType(rhs, true))
 	err := ilerr.New(ilerr.NewTypeMismatch{
 		Positioner: pos,
-		First:      fmt.Sprintf("%s (%s)", lhs.String(), lhsProv.desc),
-		Second:     fmt.Sprintf("%s (%s)", rhs.String(), rhsProv.desc),
+		First:      fmt.Sprintf("%s (%s)", lhsStr, lhsProv.desc),
+		Second:     fmt.Sprintf("%s (%s)", rhsStr, rhsProv.desc),
 		Reason:     failureMsg,
 	})
 	return cs.onErr(err)

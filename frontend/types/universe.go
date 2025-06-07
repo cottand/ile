@@ -3,6 +3,7 @@ package types
 import (
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/hashicorp/go-set/v3"
+	"slices"
 )
 
 var builtinProv = newOriginProv(ast.Range{}, "builtin", "builtin")
@@ -61,11 +62,20 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 			withProvenance: withProvenance{builtinProv},
 		}
 	}
-	numberOp := func() funcType {
-		tv := t.newTypeVariable(1, emptyProv, "", nil, nil)
+	_ = func() funcType {
+		addableTypes := unionOf(intType, stringType, unionOpts{})
+		tv := t.newTypeVariable(1, builtinProv, "", []SimpleType{addableTypes}, nil)
+		tv2 := t.newTypeVariable(1, builtinProv, "", nil, []SimpleType{addableTypes})
 		return funcType{
 			args: []SimpleType{tv, tv},
-			ret:  tv,
+			ret:  tv2,
+		}
+	}
+	numberOp := func() funcType {
+		return funcType{
+			args:           []SimpleType{intType, intType},
+			ret:            intType,
+			withProvenance: withProvenance{builtinProv},
 		}
 	}
 	return map[string]typeInfo{
@@ -117,12 +127,33 @@ var errorTypeInstance = classTag{
 
 var builtinTypes = []TypeDefinition{
 	{
-		defKind:          ast.KindClass,
-		name:             ast.IntTypeName,
-		typeVars:         nil,
-		typeParamArgs:    nil,
-		typeVarVariances: nil,
-		bodyType:         topType,
-		baseClasses:      intType.parents,
+		defKind:     ast.KindClass,
+		name:        ast.IntTypeName,
+		bodyType:    topType,
+		baseClasses: intType.parents,
 	},
+	{
+		defKind:     ast.KindClass,
+		name:        ast.TrueName,
+		bodyType:    topType,
+		baseClasses: set.From([]typeName{ast.AnyTypeName}),
+	},
+	{
+		defKind:     ast.KindClass,
+		name:        ast.FalseName,
+		bodyType:    topType,
+		baseClasses: set.From([]typeName{ast.AnyTypeName}),
+	},
+	{
+		defKind:  ast.KindAlias,
+		name:     ast.BoolTypeName,
+		bodyType: boolType,
+		//baseClasses:      set.From([]typeName{ast.AnyTypeName}),
+	},
+}
+
+func (_ *TypeCtx) isBuiltinType(name string) bool {
+	return slices.ContainsFunc(builtinTypes, func(def TypeDefinition) bool {
+		return def.name == name
+	})
 }

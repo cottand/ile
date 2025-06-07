@@ -268,9 +268,6 @@ func (o *opsDNF) top() dnf {
 
 // of creates a DNF from a single LhsNf component.
 func (o *opsDNF) of(lnf lhsNF) dnf {
-	if _, ok := lnf.(lhsTop); ok {
-		return o.top() // LhsTop corresponds to Top DNF
-	}
 	return dnf{newConjunct(lnf, rhsBot{}, nil, nil)}
 }
 
@@ -278,7 +275,7 @@ func (o *opsDNF) of(lnf lhsNF) dnf {
 // pol=true means Top, pol=false means Bottom.
 func (o *opsDNF) extr(pol bool) dnf {
 	if pol {
-		return o.top()
+		return o.of(lhsTop{})
 	}
 	return dnf{} // Empty DNF represents Bottom
 }

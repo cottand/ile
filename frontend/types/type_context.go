@@ -24,6 +24,9 @@ func (err typeError) String() string {
 	stack := strings.Split(string(err.stack), "\n")[6]
 	return fmt.Sprintf("( %s ): %s", strings.TrimSpace(stack), err.message)
 }
+func (err typeError) Error() string {
+	return err.String()
+}
 
 // TypeCtx holds mutable state during the inference process, as well as settings
 type TypeCtx struct {
@@ -74,7 +77,7 @@ type TypeState struct {
 
 	// Failures are irrecoverable unexpected scenarios
 	// that a normal program should never hit
-	Failures []typeError
+	Failures []error
 	// Errors are language problems that a malformed program could cause
 	Errors []ilerr.IleError
 
@@ -440,7 +443,9 @@ func (ctx *TypeState) addError(ileError ilerr.IleError) {
 // TypeOf must be called after running inference
 func (ctx *TypeCtx) TypeOf(expr ast.Expr) (ret ast.Type) {
 	defer func() {
-		logger.Info("resolved type post-inference", "expr", expr, "expr.hash", expr.Hash(), "type", ret.ShowIn(ast.DumbShowCtx, 1))
+		if len(ctx.Failures) == 0 {
+			logger.Info("resolved type post-inference", "expr", expr, "expr.hash", expr.Hash(), "type", ret.ShowIn(ast.DumbShowCtx, 1))
+		}
 	}()
 	// check if simplified before
 	expanded, ok := ctx.expandedTypeCache[expr.Hash()]

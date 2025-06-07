@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
@@ -43,6 +44,7 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Er
 	errs = errs.Merge(err)
 
 	vars := make(map[string]types.SimpleType)
+	totalFailures := make([]error, 0)
 	for i, file := range env.Syntax {
 		for j, decl := range file.Declarations {
 
@@ -50,8 +52,9 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Er
 				Name: decl.Name,
 			}
 			_ = ctx.TypeExpr(groupedPkg, vars)
-			if len(ctx.Failures) != 0 {
-				return files, nil, fmt.Errorf("failures found: %s", ctx.Failures)
+			totalFailures = append(totalFailures, ctx.Failures...)
+			if len(ctx.Failures) > 0 {
+				continue
 			}
 			errs = errs.With(ctx.Errors...)
 
@@ -61,6 +64,9 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ast.File, *ilerr.Er
 			file.Declarations[j] = decl
 		}
 		files[i] = file
+	}
+	if len(totalFailures) > 0 {
+		return files, nil, fmt.Errorf("failures found:\n %s", errors.Join(totalFailures...))
 	}
 	return files, errs, nil
 }

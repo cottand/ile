@@ -357,7 +357,6 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 		tagAndBody := intersectionOf(tag, def.bodyType, unionOpts{})
 		var paramTags SimpleType = topType
 		if !ops.withoutParamTags {
-			logger.Warn("recordType make not implemented, using plain struct instead")
 			r := recordType{}
 			for _, arg := range def.typeParamArgs {
 				tName, tVar := arg.Fst, arg.Snd
@@ -372,7 +371,7 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 				}
 				r.fields = append(r.fields, util.NewPair(tParamField, field))
 			}
-			paramTags = r
+			paramTags = newRecordType(r)
 		}
 		expandedTag = intersectionOf(tagAndBody, paramTags, unionOpts{})
 	case ast.KindTrait:
@@ -391,6 +390,17 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 
 	substCtx := &substContext{ctx: ctx, substituteInMap: true, cache: make(map[TypeVarID]SimpleType), substitutions: substitutions}
 	return substCtx.substitute(expandedTag)
+}
+
+func newRecordType(r recordType) SimpleType {
+	if len(r.fields) == 0 {
+		return extremeType{
+			polarity:       false,
+			withProvenance: r.withProvenance,
+		}
+	}
+
+	return r
 }
 
 type substContext struct {

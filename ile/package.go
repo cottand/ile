@@ -41,8 +41,8 @@ type Package struct {
 	declarations map[string]ast.Type
 	syntax       []ast.File
 	fSet         *token.FileSet
-	errors  *ilerr.Errors
-	TypeCtx *types.TypeCtx
+	errors       *ilerr.Errors
+	TypeCtx      *types.TypeCtx
 
 	//typeInfo     *infer.TypeEnv
 }
@@ -215,12 +215,11 @@ func NewPackageFromBytes(data []byte) (*Package, *ilerr.Errors, error) {
 		},
 	}
 	pkg, err := LoadPackage(filesystem, PkgLoadSettings{})
-	if err != nil {
+	if err != nil && pkg == nil {
 		return nil, nil, err
 	}
 	pkg.name = "test"
-
-	return pkg, pkg.errors, nil
+	return pkg, pkg.errors, err
 }
 
 // WriteTranspiledModule writes this Package as a Go module in dir

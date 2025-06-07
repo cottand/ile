@@ -112,12 +112,15 @@ func (tp *Transpiler) TranspilePackage(name string, syntax []ast.File) ([]goast.
 	if err != nil {
 		return nil, err
 	}
+	if len(tp.types.Failures) != 0 {
+		err = fmt.Errorf("failure during secondary pass of type inference: %s", errors.Join(tp.types.Failures...))
+	}
 	decls = append(decls, functions...)
 	return []goast.File{{
 		Name:      &goast.Ident{Name: name},
 		GoVersion: goVersion,
 		Decls:     decls,
-	}}, nil
+	}}, err
 }
 
 // transpileDeclarations works at the top level of the file
@@ -409,6 +412,9 @@ func (tp *Transpiler) transpileType(t ast.Type) (goast.Expr, error) {
 		// generic type!
 	case *ast.TypeVar:
 		return nil, fmt.Errorf("generics are not implemented yet, but got %v", t.ShowIn(ast.DumbShowCtx, 0))
+
+	case *ast.AnyType:
+		return goast.NewIdent("any"), nil
 
 	default:
 		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", ast.TypeString(e), e)

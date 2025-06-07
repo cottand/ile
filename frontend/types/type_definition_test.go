@@ -22,14 +22,17 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 	typeMap := new(MapShowCtx)
 	exprString := ast.ExprString(expr)
 	t.Run(fmt.Sprintf("(%s):%s", exprString, expected.ShowIn(typeMap, 0)), func(t *testing.T) {
+		ctx := types.NewEmptyTypeCtx()
 		defer func() {
 			if err := recover(); err != nil {
+				if len(ctx.Failures) != 0 {
+					t.Errorf("following failures were present in type context: \n  %s", util.JoinString(ctx.Failures, "\n  "))
+				}
 				stack := strings.Split(string(debug.Stack()), "\n")
 				t.Errorf("panic: %v\nlikely at %s\n full stack trace follows:\n%s\n", err, stack[10], string(debug.Stack()))
 				t.FailNow()
 			}
 		}()
-		ctx := types.NewEmptyTypeCtx()
 		vars := make(map[string]types.SimpleType)
 
 		_ = ctx.TypeExpr(expr, vars)
@@ -121,8 +124,8 @@ func TestIdentityFunc(t *testing.T) {
 	}
 
 	testType(t, expr, &ast.FnType{
-		Args:   []ast.Type{&ast.TypeVar{Identifier: "α2"}},
-		Return: &ast.TypeVar{Identifier: "α2"},
+		Args:   []ast.Type{&ast.TypeVar{Identifier: "α10"}},
+		Return: &ast.TypeVar{Identifier: "α10"},
 		Range:  ast.Range{},
 	})
 }

@@ -99,10 +99,15 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		pkg, cErrs, err := ile.NewPackageFromBytes(content)
-		assert.NoError(t, err)
+		assert.NoError(t, err, "Unexpected failures in NewPackageFromBytes")
 		if err != nil {
-			// don't try to keep going if the FE failed
-			t.Fatal(err)
+			// the FE had errors, so we add a recover() so that we can handle nil panics
+			// due to those errors
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("test panicked: %v", r)
+				}
+			}()
 		}
 		if cErrs.HasError() {
 			var errStrings []string

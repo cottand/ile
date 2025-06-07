@@ -3,6 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
+	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"log/slog"
@@ -96,33 +97,78 @@ func (n typeNormaliser) processDNF(d dnf, pol polarity) (res SimpleType) {
 		for v := range util.ConcatIter(conj.vars.Items(), conj.nvars.Items()) {
 			n.processTypeVar(v)
 		}
-		typed := conj.toTypeWith(n.lhsNFToType, n.rhsNFToType)
+		typed := conj.toTypeWith(
+			func(nf lhsNF) SimpleType { return n.lhsNFToType(pol.inverse(), nf) },
+			n.rhsNFToType,
+		)
 		conjAsType = unionOf(conjAsType, typed, unionOpts{})
 	}
 	conjAsType = n.factorise(conjAsType)
 	return unionOf(conjAsType, conjNegAsType, unionOpts{})
 }
 
-func (n typeNormaliser) lhsNFToType(lhs lhsNF) SimpleType {
+func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
+	defer func() {
+		n.Debug("processed normal form LHS ToType", "type", lhs, "polarity", pol, "result", ret)
+	}()
 	switch lhs := lhs.(type) {
 	case lhsTop:
 		return topType
 	case *lhsRefined:
-		if len(lhs.typeRefs) > 0 {
-			n.addFailure("LHS NF with type refs not implemented, see normalizeTypes_!()-helper()", emptyProv)
-			return errorType()
+		newTypeRefs := make([]typeRef, 0, len(lhs.typeRefs))
+		// traverse type refs as well as each type ref's arguments
+		for _, ref := range lhs.typeRefs {
+			newTypeRef := typeRef{
+				defName:        ref.defName,
+				typeArgs:       make([]SimpleType, 0, len(ref.typeArgs)),
+				withProvenance: ref.withProvenance,
+			}
+			for typeRefPol, type_ := range n.typeRefTraverseTypeArguments(ref, pol) {
+				newTypeRef.typeArgs = append(newTypeRef.typeArgs, n.processType(type_, typeRefPol))
+			}
+			newTypeRefs = append(newTypeRefs, newTypeRef)
 		}
+		var newFn *funcType
 		if lhs.fn != nil {
-			//lhs.fn = &funcType{
-			//	args:           lhs.fn.args,
-			//	ret:            nil,
-			//	withProvenance: withProvenance{},
-			//}
+			newFn = &funcType{
+				withProvenance: lhs.fn.withProvenance,
+				ret:            n.processType(lhs.fn.ret, pol),
+			}
+			for _, arg := range lhs.fn.args {
+				newFn.args = append(newFn.args, n.processType(arg, pol.inverse()))
+			}
+
 		}
 
+		var newArray arrayBase
+		if lhs.arr != nil {
+			n.addFailure("LHS ND with arr types not implemented, see normalizeTypes_!()-helper()", emptyProv)
+			return lhs.toType()
+		}
+
+		if lhs.base != nil {
+			_, isClassTagName := lhs.base.id.(*ast.Var)
+			if isClassTagName && !n.isBuiltinType(lhs.base.id.CanonicalSyntax()) {
+				// Try to reconstruct a proper class type when a class tag is found,
+				// reconstructing the corresponding class type arguments
+				// and omitting field refinements that do not refine the reconstructed class type.
+				n.addFailure(fmt.Sprintf("found %s, but non builtin types not implemented yet, see normalizeTypes_!()-helper()", lhs.base), emptyProv)
+			}
+			// if lhs.base is a known builtin OR a type literal expr (like '1' or "foo")
+			// we do not need to reconstruct it
+		}
+		newLhs := lhsRefined{
+			base:      lhs.base,
+			fn:        newFn,
+			arr:       newArray,
+			traitTags: lhs.traitTags,
+			reft:      lhs.reft, // keep in mind reference copies the record here - we don't yet because it's not implemented but look into why
+			typeRefs:  newTypeRefs,
+		}
+		return newLhs.toType()
 	}
 	n.addFailure(fmt.Sprintf("unexpected LHS normal form %T for %s", lhs, lhs), emptyProv)
-	return lhs.toType()
+	return errorType()
 }
 func (n typeNormaliser) rhsNFToType(rhs rhsNF) SimpleType {
 	switch rhs.(type) {
@@ -136,6 +182,7 @@ func (n typeNormaliser) rhsNFToType(rhs rhsNF) SimpleType {
 }
 
 func (ctx *TypeCtx) factorise(typ SimpleType) SimpleType {
-	ctx.addFailure("factorise not implemented", typ.prov())
+	// we don't add an actual failure with addFailure because this case is hit for every single type
+	logger.Error("factorise not implemented")
 	return typ
 }

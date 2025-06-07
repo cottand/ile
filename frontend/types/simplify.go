@@ -90,7 +90,12 @@ var simplifyLogger = logger.With("section", "inference.simplify")
 // Corresponds to the SimplifyPipeline class in Scala.
 func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	defer func() {
-		simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret, "result.bounds", boundsString(ret))
+		if len(ctx.Failures) != 0 {
+			// when there are failures, ret might be nil, so we don't pretty print it
+			simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret)
+		} else {
+			simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret, "result.bounds", boundsString(ret))
+		}
 	}()
 
 	// Corresponds to the first simplifyType call in Scala

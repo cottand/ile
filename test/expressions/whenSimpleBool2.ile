@@ -2,10 +2,10 @@
 package test
 
 
-val x = 10
 
 val match = when(x) {
     1 -> 1
     _ -> x + 1
 }
 
+val x = 10

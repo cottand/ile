@@ -196,6 +196,13 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 	case unionType:
 		lhs := st.expandRec(ty.lhs)
 		rhs := st.expandRec(ty.rhs)
+		// type should be normalised so True | False should happen but never False | True
+		if Equal(lhs, ast.TrueType) && Equal(rhs, ast.FalseType) {
+			return &ast.TypeName{
+				Name:       ast.BoolTypeName,
+				Positioner: ty.provenance,
+			}
+		}
 		return &ast.UnionType{
 			Left:       lhs,
 			Right:      rhs,
