@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 	"github.com/benbjohnson/immutable"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"iter"
@@ -12,15 +12,15 @@ import (
 )
 
 type TypeDefinition struct {
-	defKind          ast.TypeDefKind
-	name             typeName
-	typeParamArgs    []util.Pair[typeName, *typeVariable]
-	typeVars         []typeVariable
+	defKind       ir.TypeDefKind
+	name          typeName
+	typeParamArgs []util.Pair[typeName, *typeVariable]
+	typeVars      []typeVariable
 	// typeVarVariances correctly returns invariant when not found, because it is the zero value of varianceInfo
 	typeVarVariances map[TypeVarID]varianceInfo
 	bodyType         SimpleType
 	baseClasses      set.Collection[typeName]
-	from             ast.Positioner
+	from             ir.Positioner
 }
 
 func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) set.Collection[typeName] {
@@ -53,7 +53,7 @@ func (d *TypeDefinition) typeParameters() iter.Seq[SimpleType] {
 }
 
 func isNameReserved(name typeName) bool {
-	panic("TODO implement me")
+	return false
 }
 
 var emptySetTypeName = immutable.NewSet[string](immutable.NewHasher(""))
@@ -67,7 +67,7 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]Ty
 		definitions[def] = t
 	}
 	for _, newDef := range newDefs {
-		prov := &typeProvenance{Range: ast.RangeOf(newDef.from), desc: "type definition"}
+		prov := &typeProvenance{Range: ir.RangeOf(newDef.from), desc: "type definition"}
 		name := newDef.name
 		ctx.currentPos = prov.Range
 		rightParents := ctx.typeDefRightParents(newDef)
@@ -84,9 +84,9 @@ func (ctx *TypeCtx) typeTypeDefs(newDefs []TypeDefinition, oldDefs map[string]Ty
 
 func (ctx *TypeCtx) typeDefRightParents(typeDef TypeDefinition) bool {
 	switch typeDef.defKind {
-	case ast.KindAlias:
+	case ir.KindAlias:
 		return ctx.checkCycle(typeDef.bodyType, emptySetTypeName, emptySetTypeID)
-	case ast.KindClass, ast.KindTrait:
+	case ir.KindClass, ir.KindTrait:
 		if !ctx.checkParents(typeDef, typeDef.bodyType, nil) {
 			return false
 		}
@@ -112,8 +112,8 @@ func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ SimpleType,
 			panic("TODO handle missing handle of branch")
 		}
 		switch otherTypeDef.defKind {
-		case ast.KindClass:
-			if originalTypeDef.defKind == ast.KindClass {
+		case ir.KindClass:
+			if originalTypeDef.defKind == ir.KindClass {
 				parentsClasses = append(parentsClasses, typ)
 				if len(parentsClasses) != 0 {
 					ctx.addFailure(fmt.Sprintf("%s %s cannot inherit from class %s as it already inherits from %s", originalTypeDef.defKind.String(), originalTypeDef.name, otherTypeDef.name, parentsClasses[0]), ctx.currentPos)
@@ -123,10 +123,10 @@ func (ctx *TypeCtx) checkParents(originalTypeDef TypeDefinition, typ SimpleType,
 			} else {
 				return ctx.checkParents(originalTypeDef, ctx.expand(typ, expandOpts{}), parentsClasses)
 			}
-		case ast.KindAlias:
+		case ir.KindAlias:
 			ctx.addFailure("cannot inherit from type alias", ctx.currentPos)
 			return false
-		case ast.KindTrait:
+		case ir.KindTrait:
 			return ctx.checkParents(originalTypeDef, ctx.expand(typ, expandOpts{}), parentsClasses)
 		default:
 			panic("unreachable: unexpected type definition kind: " + otherTypeDef.defKind.String())
@@ -193,7 +193,7 @@ func (ctx *TypeCtx) checkAbstractAddConstructors() bool {
 }
 
 // implementation wise it is completed but TODO make a typeError to accumulate Failures with their locations
-func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ SimpleType, reached *immutable.Map[string, []SimpleType], pos ast.Positioner) bool {
+func (ctx *TypeCtx) typeDefCheckRegular(typeDef TypeDefinition, typ SimpleType, reached *immutable.Map[string, []SimpleType], pos ir.Positioner) bool {
 	if reached == nil {
 		reached = immutable.NewMap[string, []SimpleType](immutable.NewHasher(""))
 	}

@@ -11,3 +11,7 @@ func NewPair[A, B any](fst A, snd B) Pair[A, B] {
 		Snd: snd,
 	}
 }
+
+func (p Pair[A, B]) Split() (A, B) {
+	return p.Fst, p.Snd
+}

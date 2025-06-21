@@ -2,8 +2,8 @@ package types_test
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/util"
 	"github.com/stretchr/testify/assert"
@@ -12,21 +12,21 @@ import (
 	"testing"
 )
 
-type MapShowCtx map[string]*ast.TypeVar
+type MapShowCtx map[string]*ir.TypeVar
 
-func (m MapShowCtx) NameOf(t *ast.TypeVar) string {
+func (m MapShowCtx) NameOf(t *ir.TypeVar) string {
 	return t.Identifier
 }
 
-func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
+func testType(t *testing.T, expr ir.Expr, expected ir.Type) {
 	typeMap := new(MapShowCtx)
-	exprString := ast.ExprString(expr)
+	exprString := ir.ExprString(expr)
 	t.Run(fmt.Sprintf("(%s):%s", exprString, expected.ShowIn(typeMap, 0)), func(t *testing.T) {
 		ctx := types.NewEmptyTypeCtx()
 		defer func() {
 			if err := recover(); err != nil {
 				if len(ctx.Failures) != 0 {
-					t.Errorf("following failures were present in type context: \n  %s", util.JoinString(ctx.Failures, "\n  "))
+					t.Errorf("following failures were present in type context: \n  %s", util.JoinErrorsWith("", ctx.Failures, "\n "))
 				}
 				stack := strings.Split(string(debug.Stack()), "\n")
 				t.Errorf("panic: %v\nlikely at %s\n full stack trace follows:\n%s\n", err, stack[10], string(debug.Stack()))
@@ -37,7 +37,7 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 
 		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {
-			t.Fatalf("Failures found: %s\n", "\n    "+util.JoinString(ctx.Failures, "\n    "))
+			t.Fatalf("Failures found:\n  %s\n", util.JoinErrorsWith("", ctx.Failures, "\n  "))
 		}
 		if len(ctx.Errors) != 0 {
 			t.Errorf("Errors found:\n")
@@ -54,155 +54,155 @@ func testType(t *testing.T, expr ast.Expr, expected ast.Type) {
 }
 
 func TestInferSingleInt(t *testing.T) {
-	expr := ast.IntLiteral("1", ast.Range{})
+	expr := ir.IntLiteral("1", ir.Range{})
 
 	testType(t, expr, expr)
 }
 
 func TestInferIntOps(t *testing.T) {
-	onePlusTwo := &ast.Call{
-		Func: &ast.Var{
+	onePlusTwo := &ir.Call{
+		Func: &ir.Var{
 			Name: "+",
 		},
-		Args: []ast.Expr{ast.IntLiteral("1", ast.Range{}), ast.IntLiteral("2", ast.Range{})},
+		Args: []ir.Expr{ir.IntLiteral("1", ir.Range{}), ir.IntLiteral("2", ir.Range{})},
 	}
 
-	testType(t, onePlusTwo, ast.IntType)
+	testType(t, onePlusTwo, ir.IntType)
 
-	plusThree := &ast.Call{
-		Func: &ast.Var{
+	plusThree := &ir.Call{
+		Func: &ir.Var{
 			Name: "+",
 		},
-		Args: []ast.Expr{
-			ast.IntLiteral("3", ast.Range{}),
+		Args: []ir.Expr{
+			ir.IntLiteral("3", ir.Range{}),
 			onePlusTwo,
 		},
 	}
-	testType(t, plusThree, ast.IntType)
+	testType(t, plusThree, ir.IntType)
 }
 
 func TestInferPlusFunc(t *testing.T) {
-	expr := &ast.Var{
+	expr := &ir.Var{
 		Name: "+",
 	}
-	testType(t, expr, &ast.FnType{
-		Args: []ast.Type{
-			ast.IntType,
-			ast.IntType,
+	testType(t, expr, &ir.FnType{
+		Args: []ir.Type{
+			ir.IntType,
+			ir.IntType,
 		},
-		Return: ast.IntType,
+		Return: ir.IntType,
 	})
 }
 
 func TestAssign(t *testing.T) {
-	expr := &ast.Assign{
+	expr := &ir.Assign{
 		// x = 1
 		// x + 1
 		Var:   "x",
-		Value: ast.IntLiteral("1", ast.Range{}),
-		Body: &ast.Call{
-			Func:  &ast.Var{Name: "+"},
-			Args:  []ast.Expr{ast.IntLiteral("10", ast.Range{}), &ast.Var{Name: "x"}},
-			Range: ast.Range{},
+		Value: ir.IntLiteral("1", ir.Range{}),
+		Body: &ir.Call{
+			Func:  &ir.Var{Name: "+"},
+			Args:  []ir.Expr{ir.IntLiteral("10", ir.Range{}), &ir.Var{Name: "x"}},
+			Range: ir.Range{},
 		},
 	}
-	testType(t, expr, ast.IntType)
+	testType(t, expr, ir.IntType)
 }
 
 func TestIdentityFunc(t *testing.T) {
-	expr := &ast.Assign{
+	expr := &ir.Assign{
 		// fn f(x) = x
 		// f
 		Var: "f",
-		Value: &ast.Func{
+		Value: &ir.Func{
 			ArgNames: []string{"x"},
-			Body:     &ast.Var{Name: "x"},
-			Range:    ast.Range{},
+			Body:     &ir.Var{Name: "x"},
+			Range:    ir.Range{},
 		},
-		Body:      &ast.Var{Name: "f"},
+		Body:      &ir.Var{Name: "f"},
 		Recursive: false,
 	}
 
-	testType(t, expr, &ast.FnType{
-		Args:   []ast.Type{&ast.TypeVar{Identifier: "α10"}},
-		Return: &ast.TypeVar{Identifier: "α10"},
-		Range:  ast.Range{},
+	testType(t, expr, &ir.FnType{
+		Args:   []ir.Type{&ir.TypeVar{Identifier: "α10"}},
+		Return: &ir.TypeVar{Identifier: "α10"},
+		Range:  ir.Range{},
 	})
 }
 
 func TestRecFunc(t *testing.T) {
-	expr := &ast.Assign{
+	expr := &ir.Assign{
 		// fn f(x) = f(x)
 		// f
 		Var: "f",
-		Value: &ast.Func{
+		Value: &ir.Func{
 			ArgNames: []string{"x"},
-			Body: &ast.Call{
-				Func: &ast.Var{Name: "f"},
-				Args: []ast.Expr{
-					&ast.Var{Name: "x"},
+			Body: &ir.Call{
+				Func: &ir.Var{Name: "f"},
+				Args: []ir.Expr{
+					&ir.Var{Name: "x"},
 				},
 			},
-			Range: ast.Range{},
+			Range: ir.Range{},
 		},
-		Body:      &ast.Var{Name: "f"},
+		Body:      &ir.Var{Name: "f"},
 		Recursive: true,
 	}
-	testType(t, expr, &ast.FnType{
-		Args:   []ast.Type{&ast.AnyType{}},
-		Return: &ast.NothingType{},
-		Range:  ast.Range{},
+	testType(t, expr, &ir.FnType{
+		Args:   []ir.Type{&ir.AnyType{}},
+		Return: &ir.NothingType{},
+		Range:  ir.Range{},
 	})
 }
 
 func TestLetGroup(t *testing.T) {
-	expr := &ast.LetGroup{
+	expr := &ir.LetGroup{
 		// v = 1
 		// fn f(x) = x + v
 		// in: f
-		Vars: []ast.LetBinding{
+		Vars: []ir.LetBinding{
 			{
 				// v = 1
 				Var:   "v",
-				Value: ast.IntLiteral("1", nil),
+				Value: ir.IntLiteral("1", nil),
 			},
 			{
 				// fn f(x) = x + v
 				Var: "f",
-				Value: &ast.Func{
+				Value: &ir.Func{
 					ArgNames: []string{"x"},
-					Body: &ast.Call{
-						Func: &ast.Var{Name: "+"},
-						Args: []ast.Expr{
-							&ast.Var{Name: "x"},
-							&ast.Var{Name: "v"},
+					Body: &ir.Call{
+						Func: &ir.Var{Name: "+"},
+						Args: []ir.Expr{
+							&ir.Var{Name: "x"},
+							&ir.Var{Name: "v"},
 						},
 					},
 				},
 			},
 		},
-		Body: &ast.Var{Name: "f"},
+		Body: &ir.Var{Name: "f"},
 	}
 
-	testType(t, expr, &ast.FnType{Args: []ast.Type{ast.IntType}, Return: ast.IntType})
+	testType(t, expr, &ir.FnType{Args: []ir.Type{ir.IntType}, Return: ir.IntType})
 }
 
 func TestMutuallyRecursive(t *testing.T) {
-	expr := &ast.LetGroup{
-		Vars: []ast.LetBinding{
+	expr := &ir.LetGroup{
+		Vars: []ir.LetBinding{
 			{
 				// fn rec1(x) = x + rec2(x)
 				Var: "rec1",
-				Value: &ast.Func{
+				Value: &ir.Func{
 					ArgNames: []string{"x"},
-					Body: &ast.Call{
-						Func: &ast.Var{Name: "+"},
-						Args: []ast.Expr{
-							&ast.Call{
-								Func: &ast.Var{Name: "rec2"},
-								Args: []ast.Expr{&ast.Var{Name: "x"}},
+					Body: &ir.Call{
+						Func: &ir.Var{Name: "+"},
+						Args: []ir.Expr{
+							&ir.Call{
+								Func: &ir.Var{Name: "rec2"},
+								Args: []ir.Expr{&ir.Var{Name: "x"}},
 							},
-							&ast.Var{Name: "x"},
+							&ir.Var{Name: "x"},
 						},
 					},
 				},
@@ -210,50 +210,50 @@ func TestMutuallyRecursive(t *testing.T) {
 			{
 				// fn rec2(x) = rec1(x + x)
 				Var: "rec2",
-				Value: &ast.Func{
+				Value: &ir.Func{
 					ArgNames: []string{"x"},
-					Body: &ast.Call{
-						Func: &ast.Var{Name: "rec1"},
-						Args: []ast.Expr{
-							&ast.Call{Func: &ast.Var{Name: "+"},
-								Args: []ast.Expr{
-									&ast.Var{Name: "x"},
-									&ast.Var{Name: "x"},
+					Body: &ir.Call{
+						Func: &ir.Var{Name: "rec1"},
+						Args: []ir.Expr{
+							&ir.Call{Func: &ir.Var{Name: "+"},
+								Args: []ir.Expr{
+									&ir.Var{Name: "x"},
+									&ir.Var{Name: "x"},
 								}},
 						},
 					},
 				},
 			},
 		},
-		Body: &ast.Call{
-			Func: &ast.Var{Name: "rec2"},
-			Args: []ast.Expr{ast.IntLiteral("2", ast.Range{})},
+		Body: &ir.Call{
+			Func: &ir.Var{Name: "rec2"},
+			Args: []ir.Expr{ir.IntLiteral("2", ir.Range{})},
 		},
 	}
 
-	testType(t, expr, ast.IntType)
+	testType(t, expr, ir.IntType)
 }
 
 func TestSimpleBoolFunc(t *testing.T) {
 	// x = 32 > (1 + 2)
 	// x
-	expr := &ast.Assign{
+	expr := &ir.Assign{
 		Var: "x",
-		Value: &ast.Call{
-			Func: &ast.Var{Name: ">"},
-			Args: []ast.Expr{
-				ast.IntLiteral("32", ast.Range{}),
-				&ast.Call{
-					Func: &ast.Var{Name: "+"},
-					Args: []ast.Expr{
-						ast.IntLiteral("1", ast.Range{}),
-						ast.IntLiteral("2", ast.Range{}),
+		Value: &ir.Call{
+			Func: &ir.Var{Name: ">"},
+			Args: []ir.Expr{
+				ir.IntLiteral("32", ir.Range{}),
+				&ir.Call{
+					Func: &ir.Var{Name: "+"},
+					Args: []ir.Expr{
+						ir.IntLiteral("1", ir.Range{}),
+						ir.IntLiteral("2", ir.Range{}),
 					},
 				},
 			},
 		},
-		Body: &ast.Var{Name: "x"},
+		Body: &ir.Var{Name: "x"},
 	}
-	testType(t, &ast.Var{Name: ">"}, &ast.FnType{Args: []ast.Type{ast.IntType, ast.IntType}, Return: ast.BoolType})
-	testType(t, expr, ast.BoolType)
+	testType(t, &ir.Var{Name: ">"}, &ir.FnType{Args: []ir.Type{ir.IntType, ir.IntType}, Return: ir.BoolType})
+	testType(t, expr, ir.BoolType)
 }

@@ -2,8 +2,8 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
@@ -49,7 +49,7 @@ type positioner interface {
 
 // typeProvenance tracks the origin and description of types
 type typeProvenance struct {
-	Range      ast.Range
+	Range      ir.Range
 	desc       string // Description
 	originName string // Optional origin name
 	isType     bool   // Whether this represents a type
@@ -127,8 +127,10 @@ type wrappingProvType struct {
 }
 
 func (t wrappingProvType) underlying() SimpleType { return t.SimpleType }
-func (t wrappingProvType) String() string         { return "prov(" + t.SimpleType.String() + ")" }
-func (t wrappingProvType) prov() typeProvenance   { return t.proxyProvenance }
+
+// we show the underlying type directly to be more readable
+func (t wrappingProvType) String() string       { return t.SimpleType.String() }
+func (t wrappingProvType) prov() typeProvenance { return t.proxyProvenance }
 
 // arrayBase is implemented by types which wrap other types
 type arrayBase interface {
@@ -346,9 +348,9 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 	}
 	var expandedTag SimpleType
 	switch def.defKind {
-	case ast.KindAlias:
+	case ir.KindAlias:
 		expandedTag = def.bodyType
-	case ast.KindClass:
+	case ir.KindClass:
 		tag, ok := ctx.classTagFrom(t)
 		if !ok {
 			ctx.addFailure(fmt.Sprintf("class %s not found", t.defName), t.prov())
@@ -360,7 +362,7 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 			r := recordType{}
 			for _, arg := range def.typeParamArgs {
 				tName, tVar := arg.Fst, arg.Snd
-				tParamField := ast.Var{Name: t.defName + "#" + tName}
+				tParamField := ir.Var{Name: t.defName + "#" + tName}
 				varInfo := def.typeVarVariances[tVar.id]
 				field := fieldType{lowerBound: tVar, upperBound: tVar, withProvenance: t.withProvenance}
 				if varInfo.covariant {
@@ -369,12 +371,12 @@ func (ctx *TypeCtx) expand(t typeRef, ops expandOpts) SimpleType {
 				if varInfo.contravariant {
 					field.upperBound = topType
 				}
-				r.fields = append(r.fields, util.NewPair(tParamField, field))
+				r.fields = append(r.fields, recordField{tParamField, field})
 			}
 			paramTags = newRecordType(r)
 		}
 		expandedTag = intersectionOf(tagAndBody, paramTags, unionOpts{})
-	case ast.KindTrait:
+	case ir.KindTrait:
 		ctx.addFailure("traits not implemented", t.prov())
 		return errorType()
 	default:
@@ -477,9 +479,9 @@ func (t typeRef) Hash() uint64 {
 	return h.Sum64() ^ hash
 }
 
-func newOriginProv(pos ast.Positioner, description string, name string) typeProvenance {
+func newOriginProv(pos ir.Positioner, description string, name string) typeProvenance {
 	return typeProvenance{
-		Range:      ast.RangeOf(pos),
+		Range:      ir.RangeOf(pos),
 		desc:       description,
 		originName: name,
 		isType:     true,
@@ -508,7 +510,7 @@ func (t *typeVariable) String() string {
 	if name == "" {
 		name = "α"
 	}
-	return name + strconv.FormatUint(uint64(t.id), 10) + strings.Repeat("'", int(t.level_))
+	return name + strconv.FormatUint(uint64(t.id), 10) + strings.Repeat("'", int(t.level_+1))
 }
 
 func (t *typeVariable) level() level {
@@ -530,16 +532,16 @@ func (t *typeVariable) doMap(f func(SimpleType) SimpleType) SimpleType {
 type objectTag interface {
 	SimpleType
 	Compare(other objectTag) int
-	Id() ast.AtomicExpr
+	Id() ir.AtomicExpr
 }
 type classTag struct {
-	id ast.AtomicExpr
+	id ir.AtomicExpr
 	// collection of
 	parents set.Collection[typeName]
 	withProvenance
 }
 
-func (t classTag) Id() ast.AtomicExpr                                   { return t.id }
+func (t classTag) Id() ir.AtomicExpr                                    { return t.id }
 func (t classTag) level() level                                         { return 0 }
 func (t classTag) uninstantiatedBody() SimpleType                       { return t }
 func (t classTag) instantiate(fresher *Fresher, level level) SimpleType { return t }
@@ -552,8 +554,8 @@ func (t classTag) Compare(other objectTag) int {
 func (t classTag) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
 
 // containsParentST returns true if (not only if) other is a parent of this classTag (meaning t <: other)
-func (t classTag) containsParentST(other ast.AtomicExpr) bool {
-	asVar, isVar := other.(*ast.Var)
+func (t classTag) containsParentST(other ir.AtomicExpr) bool {
+	asVar, isVar := other.(*ir.Var)
 	return isVar && t.parents.Contains(asVar.Name)
 }
 func (t classTag) doMap(func(simpleType SimpleType) SimpleType) SimpleType {
@@ -561,11 +563,11 @@ func (t classTag) doMap(func(simpleType SimpleType) SimpleType) SimpleType {
 }
 
 type traitTag struct {
-	id ast.AtomicExpr
+	id ir.AtomicExpr
 	withProvenance
 }
 
-func (t traitTag) Id() ast.AtomicExpr                                   { return t.id }
+func (t traitTag) Id() ir.AtomicExpr                                    { return t.id }
 func (t traitTag) level() level                                         { return 0 }
 func (t traitTag) uninstantiatedBody() SimpleType                       { return t }
 func (t traitTag) instantiate(fresher *Fresher, level level) SimpleType { return t }
@@ -777,7 +779,7 @@ func (t tupleType) doMap(f func(SimpleType) SimpleType) SimpleType {
 //
 // in the mlstruct scala implementation, this is simply a TupleType
 type namedTupleType struct {
-	fields []util.Pair[ast.Var, SimpleType]
+	fields []util.Pair[ir.Var, SimpleType]
 	withProvenance
 }
 
@@ -819,9 +821,9 @@ func (t namedTupleType) children(bool) iter.Seq[SimpleType] {
 
 // doMap for namedTupleType applies the function to all field types
 func (t namedTupleType) doMap(f func(SimpleType) SimpleType) SimpleType {
-	mappedFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+	mappedFields := make([]util.Pair[ir.Var, SimpleType], len(t.fields))
 	for i, field := range t.fields {
-		mappedFields[i] = util.Pair[ast.Var, SimpleType]{
+		mappedFields[i] = util.Pair[ir.Var, SimpleType]{
 			Fst: field.Fst,
 			Snd: f(field.Snd),
 		}
@@ -834,8 +836,12 @@ func (t namedTupleType) doMap(f func(SimpleType) SimpleType) SimpleType {
 
 var emptyRecord = recordType{}
 
+type recordField struct {
+	name  ir.Var
+	type_ fieldType
+}
 type recordType struct {
-	fields []util.Pair[ast.Var, fieldType]
+	fields []recordField
 	withProvenance
 }
 
@@ -844,7 +850,7 @@ func (t recordType) instantiate(*Fresher, level) SimpleType { return t }
 func (t recordType) level() level {
 	l := level(0)
 	for _, field := range t.fields {
-		l = max(l, field.Snd.level())
+		l = max(l, field.type_.level())
 	}
 	return l
 }
@@ -852,31 +858,44 @@ func (t recordType) level() level {
 func (t recordType) inner(ctx *TypeCtx) SimpleType {
 	var acc SimpleType = bottomType
 	for _, field := range t.fields {
-		acc = unionOf(acc, field.Snd.upperBound, unionOpts{})
+		acc = unionOf(acc, field.type_.upperBound, unionOpts{})
 	}
 	return acc
 }
 func (t recordType) String() string {
-	var fieldStrs = make([]string, len(t.fields))
+	var fieldStrs = make([]string, 0, len(t.fields))
 	for i, field := range t.fields {
-		fieldStrs[i] = field.Fst.Name + ": " + field.Snd.String() + ","
+		if i > 2 {
+			fieldStrs = append(fieldStrs, "...")
+			break
+		}
+		fieldStrs[i] = field.name.Name + ": " + field.type_.String() + ","
 	}
 	return "{" + strings.Join(fieldStrs, " ") + "}"
 }
 func (t recordType) children(bool) iter.Seq[SimpleType] {
-	panic("TODO what is the child of a record type?")
+	return func(yield func(SimpleType) bool) {
+		for _, field := range t.fields {
+			if !yield(field.type_.upperBound) {
+				return
+			}
+			if !yield(field.type_.lowerBound) {
+				return
+			}
+		}
+	}
 }
 
 // doMap for recordType applies the function to all field types
 func (t recordType) doMap(f func(SimpleType) SimpleType) SimpleType {
-	mappedFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+	mappedFields := make([]recordField, len(t.fields))
 	for i, field := range t.fields {
-		mappedFields[i] = util.Pair[ast.Var, fieldType]{
-			Fst: field.Fst,
-			Snd: fieldType{
-				lowerBound:     f(field.Snd.lowerBound),
-				upperBound:     f(field.Snd.upperBound),
-				withProvenance: field.Snd.withProvenance,
+		mappedFields[i] = recordField{
+			name: field.name,
+			type_: fieldType{
+				lowerBound:     f(field.type_.lowerBound),
+				upperBound:     f(field.type_.upperBound),
+				withProvenance: field.type_.withProvenance,
 			},
 		}
 	}
@@ -892,6 +911,14 @@ func (t recordType) doMap(f func(SimpleType) SimpleType) SimpleType {
 type fieldType struct {
 	lowerBound, upperBound SimpleType
 	withProvenance
+}
+
+func newFieldTypeUpperBound(type_ SimpleType, prov typeProvenance) fieldType {
+	return fieldType{
+		lowerBound:     bottomType,
+		upperBound:     type_,
+		withProvenance: withProvenance{prov},
+	}
 }
 
 func (t fieldType) String() string {
@@ -941,6 +968,8 @@ func (t arrayType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	}
 }
 
+// PolymorphicType is a type with universally quantified type variables
+// (by convention, those variables of level greater than level are considered quantified)
 type PolymorphicType struct {
 	Body   SimpleType
 	_level level
@@ -948,8 +977,7 @@ type PolymorphicType struct {
 }
 
 func (p PolymorphicType) String() string {
-	//TODO implement me
-	panic("implement me")
+	return "TODO_POLY{" + p.Body.String() + "}"
 }
 
 func (p PolymorphicType) level() level { return p._level }
@@ -1081,9 +1109,9 @@ func (t recordType) Hash() uint64 {
 	hasher := fnv.New64a()
 	hash := prime2
 	for _, field := range t.fields {
-		hash = hash*prime1 ^ field.Snd.lowerBound.Hash()
-		hash = hash*prime1 ^ field.Snd.upperBound.Hash()
-		_, _ = hasher.Write([]byte(field.Fst.Name))
+		hash = hash*prime1 ^ field.type_.lowerBound.Hash()
+		hash = hash*prime1 ^ field.type_.upperBound.Hash()
+		_, _ = hasher.Write([]byte(field.name.Name))
 	}
 
 	return hash * hasher.Sum64()

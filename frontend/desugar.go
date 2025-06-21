@@ -1,21 +1,21 @@
 package frontend
 
 import (
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/internal/log"
 	"strings"
 )
 
 var logger = log.DefaultLogger.With("section", "desugar")
 
-func DesugarPhase(file ast.File) (ast.File, *ilerr.Errors) {
+func DesugarPhase(file ir.File) (ir.File, *ilerr.Errors) {
 	var res *ilerr.Errors
 
-	newDecls := make([]ast.Declaration, len(file.Declarations))
+	newDecls := make([]ir.Declaration, len(file.Declarations))
 	for i, decl := range file.Declarations {
 		newDecls[i] = decl
-		newDecls[i].E = decl.E.Transform(func(expr ast.Expr) ast.Expr {
+		newDecls[i].E = decl.E.Transform(func(expr ir.Expr) ir.Expr {
 			// insert expression desugaring here
 			return expr
 		})
@@ -23,11 +23,11 @@ func DesugarPhase(file ast.File) (ast.File, *ilerr.Errors) {
 	file.Declarations = newDecls
 
 	// split Go and ile imports
-	var goImports []ast.Import
-	var newImports []ast.Import
+	var goImports []ir.Import
+	var newImports []ir.Import
 	for _, import_ := range file.Imports {
 		if cut, found := strings.CutPrefix(import_.ImportPath, GoImportDirectivePrefix); found {
-			goImports = append(goImports, ast.Import{
+			goImports = append(goImports, ir.Import{
 				Positioner: import_.Positioner,
 				Alias:      import_.Alias,
 				ImportPath: cut,

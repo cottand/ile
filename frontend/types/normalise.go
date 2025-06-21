@@ -3,7 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"log/slog"
@@ -147,7 +147,7 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 		}
 
 		if lhs.base != nil {
-			_, isClassTagName := lhs.base.id.(*ast.Var)
+			_, isClassTagName := lhs.base.id.(*ir.Var)
 			if isClassTagName && !n.isBuiltinType(lhs.base.id.CanonicalSyntax()) {
 				// Try to reconstruct a proper class type when a class tag is found,
 				// reconstructing the corresponding class type arguments

@@ -19,7 +19,7 @@ func StringTakeUntil(s string, char rune) (head string, tail string) {
 	return s, ""
 }
 
-// MangledIdentFrom returns a deterministic string resulting from pos and name, which is also a valid Go identifier
+// MangledIdentFrom returns a deterministic string resulting from pos and name, which is also a valid Go identifier.
 //
 // It is useful when creating intermediary identifiers to be used in codegen/desugaring,
 // because if we are not careful and use arbitrary strings, we can end up with naming conflicts.
@@ -42,4 +42,11 @@ func JoinString[E fmt.Stringer](slice []E, sep string) string {
 	return strings.Join(asStrings, sep)
 }
 
+func JoinErrorsWith(prefix string, errs []error, sep string) error  {
+	asStrings := make([]string, len(errs))
+	for i, e := range errs {
+		asStrings[i] = e.Error()
+	}
+	return fmt.Errorf(prefix + strings.Join(asStrings, sep))
+}
 

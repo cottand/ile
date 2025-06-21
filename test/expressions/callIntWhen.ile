@@ -1,0 +1,14 @@
+//ile:compilerTest test.F(0) | int64(0)
+package test
+
+fn F(n) {
+  when n {
+    0 -> 0
+    1 -> 1
+    2 -> 2
+    _ -> n + 1
+  }
+}
+
+
+val other = F(3)

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/parser"
 	"github.com/cottand/ile/util"
 )
@@ -23,17 +23,17 @@ import (
 type listener struct {
 	*parser.BaseIleParserListener
 
-	file   ast.File
+	file   ir.File
 	errors []ilerr.IleError
 
 	visitErrors []error
 
-	expressionStack util.Stack[ast.Expr]
+	expressionStack util.Stack[ir.Expr]
 
-	blockExprStack          util.Stack[ast.Expr]
+	blockExprStack          util.Stack[ir.Expr]
 	paramDeclStack          util.Stack[stringTypePair]
-	functionReturnTypeStack util.Stack[ast.Type]
-	typeStack               util.Stack[ast.Type]
+	functionReturnTypeStack util.Stack[ir.Type]
+	typeStack               util.Stack[ir.Type]
 
 	pendingScopedExprStack util.Stack[pendingScoped]
 
@@ -42,22 +42,22 @@ type listener struct {
 
 type stringTypePair struct {
 	str string
-	typ ast.Type
+	typ ir.Type
 }
 
 type pendingScoped interface {
-	assignBody(expr ast.Expr) ast.Expr
+	assignBody(expr ir.Expr) ir.Expr
 }
 
-type pendingAssign ast.Assign
+type pendingAssign ir.Assign
 
-func (p pendingAssign) assignBody(expr ast.Expr) ast.Expr {
+func (p pendingAssign) assignBody(expr ir.Expr) ir.Expr {
 	p.Body = expr
-	assign := ast.Assign(p)
+	assign := ir.Assign(p)
 	return &assign
 }
 
-func (l *listener) result() (ast.File, *ilerr.Errors) {
+func (l *listener) result() (ir.File, *ilerr.Errors) {
 	result := ilerr.Errors{}
 	if len(l.errors) > 0 {
 		return l.file, result.With(l.errors...)
@@ -92,7 +92,7 @@ func (l *listener) ExitImportSpec(ctx *parser.ImportSpecContext) {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("empty aliases are not supported"))
 		return
 	}
-	imp := ast.Import{
+	imp := ir.Import{
 		Positioner: intervalTo2Pos(ctx.GetSourceInterval()),
 		// TODO allow dot aliases https://github.com/cottand/ile/issues/4
 		Alias:      ctx.GetAlias().GetText(),
@@ -120,7 +120,15 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 			return // TODO append an errorDecl node here?
 		}
-		declaration := ast.Declaration{
+		if ctx.Type_() != nil {
+			type_, ok := l.typeStack.Pop()
+			if !ok {
+				l.visitErrors = append(l.visitErrors, fmt.Errorf("type stack is empty"))
+			} else {
+				expr = &ir.Ascribe{Expr: expr, Type_: type_, Range: getPos(ctx.COLON())}
+			}
+		}
+		declaration := ir.Declaration{
 			Range:    declPos,
 			Name:     identNameText,
 			E:        expr,
@@ -143,7 +151,7 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 	}
 
 	// declaration is inside some other expression, so it's an assignment
-	l.pendingScopedExprStack.Push(pendingAssign(ast.Assign{
+	l.pendingScopedExprStack.Push(pendingAssign(ir.Assign{
 		Range: declPos,
 		Var:   identNameText,
 		Value: rem,
@@ -164,7 +172,7 @@ func (l *listener) ExitBlockExpr(ctx *parser.BlockExprContext) {
 		return
 	}
 	scoped, ok := l.pendingScopedExprStack.Pop()
-	var fullExpr ast.Expr
+	var fullExpr ir.Expr
 	if ok {
 		fullExpr = scoped.assignBody(remainderExpr)
 	} else {
@@ -173,8 +181,8 @@ func (l *listener) ExitBlockExpr(ctx *parser.BlockExprContext) {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("declaration without expression"))
 			return
 		}
-		fullExpr = &ast.Unused{
-			Range: ast.RangeOf(remainderExpr),
+		fullExpr = &ir.Unused{
+			Range: ir.RangeOf(remainderExpr),
 			Value: latestExpr,
 			Body:  remainderExpr,
 		}
@@ -200,17 +208,23 @@ func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 	}
 
 	var binOp int
+	var antlrPos int
 	switch {
 	case ctx.GetAdd_op() != nil:
 		binOp = ctx.GetAdd_op().GetTokenType()
+		antlrPos = ctx.GetAdd_op().GetStart()
 	case ctx.GetMul_op() != nil:
 		binOp = ctx.GetMul_op().GetTokenType()
+		antlrPos = ctx.GetMul_op().GetStart()
 	case ctx.GetRel_op() != nil:
 		binOp = ctx.GetRel_op().GetTokenType()
+		antlrPos = ctx.GetRel_op().GetStart()
 	case ctx.LOGICAL_OR() != nil:
 		binOp = ctx.LOGICAL_OR().GetSymbol().GetTokenType()
+		antlrPos = ctx.LOGICAL_OR().GetSymbol().GetStart()
 	case ctx.LOGICAL_AND() != nil:
 		binOp = ctx.LOGICAL_AND().GetSymbol().GetTokenType()
+		antlrPos = ctx.LOGICAL_AND().GetSymbol().GetStart()
 
 	default:
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("unexpected binary operator: %v", ctx.GetText()))
@@ -228,10 +242,10 @@ func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 		return
 	}
 
-	l.expressionStack.Push(&ast.Call{
-		Func:  ast.BinOp(parser.IleTokenInGo[binOp], intervalTo2Pos(ctx.GetSourceInterval())),
-		Args:  []ast.Expr{lhs, rhs},
-		Range: ast.Range{},
+	l.expressionStack.Push(&ir.Call{
+		Func:  ir.BinOp(parser.IleTokenInGo[binOp], intervalTo2Pos(ctx.GetSourceInterval())),
+		Args:  []ir.Expr{lhs, rhs},
+		Range: intervalTo2Pos(antlr.Interval{Start: antlrPos, Stop: antlrPos}),
 	})
 }
 
@@ -242,7 +256,7 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 	}
 
 	if ctx.OperandName() != nil {
-		l.expressionStack.Push(&ast.Var{
+		l.expressionStack.Push(&ir.Var{
 			Name:  ctx.GetText(),
 			Range: intervalTo2Pos(ctx.GetSourceInterval()),
 		})
@@ -256,7 +270,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 	callArgs := ctx.FnCallArgs()
 	if callArgs != nil {
 		parsedArgs := callArgs.AllExpression()
-		args := make([]ast.Expr, len(parsedArgs))
+		args := make([]ir.Expr, len(parsedArgs))
 		for i, _ := range parsedArgs {
 			var ok bool
 			args[i], ok = l.expressionStack.Pop()
@@ -266,9 +280,9 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 			}
 		}
 		// callee must be popped after the arguments as it was parsed first
-		var callee ast.Expr
+		var callee ir.Expr
 		if name := ctx.OperandName(); name != nil {
-			callee = &ast.Var{
+			callee = &ir.Var{
 				Name:  name.GetText(),
 				Range: intervalTo2Pos(name.GetSourceInterval()),
 			}
@@ -279,7 +293,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 				l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 			}
 		}
-		l.expressionStack.Push(&ast.Call{
+		l.expressionStack.Push(&ir.Call{
 			Func:  callee,
 			Args:  args,
 			Range: intervalTo2Pos(ctx.GetSourceInterval()),
@@ -293,7 +307,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 		if !ok {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 		}
-		l.expressionStack.Push(&ast.RecordSelect{
+		l.expressionStack.Push(&ir.RecordSelect{
 			Record: qualifier,
 			Label:  ctx.IDENTIFIER().GetText(),
 			Range:  intervalTo2Pos(ctx.GetSourceInterval()),
@@ -303,23 +317,23 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 
 }
 
-func intervalTo2Pos(i antlr.Interval) ast.Range {
-	return ast.Range{
+func intervalTo2Pos(i antlr.Interval) ir.Range {
+	return ir.Range{
 		PosStart: token.Pos(i.Start),
 		PosEnd:   token.Pos(i.Stop),
 	}
 }
 
-func getPos(i antlr.SyntaxTree) ast.Range {
+func getPos(i antlr.SyntaxTree) ir.Range {
 	interval := i.GetSourceInterval()
-	return ast.Range{
+	return ir.Range{
 		PosStart: token.Pos(interval.Start),
 		PosEnd:   token.Pos(interval.Stop),
 	}
 }
 
-func getPosInclusiveBetween(left antlr.SyntaxTree, right antlr.SyntaxTree) ast.Range {
-	return ast.Range{
+func getPosInclusiveBetween(left antlr.SyntaxTree, right antlr.SyntaxTree) ir.Range {
+	return ir.Range{
 		PosStart: token.Pos(left.GetSourceInterval().Start),
 		PosEnd:   token.Pos(right.GetSourceInterval().Stop),
 	}
@@ -329,7 +343,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	if s := ctx.String_(); s != nil {
 		if strLit := s.RAW_STRING_LIT(); strLit != nil {
 
-			l.expressionStack.Push(ast.StringLiteral(
+			l.expressionStack.Push(ir.StringLiteral(
 				strings.Trim(strLit.GetText(), "`"),
 				intervalTo2Pos(ctx.GetSourceInterval()),
 			))
@@ -337,7 +351,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 		}
 		if strLit := s.INTERPRETED_STRING_LIT(); strLit != nil {
 
-			l.expressionStack.Push(ast.StringLiteral(
+			l.expressionStack.Push(ir.StringLiteral(
 				strings.Trim(strLit.GetText(), "\""),
 				intervalTo2Pos(ctx.GetSourceInterval()),
 			))
@@ -346,7 +360,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	}
 
 	if ctx.Integer() != nil {
-		l.expressionStack.Push(ast.IntLiteral(
+		l.expressionStack.Push(ir.IntLiteral(
 			ctx.Integer().GetText(),
 			intervalTo2Pos(ctx.GetSourceInterval()),
 		))
@@ -394,12 +408,12 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 	}
 
 	var paramNames = make([]string, len(params))
-	var tAnnotations = make([]ast.Type, len(params))
+	var tAnnotations = make([]ir.Type, len(params))
 	for i, param := range params {
 		paramNames[i] = param.str
 		tAnnotations[i] = param.typ
 	}
-	var retT ast.Type = nil
+	var retT ir.Type = nil
 	if ctx.Signature().Result() != nil {
 		var ok bool
 		retT, ok = l.functionReturnTypeStack.Pop()
@@ -408,20 +422,20 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 			return
 		}
 	}
-	fn := &ast.Func{
+	fn := &ir.Func{
 		ArgNames: paramNames,
 		Body:     nil,
 		Range:    pos,
 	}
-	type_ := &ast.FnType{
+	type_ := &ir.FnType{
 		Args:   tAnnotations,
 		Return: retT,
 		Range:  pos,
 	}
-	decl := ast.Declaration{
+	decl := ir.Declaration{
 		Range:    intervalTo2Pos(ctx.IDENTIFIER().GetSourceInterval()),
 		Name:     ctx.IDENTIFIER().GetText(),
-		E:        &ast.Ascribe{Expr: fn, Type_: type_},
+		E:        &ir.Ascribe{Expr: fn, Type_: type_, Range: getPos(ctx)},
 		Comments: l.findCommentsPreceding(ctx.GetParser().GetTokenStream(), ctx.FN().GetSymbol()),
 	}
 	defer func() {
@@ -437,7 +451,7 @@ func (l *listener) ExitFunctionDecl(ctx *parser.FunctionDeclContext) {
 }
 
 func (l *listener) ExitParameterDecl(ctx *parser.ParameterDeclContext) {
-	var typ ast.Type = nil
+	var typ ir.Type = nil
 	if ctx.Type_() != nil {
 		var ok bool
 		typ, ok = l.typeStack.Pop()
@@ -475,13 +489,13 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	cases := ctx.AllWhenCase()
 	if len(cases) < 1 {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
-		l.expressionStack.Push(&ast.ErrorExpr{
+		l.expressionStack.Push(&ir.ErrorExpr{
 			Range:  getPos(ctx.WHEN()),
 			Syntax: ctx.GetText(),
 		})
 		return
 	}
-	var astCases []ast.WhenCase
+	var astCases []ir.WhenCase
 	// we must parse when cases from the bottom since that is the order expressions are pushed to the stack in
 	for _, branch := range slices.Backward(cases) {
 		astCase, err := l.doWhenCase(branch)
@@ -500,7 +514,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected to parse a subject expression but none found"))
 		return
 	}
-	whenExpr := &ast.WhenMatch{
+	whenExpr := &ir.WhenMatch{
 		Value:      subjectExpr,
 		Cases:      astCases,
 		Positioner: getPos(ctx.WHEN()),
@@ -508,20 +522,20 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	l.expressionStack.Push(whenExpr)
 }
 
-func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ast.WhenCase, error) {
+func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ir.WhenCase, error) {
 	// extract expression in LHS of arrow in case
-	var caseExpr ast.Expr
+	var caseExpr ir.Expr
 	if ctx.ArithmeticExpr() != nil {
 		var ok bool
 		caseExpr, ok = l.expressionStack.Pop()
 		if !ok {
-			caseExpr = &ast.ErrorExpr{
+			caseExpr = &ir.ErrorExpr{
 				Syntax: ctx.GetText(),
 				Range:  getPos(ctx.ArithmeticExpr()),
 			}
 		}
 	} else {
-		caseExpr = &ast.ErrorExpr{
+		caseExpr = &ir.ErrorExpr{
 			Syntax: ctx.GetText(),
 			Range:  getPos(ctx.ARROW()),
 		}
@@ -529,15 +543,15 @@ func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ast.WhenCase, error)
 
 	matchPattern, err := l.doMatchPattern(ctx.MatchPattern())
 	if err != nil {
-		return ast.WhenCase{}, err
+		return ir.WhenCase{}, err
 	}
-	return ast.WhenCase{
+	return ir.WhenCase{
 		Pattern: matchPattern,
 		Value:   caseExpr,
 	}, nil
 }
 
-func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPattern, error) {
+func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ir.MatchPattern, error) {
 	if ctx.Type_() == nil {
 		return nil, fmt.Errorf("match pattern: expected type but got none (is this a pattern not implemented?)")
 	}
@@ -545,18 +559,18 @@ func (l *listener) doMatchPattern(ctx parser.IMatchPatternContext) (ast.MatchPat
 	if !ok {
 		return nil, fmt.Errorf("match pattern: expected type but got none (is this a pattern not implemented?)")
 	}
-	return &ast.MatchTypePattern{
+	return &ir.MatchTypePattern{
 		Type_:      parsedType,
 		Positioner: getPos(ctx.Type_()),
 	}, nil
 }
 
-func (l *listener) doType(ctx parser.IType_Context) ast.Type {
+func (l *listener) doType(ctx parser.IType_Context) ir.Type {
 	typeName := ctx.TypeName()
 	if typeName != nil {
-		type_ := &ast.TypeName{
-			Name:       typeName.GetText(),
-			Positioner: getPos(ctx),
+		type_ := &ir.TypeName{
+			Name:  typeName.GetText(),
+			Range: getPos(ctx),
 		}
 		if typeName.QualifiedIdent() != nil {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("qualified type names not implemented: %s", ctx.GetText()))
@@ -570,19 +584,19 @@ func (l *listener) doType(ctx parser.IType_Context) ast.Type {
 		type_, ok := l.expressionStack.Pop()
 		if !ok {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("type literal: expression stack is empty"))
-			return &ast.NothingType{Positioner: getPos(ctx)}
+			return &ir.NothingType{Positioner: getPos(ctx)}
 		}
-		asLit, ok := type_.(*ast.Literal)
+		asLit, ok := type_.(*ir.Literal)
 		// when well written, this should be a type literal in the stack, because more complex expressions
 		// cannot appear in the position of a type
 		if !ok {
 			l.visitErrors = append(l.visitErrors, fmt.Errorf("type literal: expected literal but got %T", type_))
-			return &ast.NothingType{Positioner: getPos(ctx)}
+			return &ir.NothingType{Positioner: getPos(ctx)}
 		}
 		return asLit
 	}
 	l.visitErrors = append(l.visitErrors, fmt.Errorf("type not implemented: '%v'", ctx.GetText()))
-	return &ast.NothingType{Positioner: getPos(ctx)}
+	return &ir.NothingType{Positioner: getPos(ctx)}
 }
 
 func (l *listener) ExitType_(ctx *parser.Type_Context) {

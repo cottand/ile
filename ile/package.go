@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/internal/log"
 	"go/format"
@@ -38,8 +38,8 @@ type Package struct {
 	// declarations contains the public top-level declarations of this Package.
 	// For a well-formed Package, you can expect them all to have a ast.TypeAnnotation,
 	// but incomplete packages may have type-less identifiers
-	declarations map[string]ast.Type
-	syntax       []ast.File
+	declarations map[string]ir.Type
+	syntax       []ir.File
 	fSet         *token.FileSet
 	errors       *ilerr.Errors
 	TypeCtx      *types.TypeCtx
@@ -47,7 +47,7 @@ type Package struct {
 	//typeInfo     *infer.TypeEnv
 }
 
-func (p *Package) Syntax() []ast.File {
+func (p *Package) Syntax() []ir.File {
 	return p.syntax
 }
 
@@ -88,7 +88,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		name:         "ilePackageNameless",
 		imports:      make(map[string]*Package),
 		goImports:    make(map[string]*gopackages.Package),
-		declarations: make(map[string]ast.Type),
+		declarations: make(map[string]ir.Type),
 		TypeCtx:      types.NewEmptyTypeCtx(),
 	}
 	fSet := token.NewFileSet()

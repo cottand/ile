@@ -2,7 +2,7 @@ package ilerr
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"runtime/debug"
 	"strings"
 )
@@ -26,12 +26,13 @@ const (
 	TypeMismatch
 	ExpectedTypeParams
 	EmptyWhen
+	RepeatedRecordField
 )
 
 type IleError interface {
 	Error() string
 	Code() ErrCode
-	ast.Positioner
+	ir.Positioner
 
 	withStack([]byte) IleError
 	getStack() []byte
@@ -54,7 +55,7 @@ func New[E IleError](err E) IleError {
 
 type Unclassified struct {
 	From error
-	ast.Positioner
+	ir.Positioner
 	stack []byte
 }
 
@@ -69,7 +70,7 @@ func (e Unclassified) withStack(stack []byte) IleError {
 }
 
 type NewParse struct {
-	ast.Positioner
+	ir.Positioner
 	ParserMessage string
 	Hint          string
 	stack         []byte
@@ -86,7 +87,7 @@ func (e NewParse) withStack(stack []byte) IleError {
 }
 
 type NewMissingDiscardInWhen struct {
-	ast.Positioner
+	ir.Positioner
 	stack []byte
 }
 
@@ -101,7 +102,7 @@ func (e NewMissingDiscardInWhen) withStack(stack []byte) IleError {
 }
 
 type NewUndefinedVariable struct {
-	ast.Positioner
+	ir.Positioner
 	Name  string
 	stack []byte
 }
@@ -117,7 +118,7 @@ func (e NewUndefinedVariable) withStack(stack []byte) IleError {
 }
 
 type NewManyPackageNamesInPackage struct {
-	ast.Positioner
+	ir.Positioner
 	Names []string
 	stack []byte
 }
@@ -135,7 +136,7 @@ func (e NewManyPackageNamesInPackage) withStack(stack []byte) IleError {
 }
 
 type NewMissingTypeAnnotationInPublicDeclaration struct {
-	ast.Positioner
+	ir.Positioner
 	DeclName string
 	stack    []byte
 }
@@ -153,7 +154,7 @@ func (e NewMissingTypeAnnotationInPublicDeclaration) withStack(stack []byte) Ile
 }
 
 type NewRestrictedIdentName struct {
-	ast.Positioner
+	ir.Positioner
 	Name  string
 	stack []byte
 }
@@ -170,7 +171,7 @@ func (e NewRestrictedIdentName) withStack(stack []byte) IleError {
 }
 
 type NewUnsupportedGoType struct {
-	ast.Positioner
+	ir.Positioner
 	Name  string
 	stack []byte
 }
@@ -186,8 +187,8 @@ func (e NewUnsupportedGoType) withStack(stack []byte) IleError {
 }
 
 type NewNameRedeclaration struct {
-	ast.Positioner
-	Other ast.Positioner
+	ir.Positioner
+	Other ir.Positioner
 	Name  string
 	stack []byte
 }
@@ -204,7 +205,7 @@ func (e NewNameRedeclaration) withStack(stack []byte) IleError {
 }
 
 type NewTypeMismatch struct {
-	ast.Positioner
+	ir.Positioner
 	First, Second string
 	Reason        string
 	stack         []byte
@@ -221,11 +222,12 @@ func (e NewTypeMismatch) withStack(stack []byte) IleError {
 }
 
 type NewExpectedTypeParams struct {
-	ast.Positioner
-	Name string
+	ir.Positioner
+	Name           string
 	ExpectedParams int
-	stack []byte
+	stack          []byte
 }
+
 func (e NewExpectedTypeParams) Error() string {
 	return fmt.Sprintf("expected %d type parameters for '%s'", e.ExpectedParams, e.Name)
 }
@@ -237,15 +239,35 @@ func (e NewExpectedTypeParams) withStack(stack []byte) IleError {
 }
 
 type NewEmptyWhen struct {
-	ast.Positioner
+	ir.Positioner
 	stack []byte
 }
+
 func (e NewEmptyWhen) Error() string {
 	return "when block is empty, but at least one case is required"
 }
 func (e NewEmptyWhen) Code() ErrCode    { return EmptyWhen }
 func (e NewEmptyWhen) getStack() []byte { return e.stack }
 func (e NewEmptyWhen) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewRepeatedRecordField struct {
+	// of the record
+	ir.Positioner
+	// of name occurrences
+	Names []ir.Positioner
+	Name  string
+	stack []byte
+}
+
+func (e NewRepeatedRecordField) Error() string {
+	return fmt.Sprintf("record field '%s' is already defined", e.Name)
+}
+func (e NewRepeatedRecordField) Code() ErrCode    { return RepeatedRecordField }
+func (e NewRepeatedRecordField) getStack() []byte { return e.stack }
+func (e NewRepeatedRecordField) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

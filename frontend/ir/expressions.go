@@ -1,7 +1,8 @@
-package ast
+package ir
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
@@ -63,26 +64,7 @@ func (e *Unused) Describe() string         { return "expression" }
 func (e *ListLiteral) Describe() string    { return "list literal" }
 func (e *ErrorExpr) Describe() string      { return "error expression" }
 
-// Expr is the base for all expressions.
-//
-// The following expressions are supported:
-//
-//	Literal:         semi-opaque literal value
-//	Var:             variable
-//	Deref:           dereference
-//	DerefAssign:     dereference and assign
-//	ControlFlow:     control-flow graph
-//	Pipe:            pipeline
-//	Call:            function call
-//	Func:            function abstraction
-//	Assign:             let-binding
-//	LetGroup:        grouped let-bindings
-//	RecordSelect:    selecting (scoped) value of label
-//	RecordExtend:    extending record
-//	RecordRestrict:  deleting (scoped) label
-//	RecordEmpty:     empty record
-//	Variant:         tagged (ad-hoc) variant
-//	WhenMatch:           variant-matching switch
+// Expr is the base for all expressions
 type Expr interface {
 	Positioner
 	// ExprName is the Name of the syntax-type of the expression.
@@ -145,6 +127,7 @@ type Literal struct {
 	//
 	// Should be one of
 	// token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
+	// when it is token.STRING, CanonicalSyntax should return the escaped string
 	Kind token.Token
 
 	Range
@@ -152,7 +135,6 @@ type Literal struct {
 
 func (e *Literal) isAtomicExpr() {}
 
-// Returns the syntax of e.
 func (e *Literal) ExprName() string { return e.Syntax }
 
 func (e *Literal) Copy() Expr {
@@ -166,10 +148,13 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 }
 
 // CanonicalSyntax must TODO desugar identical literals (01 == 1)
+// when this Literal is token.STRING, it should return the escaped string
 func (e *Literal) CanonicalSyntax() string {
 	switch e.Kind {
+	case token.FLOAT:
+		return fmt.Sprintf("%f", e.Syntax)
 	case token.STRING:
-		return e.Syntax
+		return "\"" + e.Syntax + "\""
 	case token.INT:
 		if e.Syntax == "0" {
 			return "0"
@@ -189,7 +174,7 @@ func (e *Literal) CanonicalSyntax() string {
 		}
 		return strings.TrimPrefix(e.Syntax, "0")
 	default:
-		logger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax")
+		logger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax", "literal", e.Syntax, "type", e.Kind.String())
 		return e.Syntax
 	}
 }
@@ -231,9 +216,8 @@ func (e *Literal) Hash() uint64 {
 
 // Variable (or Identifier)
 type Var struct {
-	Name     string
-	inferred Type
-	scope    *Scope
+	Name  string
+	scope *Scope
 	Range
 }
 
@@ -524,6 +508,35 @@ func (e *RecordSelect) Hash() uint64 {
 	return h.Sum64()
 }
 
+type RecordLit struct {
+	Fields []LabelValue
+	Range
+}
+
+func (e *RecordLit) ExprName() string { return "RecordLit" }
+func (e *RecordLit) Transform(f func(expr Expr) Expr) Expr {
+	copied := *e
+	labels := make([]LabelValue, len(e.Fields))
+	for i, v := range e.Fields {
+		labels[i] = LabelValue{v.Label, v.Value.Transform(f)}
+	}
+	copied.Fields = labels
+	return f(&copied)
+}
+func (e *RecordLit) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("RecordLit")
+	for _, v := range e.Fields {
+		_, _ = h.Write([]byte(v.Label.Name))
+		arr = binary.LittleEndian.AppendUint64(arr, v.Value.Hash())
+	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+func (e *RecordLit) Describe() string {
+	return "record literal"
+}
+
 // Extending record: `{a = 1, b = 2 | r}`
 type RecordExtend struct {
 	Record   Expr
@@ -532,9 +545,7 @@ type RecordExtend struct {
 	Range
 }
 
-// "RecordExtend"
 func (e *RecordExtend) ExprName() string { return "RecordExtend" }
-
 func (e *RecordExtend) Transform(f func(Expr) Expr) Expr {
 	copied := *e
 	labels := make([]LabelValue, len(e.Labels))
@@ -556,7 +567,7 @@ func (e *RecordExtend) Hash() uint64 {
 	arr := []byte("RecordExtend")
 	for _, v := range e.Labels {
 		arr = binary.LittleEndian.AppendUint64(arr, v.Value.Hash())
-		_, _ = h.Write([]byte(v.Label))
+		_, _ = h.Write([]byte(v.Label.Name))
 	}
 	arr = binary.LittleEndian.AppendUint64(arr, e.Record.Hash())
 	_, _ = h.Write(arr)
@@ -565,7 +576,7 @@ func (e *RecordExtend) Hash() uint64 {
 
 // Paired label and value
 type LabelValue struct {
-	Label string
+	Label Var
 	Value Expr
 }
 

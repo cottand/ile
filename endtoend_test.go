@@ -87,7 +87,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 
 		defer func() {
 			//if v := recover(); v != nil {
-			//	t.Errorf("test panicked: %v", v)
+			//t.Errorf("test panicked: %v", v)
 			//}
 		}()
 		content, err := testSet.ReadFile(path.Join("test", name))
@@ -114,7 +114,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 			for _, e := range cErrs.Errors() {
 				errStrings = append(errStrings, ilerr.FormatWithCode(e))
 			}
+			// we don't try to continue for proper compile errors
 			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))
+			return
 		}
 
 		tp := backend.NewTranspiler(pkg.TypeCtx)

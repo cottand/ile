@@ -3,7 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
@@ -152,9 +152,6 @@ func (o *opsDNF) tryMergeIntersection(left, right rhsNF) (rhsNF, bool) {
 
 // tryMergeUnion attempts to merge two conjuncts in a union
 func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
-	defer func() {
-		o.Debug("DNF.tryMergeUnion", "left", left, "right", right, "result", ret, "ok", ok)
-	}()
 	if left.lessThanOrEqual(right) {
 		return right, true
 	}
@@ -339,11 +336,11 @@ func (o *opsDNF) mk(ty SimpleType, pol bool) (ret dnf) {
 			var baseTag *classTag
 
 			// TODO: Add mkTag logic if needed here, similar to Scala
-			// if tag := t.mkTag(o.ctx); tag != nil { baseTag = tag }
+			// if tag := t.mkTag(o.simplifier); tag != nil { baseTag = tag }
 			return o.of(&lhsRefined{base: baseTag, typeRefs: refs, reft: emptyRecord})
 		}
 		// Expand the TypeRef and create DNF from the expansion
-		return o.mk(o.ctx.expand(t, expandOpts{}), pol) // Assuming ctx.expand exists
+		return o.mk(o.ctx.expand(t, expandOpts{}), pol) // Assuming simplifier.expand exists
 	case typeRange:
 		// In positive context, use upper bound. In negative, use lower bound.
 		boundToUse := t.upperBound
@@ -413,18 +410,18 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 		return funcType{args: newArgs, ret: newRet, withProvenance: withProvenance{originalProv}}
 
 	case recordType:
-		newFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+		newFields := make([]recordField, len(t.fields))
 		changed := false
 		for i, field := range t.fields {
-			newLb := o.mapPolRecursive(field.Snd.lowerBound, pol.inverse(), fn) // Contravariant lower bound
-			newUb := o.mapPolRecursive(field.Snd.upperBound, pol, fn)           // Covariant upper bound
-			if newLb != field.Snd.lowerBound || newUb != field.Snd.upperBound {
+			newLb := o.mapPolRecursive(field.type_.lowerBound, pol.inverse(), fn) // Contravariant lower bound
+			newUb := o.mapPolRecursive(field.type_.upperBound, pol, fn)           // Covariant upper bound
+			if newLb != field.type_.lowerBound || newUb != field.type_.upperBound {
 				changed = true
 			}
-			newFields[i] = util.Pair[ast.Var, fieldType]{
-				Fst: field.Fst,
+			newFields[i] = recordField{
+				name: field.name,
 				// Preserve original field provenance
-				Snd: fieldType{lowerBound: newLb, upperBound: newUb, withProvenance: field.Snd.withProvenance},
+				type_: fieldType{lowerBound: newLb, upperBound: newUb, withProvenance: field.type_.withProvenance},
 			}
 		}
 		if !changed {
@@ -448,14 +445,14 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 		return tupleType{fields: newFields, withProvenance: withProvenance{originalProv}}
 
 	case namedTupleType:
-		newFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+		newFields := make([]util.Pair[ir.Var, SimpleType], len(t.fields))
 		changed := false
 		for i, field := range t.fields {
 			newFieldSnd := o.mapPolRecursive(field.Snd, pol, fn) // Covariant fields
 			if newFieldSnd != field.Snd {
 				changed = true
 			}
-			newFields[i] = util.Pair[ast.Var, SimpleType]{Fst: field.Fst, Snd: newFieldSnd}
+			newFields[i] = util.Pair[ir.Var, SimpleType]{Fst: field.Fst, Snd: newFieldSnd}
 		}
 		if !changed {
 			return t
@@ -672,7 +669,7 @@ func (o *opsCNF) mk(ty SimpleType, pol bool) cnf {
 		// RecordType {f: T, g: U} becomes CNF: ({f: T}) & ({g: U})
 		disjuncts := make([]disjunct, 0, len(t.fields))
 		for _, field := range t.fields {
-			rnfField := &rhsField{name: field.Fst.Name, ty: field.Snd}
+			rnfField := &rhsField{name: field.name.Name, ty: field.type_}
 			disjuncts = append(disjuncts, newDisjunct(lhsTop{}, rnfField, nil, nil))
 		}
 		return disjuncts
@@ -902,7 +899,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 			// TODO: Preserve provenance better
 			return funcType{args: []SimpleType{newArg}, ret: newRet}
 		}
-		return nil // Func | Array/Field -> Top
+		return nil // Func | Array/FieldType -> Top
 	case arrayBase: // tuple, namedTuple, array
 		switch r := right.(type) {
 		case funcType:
@@ -957,7 +954,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 				return &rhsField{name: l.name, ty: newTy}
 			}
 		}
-		return nil // Field | Func/Array -> Top
+		return nil // FieldType | Func/Array -> Top
 	}
 	// Should not be reached
 	panic(fmt.Sprintf("rhsRestOrRhsRest: unhandled combination %T | %T", left, right))

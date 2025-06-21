@@ -1,7 +1,8 @@
-package ast
+package ir
 
 import (
 	"encoding/binary"
+	"fmt"
 	"go/token"
 	"hash/fnv"
 	"strings"
@@ -42,10 +43,12 @@ type TypeDefinition struct {
 	Body       Type
 	Positioner
 }
-type Field struct {
-	// In may be nil, but not Out
-	In, Out Type
-	Positioner
+type FieldType struct {
+	// In is the type this FieldType accepts - if nil, this FieldType is immutable
+	In Type
+	// Out is the type you get when selecting this FieldType - it is never nil as records can always be read
+	Out Type
+	Range
 }
 
 // Type is different from a hmtypes.Type (legacy HM type system)
@@ -221,7 +224,7 @@ func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return typeVar.Identifier 
 
 type TypeName struct {
 	Name string
-	Positioner
+	Range
 }
 
 func (n *TypeName) ShowIn(ShowCtx, uint16) string { return n.Name }
@@ -386,16 +389,49 @@ func (t *FnType) Hash() uint64 {
 	return h.Sum64()
 }
 
+type RecordField struct {
+	Name Var
+	Type FieldType
+	Range
+}
 type RecordType struct {
+	Fields []RecordField
 	Range
 }
 
-func (*RecordType) ShowIn(ShowCtx, uint16) string {
-	return "record"
+func (e *RecordType) ShowIn(ctx ShowCtx, _ uint16) string {
+	if len(e.Fields) == 0 {
+		return "{}"
+	}
+	var sb strings.Builder
+	sb.WriteString("{")
+	firstField := true
+	for i, nameField := range e.Fields {
+		if !firstField {
+			sb.WriteString(",")
+		}
+		firstField = false
+		sb.WriteString(" " + nameField.Name.Name + ": " + nameField.Type.Out.ShowIn(ctx, 0))
+		if i > 6 {
+			sb.WriteString(fmt.Sprintf("... (%d more)", len(e.Fields)-i))
+			break
+		}
+	}
+	sb.WriteString(" }")
+
+	return sb.String()
 }
 
-func (*RecordType) Hash() uint64 {
+func (e *RecordType) Hash() uint64 {
 	h := fnv.New64a()
-	_, _ = h.Write([]byte("RecordType"))
+	arr := []byte("RecordType")
+	for _, field := range e.Fields {
+		_, _ = h.Write([]byte(field.Name.Name))
+		arr = binary.LittleEndian.AppendUint64(arr, field.Type.Out.Hash())
+		if field.Type.In != nil {
+			arr = binary.LittleEndian.AppendUint64(arr, field.Type.In.Hash())
+		}
+	}
+	_, _ = h.Write(arr)
 	return h.Sum64()
 }

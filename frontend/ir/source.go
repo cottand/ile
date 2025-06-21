@@ -1,4 +1,4 @@
-package ast
+package ir
 
 import (
 	"fmt"
@@ -24,6 +24,12 @@ type Range struct {
 
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }
+func (r Range) String() string {
+	if r.PosStart == r.PosEnd {
+		return fmt.Sprintf("%v", r.PosStart)
+	}
+	return fmt.Sprintf("%v-%v", r.PosStart, r.PosEnd)
+}
 
 func RangeBetween(fst, snd Positioner) Range {
 	return Range{fst.Pos(), snd.End()}

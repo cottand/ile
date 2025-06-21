@@ -63,7 +63,7 @@ func boundsString(t SimpleType) string {
 			sb.WriteString(" <: ")
 			sb.WriteString(util.JoinString(variable.upperBounds, " & "))
 		}
-		if len(vars) > 2 && i < len(vars)-1 {
+		if len(vars) > 1 && i < len(vars)-1 {
 			sb.WriteString("; ")
 		}
 	}

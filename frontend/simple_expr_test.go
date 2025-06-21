@@ -3,8 +3,8 @@ package frontend_test
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
 	"github.com/cottand/ile/util"
 	"github.com/stretchr/testify/assert"
@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-func testType(t *testing.T, exprStr string, expected ast.Type) {
-	t.Run(fmt.Sprintf("(%s):%s", exprStr, expected.ShowIn(ast.DumbShowCtx, 0)), func(t *testing.T) {
+func testType(t *testing.T, exprStr string, expected ir.Type) {
+	t.Run(fmt.Sprintf("(%s):%s", exprStr, expected.ShowIn(ir.DumbShowCtx, 0)), func(t *testing.T) {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := strings.Split(string(debug.Stack()), "\n")
@@ -36,7 +36,7 @@ val exprTest = ` + exprStr + "\n"
 
 		_ = ctx.TypeExpr(expr, vars)
 		if len(ctx.Failures) != 0 {
-			t.Fatalf("Failures found: %s\n", "\n    "+util.JoinString(ctx.Failures, "\n    "))
+			t.Fatalf("Failures found:\n  %s\n", util.JoinErrorsWith("", ctx.Failures, "\n  "))
 		}
 		if len(ctx.Errors) != 0 {
 			t.Errorf("Errors found:\n")
@@ -46,15 +46,14 @@ val exprTest = ` + exprStr + "\n"
 			t.FailNow()
 		}
 		asAst := ctx.TypeOf(expr)
-		finalTypeStr := asAst.ShowIn(ast.DumbShowCtx, 0)
-		assert.Equal(t, expected.ShowIn(ast.DumbShowCtx, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(ast.DumbShowCtx, 0))
+		finalTypeStr := asAst.ShowIn(ir.DumbShowCtx, 0)
+		assert.Equal(t, expected.ShowIn(ir.DumbShowCtx, 0), finalTypeStr, "unexpected type for `%s`: %s (a %T) (expected %s)", expr.ExprName(), finalTypeStr, asAst, expected.ShowIn(ir.DumbShowCtx, 0))
 		fmt.Printf("INFERRED %s (with hash %x): %s\n", exprStr, expr.Hash(), finalTypeStr)
 	})
 }
 
 func TestSimpleInts(t *testing.T) {
-	testType(t, "1", ast.IntLiteral("1", ast.Range{}))
-	testType(t, "1+2", ast.IntType)
-	testType(t, "1+2+3", ast.IntType)
+	testType(t, "1", ir.IntLiteral("1", ir.Range{}))
+	testType(t, "1+2", ir.IntType)
+	testType(t, "1+2+3", ir.IntType)
 }
-

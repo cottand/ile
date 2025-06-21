@@ -2,32 +2,42 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/internal/log"
+	"log/slog"
 	"reflect"
 )
 
-var logger = ast.ExprLogger(log.DefaultLogger).With("section", "inference")
+var logger = slog.New(ir.IleAstHandler(log.DefaultLogger.Handler())).With("section", "inference")
 
-func (ctx *TypeCtx) TypeLetRecBody(name string, body ast.Expr) PolymorphicType {
+func (ctx *TypeCtx) TypeLetRecBody(name string, body ir.Expr) PolymorphicType {
 	panic("TODO implement me")
 }
 
 // TypeExpr infers the type of a ast.Expr
 //
 // it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
-	logger := logger.With("expr.name", expr.ExprName(), "expr.string", expr, "expr.hash", fmt.Sprintf("%x", expr.Hash()))
+func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
+	oldLogger := ctx.logger
+	defer func() {
+		ctx.logger = oldLogger
+	}()
+	ctx.logger = logger.With("expr.name", expr.ExprName(), "expr", expr)
+
 	if cached, ok := ctx.cache.getCached(expr); ok && cached.at == ctx.level {
-		logger.Debug("typeExpr: using cached type")
+		// also check for the range so different expressions at the same level don't collide
+		//  TODO ideally we store not just level info, but also a hash of scope of the variable,
+		//    so that two variables at the same level in different scopes do not hit this case
+		//    (but two variables in the same scope at the same level do get a cache hit)
+		ctx.logger.Debug("typeExpr: using cached type", "cached", cached.t)
 		return cached.t
 	}
 
-	logger.Debug("typeExpr: typing expression")
+	ctx.logger.Debug("typeExpr: typing expression")
 	defer func() {
 		// for types not implemented, note ret might be nil at this stage
-		logger.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
+		ctx.logger.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
 
 		ctx.putCache(expr, ret)
 	}()
@@ -40,9 +50,9 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 	}
 
 	ctx.currentPos = expr
-	prov := withProvenance{provenance: typeProvenance{Range: ast.RangeOf(expr)}}
+	prov := withProvenance{provenance: typeProvenance{Range: ir.RangeOf(expr)}}
 	switch expr := expr.(type) {
-	case *ast.Var:
+	case *ir.Var:
 		known, ok := ctx.get(expr.Name)
 		if !ok {
 			ctx.addError(ilerr.New(ilerr.NewUndefinedVariable{
@@ -53,9 +63,9 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 		}
 		instance := known.instantiate(ctx.fresher, ctx.level)
 		return makeProxy(instance, prov.prov())
-	case *ast.WhenMatch:
+	case *ir.WhenMatch:
 		return ctx.typeWhenMatch(expr, vars)
-	case *ast.Literal:
+	case *ir.Literal:
 		return classTag{
 			id:             expr,
 			parents:        expr.BaseTypes(),
@@ -63,7 +73,7 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 		}
 		// the reference implementation has two matches here: one without Var (param names) and another with
 		// we will focus on the former for now
-	case *ast.Call:
+	case *ir.Call:
 		fType := ctx.TypeExpr(expr.Func, vars)
 		argTypes := make([]SimpleType, 0, len(expr.Args))
 		for _, arg := range expr.Args {
@@ -75,7 +85,7 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 			ret:            res,
 			withProvenance: prov,
 		}, res, prov.provenance)
-	case *ast.ListLiteral:
+	case *ir.ListLiteral:
 		tupleT := tupleType{
 			fields:         make([]SimpleType, 0, len(expr.Args)),
 			withProvenance: withProvenance{provenance: newOriginProv(expr, "list literal", "")},
@@ -85,7 +95,7 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 			tupleT.fields = append(tupleT.fields, typed)
 		}
 		return tupleT
-	case *ast.Assign:
+	case *ir.Assign:
 		var valueResult SimpleType
 		if !expr.Recursive {
 			valueResult = ctx.nextLevel().TypeExpr(expr.Value, vars)
@@ -104,12 +114,14 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 		ctx := ctx.nest()
 		ctx.env[expr.Var] = typeScheme
 		return ctx.TypeExpr(expr.Body, vars)
-	case *ast.LetGroup:
+	case *ir.LetGroup:
 		bindingVars := make([]*typeVariable, len(expr.Vars))
+		// first, add all the vars to the env
 		for i, binding := range expr.Vars {
 			bindingVars[i] = ctx.fresher.newTypeVariable(ctx.level+1, typeProvenance{}, binding.Var, nil, nil)
 			ctx.env[binding.Var] = bindingVars[i]
 		}
+		// ...and after they have been added, actually try to resolve each binding's value
 		for i, binding := range expr.Vars {
 			typed := ctx.TypeExpr(binding.Value, vars)
 			bindingProv := newOriginProv(binding.Value, "binding of "+binding.Value.Describe(), "")
@@ -126,11 +138,11 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 		}
 		return nested.TypeExpr(expr.Body, vars)
 
-	case *ast.Unused:
+	case *ir.Unused:
 		_ = ctx.nextLevel().TypeExpr(expr.Value, vars)
 		return ctx.TypeExpr(expr.Body, vars)
 
-	case *ast.Func:
+	case *ir.Func:
 		nested := ctx.nest()
 		argTypes := make([]SimpleType, 0, len(expr.ArgNames))
 		for _, arg := range expr.ArgNames {
@@ -144,19 +156,70 @@ func (ctx *TypeCtx) TypeExpr(expr ast.Expr, vars map[typeName]SimpleType) (ret S
 			ret:            bodyType,
 			withProvenance: withProvenance{newOriginProv(expr, expr.Describe(), "")},
 		}
-	case *ast.Ascribe:
+	case *ir.Ascribe:
 		// empty Ascribe is meaningless in the AST, and the compiler should ideally never generate it,
 		// but we can guard against it here easily because it is a no-op
 		if expr.Type_ == nil {
 			return ctx.TypeExpr(expr.Expr, vars)
 		}
 		bodyType := ctx.TypeExpr(expr.Expr, vars)
-		processedType, _ := ctx.typeAstType(expr.Type_, vars, false, nil)
+		processedType, _ := ctx.typeIrType(expr.Type_, vars, false, nil)
 		ctx.constrain(bodyType, processedType, prov.provenance, constrainOnErr)
 		return processedType
 
+	case *ir.RecordSelect:
+		bodyType := ctx.TypeExpr(expr.Record, vars)
+		res := ctx.newTypeVariable(prov.provenance, expr.Label, nil, nil)
+		bodyType = makeProxy(bodyType, newOriginProv(expr, "receiver", ""))
+
+		fieldProv := typeProvenance{
+			Range: expr.Range,
+			desc:  "field selector",
+		}
+		recordTyp := newRecordType(recordType{
+			fields:         []recordField{{ir.Var{Name: expr.Label, Range: expr.Range}, newFieldTypeUpperBound(res, fieldProv)}},
+			withProvenance: prov,
+		})
+
+		return ctx.typeExprConstrain(bodyType, recordTyp, res, prov.provenance)
+
+	// TODO when/if we introduce record extend, do we need this case at all?
+	//  a record literal is just a record extend of an empty record after all
+	case *ir.RecordLit:
+		labelOccurrences := make(map[string][]ir.Positioner, len(expr.Fields))
+		for _, label := range expr.Fields {
+			labelOccurrences[label.Label.Name] = append(labelOccurrences[label.Label.Name], label.Label)
+		}
+
+		for label, positioners := range labelOccurrences {
+			if len(positioners) > 1 {
+				ctx.addError(ilerr.New(ilerr.NewRepeatedRecordField{
+					Positioner: expr,
+					Names:      positioners,
+					Name:       label,
+				}))
+			}
+		}
+
+		record := recordType{
+			fields:         nil,
+			withProvenance: prov,
+		}
+		for _, labelValue := range expr.Fields {
+			valueType := ctx.TypeExpr(labelValue.Value, vars)
+			fieldProv := typeProvenance{
+				Range: ir.RangeBetween(labelValue.Label, labelValue.Value),
+				desc:  "record field",
+			}
+			record.fields = append(record.fields, recordField{
+				name:  labelValue.Label,
+				type_: newFieldTypeUpperBound(valueType, fieldProv),
+			})
+		}
+		return newRecordType(record)
 	default:
-		panic("not implemented: unexpected expression type for " + reflect.TypeOf(expr).String())
+		ctx.addFailure("not implemented: unexpected expression type for "+reflect.TypeOf(expr).String(), expr)
+		return errorType()
 	}
 }
 
@@ -180,51 +243,51 @@ func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvena
 	return res
 }
 
-func (ctx *TypeCtx) typeWhenMatch(expr *ast.WhenMatch, vars map[typeName]SimpleType) (ret SimpleType) {
+func (ctx *TypeCtx) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]SimpleType) (ret SimpleType) {
 	subjectType := ctx.TypeExpr(expr.Value, vars)
 	if len(expr.Cases) == 0 {
 		ctx.addError(ilerr.New(ilerr.NewEmptyWhen{Positioner: expr}))
 		return errorType()
 	}
 	subjectVarName := ""
-	if asVar, ok := expr.Value.(*ast.Var); ok {
+	if asVar, ok := expr.Value.(*ir.Var); ok {
 		subjectVarName = asVar.Name
 	}
 	var finalType SimpleType = bottomType
 	var reqType SimpleType = bottomType
 	for _, branch := range expr.Cases {
 		branchT, resultT, tVar := ctx.typeWhenMatchBranch(subjectVarName, branch, vars)
-		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ast.RangeOf(branch.Value), desc: "when match branch"}})
+		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ir.RangeOf(branch.Value), desc: "when match branch"}})
 		reqType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(reqType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})
 	}
-	return ctx.typeExprConstrain(subjectType, reqType, finalType, typeProvenance{Range: ast.RangeOf(expr), desc: "when match subject type"})
+	return ctx.typeExprConstrain(subjectType, reqType, finalType, typeProvenance{Range: ir.RangeOf(expr), desc: "when match subject type"})
 }
 
-func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ast.WhenCase, vars map[typeName]SimpleType) (branchT SimpleType, resultT SimpleType, tVar SimpleType) {
+func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ir.WhenCase, vars map[typeName]SimpleType) (branchT SimpleType, resultT SimpleType, tVar SimpleType) {
 	tVar = topType
-	pattern, ok := branch.Pattern.(*ast.MatchTypePattern)
+	pattern, ok := branch.Pattern.(*ir.MatchTypePattern)
 	if !ok {
 		ctx.addFailure(fmt.Sprintf("non-type pattern not implemented: %T", branch.Pattern), branch.Pattern)
 		return errorType(), errorType(), tVar
 	}
 	tVars := make([]typeVariable, 0)
-	if isWildcard := Equal(pattern.Type_, &ast.TypeName{Name: "_"}); isWildcard {
+	if isWildcard := Equal(pattern.Type_, &ir.TypeName{Name: "_"}); isWildcard {
 		branchT = topType
 	} else {
 		ctx.inPattern = true
-		branchT, tVars = ctx.typeAstType(pattern.Type_, vars, false, nil)
+		branchT, tVars = ctx.typeIrType(pattern.Type_, vars, false, nil)
 		ctx.inPattern = false
 		if len(tVars) != 0 {
 			ctx.addFailure(fmt.Sprintf("type pattern not supported yet: %T", branch.Pattern), branch.Pattern)
 			return errorType(), errorType(), tVar
 		}
 	}
-	branchT = makeProxy(branchT, typeProvenance{desc: "pattern", Range: ast.RangeOf(branch.Pattern)})
+	branchT = makeProxy(branchT, typeProvenance{desc: "pattern", Range: ir.RangeOf(branch.Pattern)})
 	newCtx := ctx.nest()
 	// if there is a subject, do 'smart casting' by creating a new type variable for it, and constraining the branch type to it
 	// so that it is present on the branch scope with the refined type of the pattern
 	if subject != "" {
-		tVar = newCtx.newTypeVariable(typeProvenance{Range: ast.RangeOf(branch.Pattern), desc: "refined pattern match subject"}, subject, nil, nil)
+		tVar = newCtx.newTypeVariable(typeProvenance{Range: ir.RangeOf(branch.Pattern), desc: "refined pattern match subject"}, subject, nil, nil)
 		newCtx.env[subject] = tVar
 	}
 	resultT = newCtx.TypeExpr(branch.Value, vars)
@@ -234,7 +297,7 @@ func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ast.WhenCase, var
 func (ctx *TypeCtx) GetLowerBoundFunctionType(t SimpleType) []funcType {
 	switch t := unwrapProvenance(t).(type) {
 	case PolymorphicType:
-		//if ctx.typeIsAliasOf(t) {
+		//if simplifier.typeIsAliasOf(t) {
 		// see reference impl for getLowerBoundFunctionType
 		panic("TODO implement type refs unapply")
 	case funcType:

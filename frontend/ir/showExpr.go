@@ -1,4 +1,4 @@
-package ast
+package ir
 
 import (
 	"fmt"
@@ -29,6 +29,15 @@ func (ctx *showContext) currentIndent() string {
 	return strings.Repeat(ctx.indentStr, ctx.indent)
 }
 
+// showExprWalker prints to ctx
+//
+// precedences are as follows:
+// 0: can be shown on its own
+// 1-10: can be shown outside of arithmetic ops (like fn -> X)
+// 22: -
+// 23: +
+// 24: /
+// 25: *
 func (ctx *showContext) showExprWalker(expr Expr, outerPrecedence int16) {
 	if expr == nil {
 		ctx.WriteString("nil")
@@ -53,8 +62,7 @@ func (ctx *showContext) showExprWalker(expr Expr, outerPrecedence int16) {
 			ctx.indent++
 			defer func() {
 				ctx.indent--
-				ctx.WriteString("\n")
-				ctx.WriteString(")")
+				ctx.WriteString("\n)")
 			}()
 		}
 		for _, binding := range expr.Vars {
@@ -63,6 +71,17 @@ func (ctx *showContext) showExprWalker(expr Expr, outerPrecedence int16) {
 			ctx.WriteString("\n")
 		}
 		ctx.showExprWalker(expr.Body, outerPrecedence)
+	case *Ascribe:
+		var parenPrecedence int16 = 20
+		if outerPrecedence > parenPrecedence {
+			ctx.WriteString("(")
+		}
+		ctx.showExprWalker(expr.Expr, 10)
+		if outerPrecedence > parenPrecedence {
+			ctx.WriteString(")")
+		}
+		ctx.WriteString(": " + expr.Type_.ShowIn(DumbShowCtx, 40))
+
 	default:
 		if outerPrecedence > 0 {
 			ctx.WriteString("(" + expr.ExprName() + ")")

@@ -11,11 +11,10 @@ var enabledSections = []string{
 	//"frontend",
 	//"desugar",
 	//"package",
-	//"inference",
-	"inference.simplify",
-	"inference.normalise",
-	"inference.DNF",
-	//"inference-each",
+	"inference",
+	//"inference.simplify",
+	//"inference.normalise",
+	//"inference.DNF",
 }
 
 var LoggerOpts = &slog.HandlerOptions{

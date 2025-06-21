@@ -1,7 +1,8 @@
-//ile:compilerTest test.someInt |  int64(1<<63 - 1)
+//ile:compilerTest test.someInt |  int(1<<63 - 1)
+// result is int because ile will treat that as a const, rather than int64
 
 package test
 
 import math "go:math"
 
-val someInt: = math.MaxInt64
+val someInt = math.MaxInt64

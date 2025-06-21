@@ -3,7 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"hash/fnv"
@@ -519,12 +519,12 @@ func mergeRecordTypes(r1, r2 recordType, ctx *TypeCtx) (recordType, bool) {
 	// Build a map of field names to field types for r1
 	fieldMap := make(map[string]fieldType, len(r1.fields))
 	for _, field := range r1.fields {
-		fieldMap[field.Fst.Name] = field.Snd
+		fieldMap[field.name.Name] = field.type_
 	}
 
 	// Create a result with all fields from r1
 	result := recordType{
-		fields:         make([]util.Pair[ast.Var, fieldType], 0, len(r1.fields)+len(r2.fields)),
+		fields:         make([]recordField, 0, len(r1.fields)+len(r2.fields)),
 		withProvenance: r1.withProvenance,
 	}
 	for _, field := range r1.fields {
@@ -533,13 +533,13 @@ func mergeRecordTypes(r1, r2 recordType, ctx *TypeCtx) (recordType, bool) {
 
 	// Add or merge fields from r2
 	for _, field := range r2.fields {
-		name := field.Fst.Name
+		name := field.name.Name
 		if existing, found := fieldMap[name]; found {
-			// Field exists in both records, merge bounds
+			// FieldType exists in both records, merge bounds
 			// Lower bound becomes the union of lower bounds
-			mergedLower := unionOf(existing.lowerBound, field.Snd.lowerBound, unionOpts{})
+			mergedLower := unionOf(existing.lowerBound, field.type_.lowerBound, unionOpts{})
 			// Upper bound becomes the intersection of upper bounds
-			mergedUpper := intersectionOf(existing.upperBound, field.Snd.upperBound, unionOpts{})
+			mergedUpper := intersectionOf(existing.upperBound, field.type_.upperBound, unionOpts{})
 
 			// Ensure that lower <: upper
 			if !ctx.isSubtype(mergedLower, mergedUpper, nil) {
@@ -548,19 +548,19 @@ func mergeRecordTypes(r1, r2 recordType, ctx *TypeCtx) (recordType, bool) {
 
 			// Update the field in the result
 			for i, resultField := range result.fields {
-				if resultField.Fst.Name == name {
-					result.fields[i].Snd = fieldType{
+				if resultField.name.Name == name {
+					result.fields[i].type_ = fieldType{
 						lowerBound:     mergedLower,
 						upperBound:     mergedUpper,
-						withProvenance: resultField.Snd.withProvenance,
+						withProvenance: resultField.type_.withProvenance,
 					}
 					break
 				}
 			}
 		} else {
-			// Field only in r2, add it to result
+			// FieldType only in r2, add it to result
 			result.fields = append(result.fields, field)
-			fieldMap[name] = field.Snd
+			fieldMap[name] = field.type_
 		}
 	}
 
@@ -580,7 +580,7 @@ func (lhsTop) level() level           { return topType.level() }
 func (lhsTop) hasTag(_ traitTag) bool { return false }
 func (lhsTop) size() int              { return 0 }
 func (lhsTop) lessThanOrEqual(nf lhsNF) bool {
-	panic("TODO lessThanOrEqual for lhsNF")
+	return nf.isLeftNfTop()
 }
 func (lhsTop) and(nf lhsNF, ctx *TypeCtx) (lhsNF, bool) {
 	return nf, true
@@ -634,7 +634,7 @@ func (r *rhsField) String() string {
 func (r *rhsField) toType() SimpleType {
 	// Represents the type `{name: ty}` which is a RecordType
 	return recordType{
-		fields: []util.Pair[ast.Var, fieldType]{{Fst: ast.Var{Name: r.name}, Snd: r.ty}},
+		fields: []recordField{{name: ir.Var{Name: r.name}, type_: r.ty}},
 		// Use a relevant provenance if available, otherwise emptyProv
 		withProvenance: r.ty.withProvenance, // Use fieldType's provenance
 	}
@@ -717,7 +717,7 @@ func (r *rhsBases) hasTag(tag traitTag) bool {
 func (r *rhsBases) size() int {
 	count := 0
 	if r.rest != nil {
-		count++ // Function/Array/Field counts as 1
+		count++ // Function/Array/FieldType counts as 1
 	}
 	count += len(r.tags)
 	count += len(r.typeRefs)
@@ -735,7 +735,7 @@ func (r *rhsBases) String() string {
 		parts = append(parts, tag.String())
 	}
 
-	// Rest (Function/Array/Field)
+	// Rest (Function/Array/FieldType)
 	if r.rest != nil {
 		if st, isSimpleType := r.rest.(SimpleType); isSimpleType {
 			parts = append(parts, st.String())

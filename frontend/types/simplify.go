@@ -1,11 +1,13 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3" // Using v3 as v2 is deprecated
 	"iter"
+	"log/slog"
 	"slices"
 	"strings"
 )
@@ -20,14 +22,14 @@ type polarVariableKey struct {
 
 // analysis1State takes care of polarity and occurrence Counts
 type analysis1State struct {
-	ctx               *TypeCtx
+	simplifier        typeSimplifier
 	occNums           map[polarVariableKey]int
 	occursInvariantly *set.Set[TypeVarID]
 	analyzed          *set.Set[polarVariableKey] // Tracks (TV -> Polarity) already processed for bounds
 }
 
 type analysis2State struct {
-	ctx           *TypeCtx
+	simplifier    typeSimplifier
 	coOccurrences map[polarVariableKey]set.Collection[SimpleType] // Stores atoms co-occurring with a variable at a polarity
 	analyzed      set.Collection[simpleTypePolarity]              // Tracks (ST -> Polarity) already processed
 }
@@ -108,7 +110,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	// logger.Debug("⬤ Unskid:", "type", cur, "bounds", boundsString(cur))
 
 	// TODO: Implement and call simplifyType again (Resim) after normalization.
-	// cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	// cur = simplifier.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 	// logger.Debug("⬤ Resim:", "type", cur, "bounds", boundsString(cur))
 
 	// TODO: Implement and insert final factoring step (factorRecursiveTypes_!) here.
@@ -117,16 +119,31 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	return cur
 }
 
+type typeSimplifier struct {
+	*TypeCtx
+	*slog.Logger
+}
+
+func newTypeSimplifier(ctx *TypeCtx) typeSimplifier {
+	return typeSimplifier{
+		TypeCtx: ctx,
+		Logger:  simplifyLogger,
+	}
+}
+
 // simplifyType performs the core simplification logic: analysis, substitution determination, and transformation.
 // Corresponds to the simplifyType method in Scala's TypeSimplifier.
-func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bool, inlineBounds bool) SimpleType {
+func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bool, inlineBounds bool) (ret SimpleType) {
+
+	simplifier := newTypeSimplifier(ctx)
+
 	simplifyLogger.Debug("simplifyType: starting", "type", st, "polarity", pol, "bounds", boundsString(st))
 
 	// --- Analysis 1: Polarity and Occurrence Counts ---
 	occNums := make(map[polarVariableKey]int)
 	analyzed := set.New[polarVariableKey](0)
 	analyzer1 := &analysis1State{
-		ctx:               ctx,
+		simplifier:        simplifier,
 		occNums:           occNums,
 		occursInvariantly: set.New[TypeVarID](0),
 		analyzed:          analyzed,
@@ -139,8 +156,8 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	analyzer2 := &analysis2State{
 		coOccurrences: coOccurrences,
 		// this is a different set than that of analyze1
-		analyzed: set.NewHashSet[simpleTypePolarity](0),
-		ctx:      ctx,
+		analyzed:   set.NewHashSet[simpleTypePolarity](0),
+		simplifier: simplifier,
 	}
 	// Analyze both polarities regardless of the initial polarity for co-occurrence
 	analyzer2.analyze2(st, positive) // Positive co-occurrences
@@ -160,15 +177,9 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	simplifyLogger.Debug("simplifyType: occurrences " + coOccsStr.String())
 
 	// --- Processing: Determine Substitutions ---
-	allVars := getVariables(st)                             // getCached all unique variables
-	slices.SortFunc(allVars, func(a, b *typeVariable) int { // Sort for deterministic processing
-		if a.id < b.id {
-			return -1
-		}
-		if a.id > b.id {
-			return 1
-		}
-		return 0
+	allVars := getVariables(st) // getCached all unique variables
+	slices.SortFunc(allVars, func(a, b *typeVariable) int {
+		return cmp.Compare(a.id, b.id)
 	})
 
 	// Substitution map: tv -> replacement (*typeVariable or nil for removal)
@@ -180,8 +191,6 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 			recVars.Insert(tv.id)
 		}
 	}
-
-	logger.Debug("simplifyType: vars", "allVars", allVars, "recVars", recVars)
 
 	// 1. Remove polar vars occurring once (even if recursive)
 	if inlineBounds { // This step is tied to inlining in Scala
@@ -248,18 +257,18 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 			switch dom := dominator.(type) {
 			case classTag, traitTag, typeRef: // Dominated by an atom
-				simplifyLogger.Debug("simplifyType: [sub] Rule 3a (Dominated by Atom)", "var", tv, "action", "remove", "dominator", dom)
+				simplifier.Debug("simplifyType: [sub] Rule 3a (Dominated by Atom)", "var", tv, "action", "remove", "dominator", dom)
 				varSubst[tv.id] = nil
 				continue // Check for other dominators? Scala seems to stop. Let's stop.
 			case *typeVariable: // Dominated by another variable 'dom'
 				if dom == tv {
-					simplifyLogger.Debug("simplifyType: inlining: skipping inlining of variable dominated by itself", "var", tv, "action", "ignore", "dominator", dom)
+					simplifier.Debug("simplifyType: inlining: skipping inlining of variable dominated by itself", "var", tv, "action", "ignore", "dominator", dom)
 					continue // Skip self
 				}
 				if _, domMarked := varSubst[dom.id]; domMarked {
 					continue // Skip if dominator is already marked
 				}
-				simplifyLogger.Debug("simplifyType: [sub] Rule 3b (Dominated by Var)", "var", tv, "action", "remove", "dominator", dom)
+				simplifier.Debug("simplifyType: [sub] Rule 3b (Dominated by Var)", "var", tv, "action", "remove", "dominator", dom)
 				varSubst[tv.id] = nil
 				break // Stop after finding one dominator
 			}
@@ -361,7 +370,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 	simplifiedType := transformer.transform(st, pol, nil) // Use initial polarity for transformation
 
-	simplifyLogger.Debug("simplified type successfully", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr.String(), "recVars", recVars.Slice())
+	simplifier.Debug("simplified type successfully", "result", simplifiedType, "resultBounds", boundsString(st), "subst", substStr.String(), "recVars", recVars.Slice())
 
 	return simplifiedType
 }
@@ -425,7 +434,7 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 		a1.analyze1(ty.lowerBound, invariant)
 		a1.analyze1(ty.upperBound, invariant)
 	case recordType:
-		a1.ctx.addFailure("analyze1: Record Type case not implemented, see Analyze and InvaraintFields traverser", ty.provenance.Range)
+		a1.simplifier.addFailure("analyze1: Record Type case not implemented, see Analyze and InvaraintFields traverser", ty.provenance.Range)
 		return
 	case tupleType:
 		for _, field := range ty.fields {
@@ -440,7 +449,7 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 		// Let's assume invariant for safety, like Scala's Traverser.InvariantFields might.
 		a1.analyze1(ty.innerT, invariant)
 	case typeRef:
-		for argPol, argType := range a1.ctx.typeRefTraverseTypeArguments(ty, pol) {
+		for argPol, argType := range a1.simplifier.typeRefTraverseTypeArguments(ty, pol) {
 			a1.analyze1(argType, argPol)
 		}
 	case extremeType, classTag, traitTag:
@@ -449,7 +458,7 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 		// Should not happen if called on simplified types, but analyze body if it does
 		a1.analyze1(ty.Body, pol)
 	default:
-		a1.ctx.addFailure(fmt.Sprintf("analyze1: unhandled type %T", st), st.prov())
+		a1.simplifier.addFailure(fmt.Sprintf("analyze1: unhandled type %T", st), st.prov())
 	}
 }
 
@@ -565,13 +574,13 @@ func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
 		break
 	case recordType:
 		for _, field := range ty.fields {
-			if field.Snd.lowerBound != nil && !isBottom(field.Snd.lowerBound) {
+			if field.type_.lowerBound != nil && !isBottom(field.type_.lowerBound) {
 				// Mutable: analyze both bounds with flipped polarity for lb
-				a2.analyzeImpl(field.Snd.lowerBound, pol.inverse())
-				a2.analyzeImpl(field.Snd.upperBound, pol)
+				a2.analyzeImpl(field.type_.lowerBound, pol.inverse())
+				a2.analyzeImpl(field.type_.upperBound, pol)
 			} else {
 				// Immutable: analyze upper bound covariantly
-				a2.analyzeImpl(field.Snd.upperBound, pol)
+				a2.analyzeImpl(field.type_.upperBound, pol)
 			}
 		}
 	case tupleType:
@@ -586,7 +595,7 @@ func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
 		// Treat inner type covariantly for analysis? Or invariant? Let's try covariant.
 		a2.analyzeImpl(ty.innerT, pol)
 	case typeRef:
-		for pol, argType := range a2.ctx.typeRefTraverseTypeArguments(ty, pol) {
+		for pol, argType := range a2.simplifier.typeRefTraverseTypeArguments(ty, pol) {
 			if pol != negative {
 				a2.analyzeImpl(argType, positive)
 			}
@@ -613,7 +622,7 @@ func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
 func (a2 *analysis2State) processVarOcc(st SimpleType, pol polarity) {
 	currentCoOccs := set.NewHashSet[SimpleType](0)
 	if pol == invariant {
-		a2.ctx.addFailure("processVarOcc: invariant polarity", st.prov())
+		a2.simplifier.addFailure("processVarOcc: invariant polarity", st.prov())
 		return
 	}
 	var rec func(SimpleType)
@@ -857,8 +866,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		panic("record type not implemented")
 	//	newFields := make([]util.Pair[ast.Var, fieldType], len(ty.fields))
 	//	for i, field := range ty.fields {
-	//		newFty := ts.transformFieldType(field.Snd, pol, parent)
-	//		newFields[i] = util.Pair[ast.Var, fieldType]{Fst: field.Fst, Snd: newFty}
+	//		newFty := ts.transformFieldType(field.type_, pol, parent)
+	//		newFields[i] = util.Pair[ast.Var, fieldType]{name: field.name, type_: newFty}
 	//	}
 	//	Re-sort fields after transformation? makeRecordType does this.
 	//	return makeRecordType(newFields, &ty.provenance)
@@ -869,9 +878,9 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		}
 		return tupleType{fields: newFields, withProvenance: ty.withProvenance}
 	case namedTupleType:
-		newFields := make([]util.Pair[ast.Var, SimpleType], len(ty.fields))
+		newFields := make([]util.Pair[ir.Var, SimpleType], len(ty.fields))
 		for i, field := range ty.fields {
-			newFields[i] = util.Pair[ast.Var, SimpleType]{
+			newFields[i] = util.Pair[ir.Var, SimpleType]{
 				Fst: field.Fst,
 				Snd: ts.transform(field.Snd, pol, parent),
 			}
@@ -979,7 +988,7 @@ func (tv *typeVariable) isRecursive() bool {
 			return check(ty.lowerBound) || check(ty.upperBound)
 		case recordType:
 			for _, f := range ty.fields {
-				if check(f.Snd.lowerBound) || check(f.Snd.upperBound) {
+				if check(f.type_.lowerBound) || check(f.type_.upperBound) {
 					return true
 				}
 			}

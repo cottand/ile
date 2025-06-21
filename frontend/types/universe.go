@@ -1,40 +1,40 @@
 package types
 
 import (
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/hashicorp/go-set/v3"
 	"slices"
 )
 
-var builtinProv = newOriginProv(ast.Range{}, "builtin", "builtin")
+var builtinProv = newOriginProv(ir.Range{}, "builtin", "builtin")
 
 // instantiated types that can be referenced directly
 // so they cannot contain type variables, therefore, they are usable anywhere
 var (
 	// anyClassTag is called Object in the reference scala implementation
 	anyClassTag = classTag{
-		id:             &ast.Var{Name: ast.AnyTypeName},
+		id:             &ir.Var{Name: ir.AnyTypeName},
 		parents:        set.New[typeName](0),
 		withProvenance: withProvenance{builtinProv},
 	}
 	intType = classTag{
-		id:             &ast.Var{Name: ast.IntTypeName},
-		parents:        set.From([]typeName{ast.AnyTypeName}),
+		id:             &ir.Var{Name: ir.IntTypeName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
 	stringType = classTag{
-		id:             &ast.Var{Name: ast.StringTypeName},
-		parents:        set.From([]typeName{ast.AnyTypeName}),
+		id:             &ir.Var{Name: ir.StringTypeName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
 	trueType = classTag{
-		id:             &ast.Var{Name: ast.TrueName},
-		parents:        set.From([]typeName{ast.AnyTypeName}),
+		id:             &ir.Var{Name: ir.TrueName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
 	falseType = classTag{
-		id:             &ast.Var{Name: ast.FalseName},
-		parents:        set.From([]typeName{ast.AnyTypeName}),
+		id:             &ir.Var{Name: ir.FalseName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
 	boolType = unionType{
@@ -79,17 +79,17 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 		}
 	}
 	return map[string]typeInfo{
-		"+":           u.plus,
-		"*":           numberOp(),
-		"-":           numberOp(),
-		"/":           numberOp(),
-		"%":           numberOp(),
-		ast.TrueName:  u.true,
-		ast.FalseName: u.true,
-		">":           comparisonBinOp(),
-		"<":           comparisonBinOp(),
-		"==":          comparisonBinOp(),
-		"!=":          comparisonBinOp(),
+		"+":          u.plus,
+		"*":          numberOp(),
+		"-":          numberOp(),
+		"/":          numberOp(),
+		"%":          numberOp(),
+		ir.TrueName:  u.true,
+		ir.FalseName: u.false,
+		">":          comparisonBinOp(),
+		"<":          comparisonBinOp(),
+		"==":         comparisonBinOp(),
+		"!=":         comparisonBinOp(),
 	}
 }
 
@@ -103,8 +103,10 @@ func (t *Fresher) universeInit() universeStruct {
 		true:    trueType,
 		false:   falseType,
 		bool:    boolType,
+		// overloading plus for string concatenation can only be done via
+		// overloading, and the only overloading MLStruct supports
+		// is type class overloading, so we are leaving that for later for now
 		plus: func() SimpleType {
-			//tv := t.newTypeVariable(1, emptyProv, "", nil, nil)
 			tv := intType
 			return funcType{
 				args:           []SimpleType{tv, tv},
@@ -116,7 +118,7 @@ func (t *Fresher) universeInit() universeStruct {
 }
 
 var errorTypeInstance = classTag{
-	id:      &ast.Var{Name: "Error"},
+	id:      &ir.Var{Name: "Error"},
 	parents: set.New[typeName](0),
 	withProvenance: withProvenance{
 		provenance: typeProvenance{
@@ -127,28 +129,33 @@ var errorTypeInstance = classTag{
 
 var builtinTypes = []TypeDefinition{
 	{
-		defKind:     ast.KindClass,
-		name:        ast.IntTypeName,
+		defKind:     ir.KindClass,
+		name:        ir.IntTypeName,
 		bodyType:    topType,
 		baseClasses: intType.parents,
 	},
 	{
-		defKind:     ast.KindClass,
-		name:        ast.TrueName,
+		defKind:     ir.KindClass,
+		name:        ir.StringTypeName,
 		bodyType:    topType,
-		baseClasses: set.From([]typeName{ast.AnyTypeName}),
+		baseClasses: intType.parents,
 	},
 	{
-		defKind:     ast.KindClass,
-		name:        ast.FalseName,
+		defKind:     ir.KindClass,
+		name:        ir.TrueName,
 		bodyType:    topType,
-		baseClasses: set.From([]typeName{ast.AnyTypeName}),
+		baseClasses: set.From([]typeName{ir.AnyTypeName}),
 	},
 	{
-		defKind:  ast.KindAlias,
-		name:     ast.BoolTypeName,
+		defKind:     ir.KindClass,
+		name:        ir.FalseName,
+		bodyType:    topType,
+		baseClasses: set.From([]typeName{ir.AnyTypeName}),
+	},
+	{
+		defKind:  ir.KindAlias,
+		name:     ir.BoolTypeName,
 		bodyType: boolType,
-		//baseClasses:      set.From([]typeName{ast.AnyTypeName}),
 	},
 }
 

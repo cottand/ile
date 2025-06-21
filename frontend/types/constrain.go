@@ -2,8 +2,8 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	set "github.com/hashicorp/go-set/v3"
 	"go/token"
@@ -115,7 +115,7 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 	return false // Continue
 }
 
-func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, cctx constraintContext) (terminateEarly bool) {
 	// Simplified error reporting. A full implementation would mirror the Scala version's
 	// detailed provenance tracking and message generation.
 	lhsProv := lhs.prov()
@@ -145,8 +145,8 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 		}
 	}
 
-	lhsStr := ast.TypeString(cs.ctx.expandSimpleType(lhs, true))
-	rhsStr := ast.TypeString(cs.ctx.expandSimpleType(rhs, true))
+	lhsStr := ir.TypeString(cs.ctx.expandSimpleType(lhs, true))
+	rhsStr := ir.TypeString(cs.ctx.expandSimpleType(rhs, true))
 	err := ilerr.New(ilerr.NewTypeMismatch{
 		Positioner: pos,
 		First:      fmt.Sprintf("%s (%s)", lhsStr, lhsProv.desc),
@@ -469,13 +469,45 @@ func (cs *constraintSolver) recImpl(
 		rhsFn, isRhsFn := rhs.(funcType)
 		if isRhsFn {
 			for _, arg := range rhsFn.args {
-				cs.rec(lhs, arg, false, cctx, shadows)
+				if cs.rec(lhs, arg, false, cctx, shadows) {
+					return true
+				}
 			}
-			cs.rec(rhsFn.ret, lhs, false, cctx, shadows)
+			return cs.rec(rhsFn.ret, lhs, false, cctx, shadows)
 		}
 	}
 
-	// TODO record <: record
+	leftRecord, okLhsRecord := lhs.(recordType)
+	rightRecord, okRhsRecord := rhs.(recordType)
+	if okLhsRecord && okRhsRecord {
+		for _, rightField := range rightRecord.fields {
+			found := false
+			for _, leftField := range leftRecord.fields {
+				if leftField.name.Name == rightField.name.Name {
+
+					// note inverted constrain as this is the LB that we are constraining, so
+					// polarity is as if this was a function return (ie, inverted polarity)
+					if cs.rec(rightField.type_.lowerBound, leftField.type_.lowerBound, false, cctx, shadows) {
+						return true
+					}
+
+					if cs.rec(leftField.type_.upperBound, rightField.type_.upperBound, false, cctx, shadows) {
+						return true
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				// if we got this far, it means that we did not find right's field inside left
+				if cs.reportError(fmt.Sprintf("could not find field %s", rightField.name.Name), lhs, rhs, cctx) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// TODO
 	//         err <: record
 	//      record <: err
 	//     typeRef <: typeRef
@@ -484,7 +516,7 @@ func (cs *constraintSolver) recImpl(
 
 	lhsTypeRef, okLhsTypeRef := lhs.(typeRef)
 	rhsTypeRef, okRhsTypeRef := rhs.(typeRef)
-	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ast.ArrayTypeName {
+	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ir.ArrayTypeName {
 		if lhsTypeRef.defName == rhsTypeRef.defName {
 			if len(lhsTypeRef.typeArgs) != len(rhsTypeRef.typeArgs) {
 				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName), lhs, rhs, cctx)
@@ -752,8 +784,8 @@ func (cs *constraintSolver) constrainClassRecord(
 	// and `fldTy.lb <: fty.lb` (recLb).
 	className := lhs.id.CanonicalSyntax() // Assuming id gives the name
 	for _, field := range rhs.fields {    // Assuming recordType has fields []Pair[Var, FieldType]
-		fldName := field.Fst
-		fldTy := field.Snd // Assuming FieldType exists with lb, ub
+		fldName := field.name
+		fldTy := field.type_ // Assuming FieldType exists with lb, ub
 
 		// Lookup field in the class definition (needs Ctx support)
 		// This involves getting the class info, handling type parameters, freshening etc.
@@ -791,13 +823,16 @@ func (cs *constraintSolver) goToWork(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
-	opsDnf := &opsDNF{ctx: cs.ctx}
+	opsDnf := &opsDNF{
+		ctx:    cs.ctx,
+		Logger: cs.ctx.logger.With("section", "inference.constraintSolver"),
+	}
 	// constrainDNF is not resilient yet to partial implementation, which can result in a panic
 	// I dislike recovering a panic deep inside the inference engine, but the alternative
 	// is to rethink the entire normal forms implementation and this should only be temporary.
 	defer func() {
 		//if recover() != nil {
-		//	cs.ctx.addFailure("constrainDNF not implemented", lhs.prov())
+		//	cs.simplifier.addFailure("constrainDNF not implemented", lhs.prov())
 		//}
 	}()
 	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
@@ -990,20 +1025,20 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return intersectionOf(extrudedLhs, extrudedRhs, unionOpts{prov: t.prov()})
 
 	case recordType:
-		newFields := make([]util.Pair[ast.Var, fieldType], len(t.fields))
+		newFields := make([]recordField, len(t.fields))
 		for i, field := range t.fields {
 			// Extrude field bounds: lb is contravariant (!pol), ub is covariant (pol)
-			extrudedLb := cs.extrude(field.Snd.lowerBound, targetLvl, !pol)
+			extrudedLb := cs.extrude(field.type_.lowerBound, targetLvl, !pol)
 			if extrudedLb == nil {
 				return nil
 			}
-			extrudedUb := cs.extrude(field.Snd.upperBound, targetLvl, pol)
+			extrudedUb := cs.extrude(field.type_.upperBound, targetLvl, pol)
 			if extrudedUb == nil {
 				return nil
 			}
-			newFields[i] = util.Pair[ast.Var, fieldType]{
-				Fst: field.Fst,
-				Snd: fieldType{lowerBound: extrudedLb, upperBound: extrudedUb, withProvenance: withProvenance{field.Snd.prov()}},
+			newFields[i] = recordField{
+				name:  field.name,
+				type_: fieldType{lowerBound: extrudedLb, upperBound: extrudedUb, withProvenance: withProvenance{field.type_.prov()}},
 			}
 		}
 		// Use makeRecordType for potential sorting/simplification
@@ -1022,13 +1057,13 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return tupleType{fields: newFields, withProvenance: t.withProvenance}
 
 	case namedTupleType: // Similar to tupleType
-		newFields := make([]util.Pair[ast.Var, SimpleType], len(t.fields))
+		newFields := make([]util.Pair[ir.Var, SimpleType], len(t.fields))
 		for i, field := range t.fields {
 			extrudedField := cs.extrude(field.Snd, targetLvl, pol)
 			if extrudedField == nil {
 				return nil
 			}
-			newFields[i] = util.Pair[ast.Var, SimpleType]{Fst: field.Fst, Snd: extrudedField}
+			newFields[i] = util.Pair[ir.Var, SimpleType]{Fst: field.Fst, Snd: extrudedField}
 		}
 		return namedTupleType{fields: newFields, withProvenance: t.withProvenance}
 
@@ -1174,9 +1209,9 @@ func (ctx *TypeCtx) IsSubtypeTag(tag1, tag2 objectTag) bool {
 
 // LookupField finds the type of a field within a class or trait context.
 // This needs to handle inheritance, type parameter substitution, etc.
-func (ctx *TypeCtx) LookupField(classType classTag, fieldName ast.Var) (*FieldType, error) {
+func (ctx *TypeCtx) LookupField(classType classTag, fieldName ir.Var) (*FieldType, error) {
 	// TODO: Implement based on Scala's lookupField/getFieldType.
-	// Needs access to type definitions (ctx.tyDefs/tyDefs2).
+	// Needs access to type definitions (simplifier.tyDefs/tyDefs2).
 	// Needs to handle freshening of type parameters based on classType's arguments (if any).
 	fmt.Printf("WARN: LookupField not implemented for %s.%s\n", classType.id.CanonicalSyntax(), fieldName.Name)
 	// Placeholder: Return a dummy field type or error

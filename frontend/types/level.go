@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"reflect"
 )
@@ -85,7 +85,7 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 		}
 		// so we have rigidify=true
 
-		var_ := &ast.Var{
+		var_ := &ir.Var{
 			Name: type_.nameHint,
 		}
 		if type_.nameHint == "" {
@@ -99,9 +99,9 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 			t.freshened[type_.id] = rigidTypeVar
 			return rigidTypeVar
 		}
-		// The bounds of `type_` may be recursive (refer to `tv` itself),
-		//    so here we create a fresh variable that will be able to tie the presumed recursive knot
-		//    (if there is no recursion, it will just be a useless type variable)
+		// The bounds of `type_` may be recursive (refer to `tv` itself).
+		// So here we create a fresh variable that will be able to tie the presumed recursive knot
+		// (if there is no recursion, it will just be a useless type variable)
 		freshV := t.newTypeVariable(l, type_.provenance, type_.nameHint, nil, nil)
 		t.freshened[type_.id] = freshV
 		// Assuming there were no recursive bounds, given L <: tv <: U,
@@ -173,9 +173,9 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 			withProvenance: type_.withProvenance,
 		}
 	case namedTupleType:
-		var fields []util.Pair[ast.Var, SimpleType] = make([]util.Pair[ast.Var, SimpleType], len(type_.fields))
+		var fields []util.Pair[ir.Var, SimpleType] = make([]util.Pair[ir.Var, SimpleType], len(type_.fields))
 		for i, field := range type_.fields {
-			fields[i] = util.Pair[ast.Var, SimpleType]{
+			fields[i] = util.Pair[ir.Var, SimpleType]{
 				Fst: field.Fst,
 				Snd: t.freshen(l, limit, field.Snd, rigidify),
 			}

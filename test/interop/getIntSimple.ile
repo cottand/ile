@@ -1,4 +1,5 @@
 //ile:compilerTest test.someInt |  int64(1<<63 - 1)
+// we would expect to use a normal go runtime int64 here not an int
 
 package test
 

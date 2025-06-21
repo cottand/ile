@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package ast
+package ir
 
 func CopyExpr(e Expr) Expr {
 	return e.Transform(func(e Expr) Expr { return e })

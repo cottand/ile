@@ -3,7 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"slices"
@@ -12,40 +12,40 @@ import (
 // expanderState holds the state during the recursive expansion of a SimpleType to an ast.Type.
 type expanderState struct {
 	ctx          *TypeCtx
-	bounds       map[TypeVarID]ast.TypeBounds // Stores non-trivial bounds discovered for type variables.
-	seenVars     *set.Set[TypeVarID]          // Tracks visited type variables to prevent infinite loops during bound expansion.
-	stopAtTyVars bool                         // If true, stops expansion at type variables.
+	bounds       map[TypeVarID]ir.TypeBounds // Stores non-trivial bounds discovered for type variables.
+	seenVars     *set.Set[TypeVarID]         // Tracks visited type variables to prevent infinite loops during bound expansion.
+	stopAtTyVars bool                        // If true, stops expansion at type variables.
 	// Store the created ast.TypeVar nodes to easily associate bounds later
-	createdVars map[TypeVarID]*ast.TypeVar
+	createdVars map[TypeVarID]*ir.TypeVar
 }
 
 // GetAstTypeFor converts a SimpleType into its corresponding ast.Type representation,
 // simplifying it first.
-func (ctx *TypeCtx) GetAstTypeFor(t SimpleType) ast.Type {
+func (ctx *TypeCtx) GetAstTypeFor(t SimpleType) ir.Type {
 	// Note: The Scala version calls uninstantiatedBody() first.
 	uninstantiated := t.uninstantiatedBody()
 	simple := ctx.simplifyPipeline(uninstantiated) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
-	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ast.DumbShowCtx, 0))
+	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ir.DumbShowCtx, 0))
 	return expanded
 }
 
 // expandSimpleType converts a simplified SimpleType into its ast.Type representation.
 // It handles type variables, bounds, and recursive structures.
-func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
+func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ir.Type {
 	state := &expanderState{
 		ctx:          ctx,
-		bounds:       make(map[TypeVarID]ast.TypeBounds),
+		bounds:       make(map[TypeVarID]ir.TypeBounds),
 		seenVars:     set.New[TypeVarID](0), // Initialize the set
 		stopAtTyVars: stopAtTyVars,
-		createdVars:  make(map[TypeVarID]*ast.TypeVar),
+		createdVars:  make(map[TypeVarID]*ir.TypeVar),
 	}
 
 	res := state.expandRec(t)
 
 	// If any bounds were collected, wrap the result in ast.ConstrainedType
 	if len(state.bounds) > 0 {
-		constraints := make([]ast.ConstrainedEntry, 0, len(state.bounds))
+		constraints := make([]ir.ConstrainedEntry, 0, len(state.bounds))
 
 		// Use the createdVars map to associate bounds with the correct ast.TypeVar nodes
 		for id, bnds := range state.bounds {
@@ -56,11 +56,11 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
 			}
 			// Ensure bnds is a pointer if ConstrainedEntry expects *TypeBounds
 			boundsPtr := bnds
-			constraints = append(constraints, ast.ConstrainedEntry{Var: tv, Bounds: &boundsPtr})
+			constraints = append(constraints, ir.ConstrainedEntry{Var: tv, Bounds: &boundsPtr})
 		}
 
 		// Sort constraints for deterministic output
-		slices.SortFunc(constraints, func(a, b ast.ConstrainedEntry) int {
+		slices.SortFunc(constraints, func(a, b ir.ConstrainedEntry) int {
 			if a.Var.Identifier == b.Var.Identifier {
 				return cmp.Compare(a.Bounds.Hash(), b.Bounds.Hash())
 			}
@@ -69,12 +69,12 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
 
 		// Use the range of the original type for the constrained type
 		// If the result has a valid range, use that, otherwise fallback to original
-		resRange := ast.RangeOf(res)
+		resRange := ir.RangeOf(res)
 		if resRange.Pos() == token.NoPos {
 			resRange = t.prov().Range // Fallback to original SimpleType range
 		}
 
-		return &ast.ConstrainedType{ // Assuming ast.ConstrainedType exists
+		return &ir.ConstrainedType{ // Assuming ast.ConstrainedType exists
 			Base:  res,
 			Where: constraints,
 			Range: resRange,
@@ -85,7 +85,7 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ast.Type {
 }
 
 // expandRec is the recursive helper for expandSimpleType.
-func (st *expanderState) expandRec(t SimpleType) ast.Type {
+func (st *expanderState) expandRec(t SimpleType) ir.Type {
 	// Unwrap provenance wrappers transparently
 	if pt, ok := t.(wrappingProvType); ok {
 		// Keep the outer provenance range if the inner one is invalid
@@ -120,7 +120,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		}
 
 		// Create the AST node
-		tv := &ast.TypeVar{
+		tv := &ir.TypeVar{
 			Identifier: ty.String(), // Use the string representation as identifier? Or just UID?
 			NameHint:   ty.nameHint, // Use hint if available
 			// UID:   ty.id, // Assuming ast.TypeVar has UID
@@ -140,54 +140,54 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		defer st.seenVars.Remove(ty.id) // Remove after processing this branch
 
 		// Expand lower bounds (union)
-		var lb ast.Type = &ast.NothingType{Positioner: rng} // Default to Bot
+		var lb ir.Type = &ir.NothingType{Positioner: rng} // Default to Bot
 		if len(ty.lowerBounds) > 0 {
-			expandedLbs := make([]ast.Type, len(ty.lowerBounds))
+			expandedLbs := make([]ir.Type, len(ty.lowerBounds))
 			for i, bound := range ty.lowerBounds {
 				expandedLbs[i] = st.expandRec(bound)
 			}
 			// Union of lower bounds
 			currentLb := expandedLbs[0]
 			for i := 1; i < len(expandedLbs); i++ {
-				unionRange := ast.RangeBetween(currentLb, expandedLbs[i])
-				currentLb = &ast.UnionType{Left: currentLb, Right: expandedLbs[i], Positioner: unionRange}
+				unionRange := ir.RangeBetween(currentLb, expandedLbs[i])
+				currentLb = &ir.UnionType{Left: currentLb, Right: expandedLbs[i], Positioner: unionRange}
 			}
 			lb = currentLb
 		}
 
 		// Expand upper bounds (intersection)
-		var ub ast.Type = &ast.AnyType{Positioner: rng} // Default to Top
+		var ub ir.Type = &ir.AnyType{Positioner: rng} // Default to Top
 		if len(ty.upperBounds) > 0 {
-			expandedUbs := make([]ast.Type, len(ty.upperBounds))
+			expandedUbs := make([]ir.Type, len(ty.upperBounds))
 			for i, bound := range ty.upperBounds {
 				expandedUbs[i] = st.expandRec(bound)
 			}
 			// Intersection of upper bounds
 			currentUb := expandedUbs[0]
 			for i := 1; i < len(expandedUbs); i++ {
-				interRange := ast.RangeBetween(currentUb, expandedUbs[i])
-				currentUb = &ast.IntersectionType{Left: currentUb, Right: expandedUbs[i], Positioner: interRange}
+				interRange := ir.RangeBetween(currentUb, expandedUbs[i])
+				currentUb = &ir.IntersectionType{Left: currentUb, Right: expandedUbs[i], Positioner: interRange}
 			}
 			ub = currentUb
 		}
 
 		// Check if bounds are non-trivial
-		_, isBot := lb.(*ast.NothingType)
-		_, isTop := ub.(*ast.AnyType)
+		_, isBot := lb.(*ir.NothingType)
+		_, isTop := ub.(*ir.AnyType)
 		if !isBot || !isTop {
-			boundsRange := ast.RangeBetween(lb, ub)
-			st.bounds[ty.id] = ast.TypeBounds{Lower: lb, Upper: ub, Range: boundsRange}
+			boundsRange := ir.RangeBetween(lb, ub)
+			st.bounds[ty.id] = ir.TypeBounds{Lower: lb, Upper: ub, Range: boundsRange}
 		}
 		return tv
 
 	case funcType:
-		args := make([]ast.Type, len(ty.args))
+		args := make([]ir.Type, len(ty.args))
 		for i, arg := range ty.args {
 			args[i] = st.expandRec(arg)
 		}
 		ret := st.expandRec(ty.ret)
 		funcRange := rng
-		return &ast.FnType{
+		return &ir.FnType{
 			Args:   args,
 			Return: ret,
 			Range:  funcRange,
@@ -197,30 +197,54 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		lhs := st.expandRec(ty.lhs)
 		rhs := st.expandRec(ty.rhs)
 		// type should be normalised so True | False should happen but never False | True
-		if Equal(lhs, ast.TrueType) && Equal(rhs, ast.FalseType) {
-			return &ast.TypeName{
-				Name:       ast.BoolTypeName,
-				Positioner: ty.provenance,
+		if Equal(lhs, ir.TrueType) && Equal(rhs, ir.FalseType) {
+			return &ir.TypeName{
+				Name:  ir.BoolTypeName,
+				Range: ty.provenance.Range,
 			}
 		}
-		return &ast.UnionType{
+		return &ir.UnionType{
 			Left:       lhs,
 			Right:      rhs,
-			Positioner: ast.RangeBetween(lhs, rhs),
+			Positioner: ir.RangeBetween(lhs, rhs),
 		}
 
 	case intersectionType:
 		lhs := st.expandRec(ty.lhs)
 		rhs := st.expandRec(ty.rhs)
-		return &ast.IntersectionType{
+		return &ir.IntersectionType{
 			Left:       lhs,
 			Right:      rhs,
-			Positioner: ast.RangeBetween(lhs, rhs),
+			Positioner: ir.RangeBetween(lhs, rhs),
 		}
 
 	case recordType:
-		panic("TODO: Implement expandRec for recordType")
-
+		record := &ir.RecordType{
+			Fields: make([]ir.RecordField, 0, len(ty.fields)),
+		}
+		for _, field := range ty.fields {
+			var in, out ir.Type
+			expandedTypeVar := false
+			if LBTypeVar, isLBTypeVar := field.type_.lowerBound.(*typeVariable); isLBTypeVar {
+				if UPTypeVar, isUBTypeVar := field.type_.upperBound.(*typeVariable); isUBTypeVar && LBTypeVar.id == UPTypeVar.id {
+					expandedTypeVar = true
+					expanded := st.expandRec(LBTypeVar)
+					in = expanded
+					out = expanded
+				}
+			}
+			// else
+			if !expandedTypeVar {
+				in = st.expandRec(field.type_.lowerBound)
+				out = st.expandRec(field.type_.upperBound)
+			}
+			record.Fields = append(record.Fields, ir.RecordField{
+				Name:  field.name,
+				Type:  ir.FieldType{In: in, Out: out, Range: ty.prov().Range},
+				Range: ty.prov().Range,
+			})
+		}
+		return record
 	case tupleType:
 		// Assuming ast.Tuple exists
 		panic("TODO: Implement expandRec for tupleType - requires ast.Tuple")
@@ -245,10 +269,10 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		// fields := make([]util.Pair[ast.Var, ast.Type], len(ty.fields))
 		// var firstFieldRange, lastFieldRange ast.Range
 		// for i, f := range ty.fields {
-		// 	fieldType := st.expandRec(f.Snd)
+		// 	fieldType := st.expandRec(f.type_)
 		// 	fields[i] = util.Pair[ast.Var, ast.Type]{
-		// 		Fst: f.Fst,
-		// 		Snd: fieldType,
+		// 		name: f.name,
+		// 		type_: fieldType,
 		// 	}
 		// 	// ... range calculation ...
 		// }
@@ -265,11 +289,11 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		inner := st.expandRec(ty.innerT)
 		// Create a synthetic TypeName for "Array"
 		// Use original range as approximation, or maybe inner range?
-		arrayTypeName := &ast.TypeName{Name: "Array", Positioner: rng}
-		return &ast.AppliedType{
+		arrayTypeName := &ir.TypeName{Name: "Array", Range: rng}
+		return &ir.AppliedType{
 			Base:       *arrayTypeName,
-			Args:       []ast.Type{inner},
-			Positioner: ast.RangeBetween(arrayTypeName, inner),
+			Args:       []ir.Type{inner},
+			Positioner: ir.RangeBetween(arrayTypeName, inner),
 		}
 
 	case negType:
@@ -283,24 +307,24 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 
 	case extremeType:
 		if ty.polarity { // Bottom
-			return &ast.NothingType{Positioner: rng}
+			return &ir.NothingType{Positioner: rng}
 		}
 		// Top
-		return &ast.AnyType{Positioner: rng}
+		return &ir.AnyType{Positioner: rng}
 
 	case classTag:
 		// Use the range from the original tag ID
-		tagRange := ast.RangeOf(ty.id)
+		tagRange := ir.RangeOf(ty.id)
 		if tagRange.Pos() == token.NoPos {
 			tagRange = rng // Fallback
 		}
 
 		switch id := ty.id.(type) {
-		case *ast.Var:
+		case *ir.Var:
 			// note - scala reference differentiates TypeName and TypeTag - we treat these
 			// as interchangeable here.
-			return &ast.TypeName{Name: id.Name, Positioner: tagRange}
-		case *ast.Literal: // Handle literal types
+			return &ir.TypeName{Name: id.Name, Range: tagRange}
+		case *ir.Literal: // Handle literal types
 			// Convert the literal expression to ast.Literal type node
 			copied := *id
 			copied.Range = tagRange
@@ -311,31 +335,31 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 		}
 
 	case traitTag: // Similar to classTag but always results in TypeTag for Vars
-		var tagRange ast.Positioner = ty.id
+		var tagRange ir.Positioner = ty.id
 		if tagRange.Pos() == token.NoPos {
 			tagRange = rng // Fallback
 		}
 		switch id := ty.id.(type) {
-		case *ast.Var:
-			return &ast.TypeName{Name: id.Name, Positioner: tagRange} // Assuming ast.TypeTag has Name field
-		case *ast.Literal:
+		case *ir.Var:
+			return &ir.TypeName{Name: id.Name, Range: ir.RangeOf(tagRange)} // Assuming ast.TypeTag has Name field
+		case *ir.Literal:
 			copied := *id
-			copied.Range = ast.RangeOf(tagRange)
+			copied.Range = ir.RangeOf(tagRange)
 			return &copied
 		default:
 			panic(fmt.Sprintf("unexpected id type in traitTag: %T", ty.id))
 		}
 
 	case typeRef:
-		targs := make([]ast.Type, len(ty.typeArgs))
-		var firstArgRange, lastArgRange ast.Range
+		targs := make([]ir.Type, len(ty.typeArgs))
+		var firstArgRange, lastArgRange ir.Range
 		for i, ta := range ty.typeArgs {
 			// Check for wildcard case: Bounds(Bot, Top) -> ast.TypeBounds{Lb: Bot, Ub: Top}
 			if tr, ok := ta.(typeRange); ok && isBottom(tr.lowerBound) && isTop(tr.upperBound) {
 				wildcardRange := tr.prov().Range
-				targs[i] = &ast.TypeBounds{ // Represent wildcard as Bounds(Bot, Top) in AST
-					Lower: &ast.NothingType{Positioner: wildcardRange}, // Approx range
-					Upper: &ast.AnyType{Positioner: wildcardRange},     // Approx range
+				targs[i] = &ir.TypeBounds{ // Represent wildcard as Bounds(Bot, Top) in AST
+					Lower: &ir.NothingType{Positioner: wildcardRange}, // Approx range
+					Upper: &ir.AnyType{Positioner: wildcardRange},     // Approx range
 					Range: wildcardRange,
 				}
 			} else {
@@ -343,22 +367,22 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 			}
 
 			if i == 0 {
-				firstArgRange = ast.RangeOf(targs[i])
+				firstArgRange = ir.RangeOf(targs[i])
 			}
 			if i == len(ty.typeArgs)-1 {
-				lastArgRange = ast.RangeOf(targs[i])
+				lastArgRange = ir.RangeOf(targs[i])
 			}
 		}
 		// Create base TypeName using the TypeRef's range
-		base := &ast.TypeName{Name: ty.defName, Positioner: rng}
+		base := &ir.TypeName{Name: ty.defName, Range: rng}
 		if len(targs) == 0 {
 			return base // Just the type name if no arguments
 		}
 		// Calculate range for AppliedType
-		appliedRange := ast.RangeBetween(base, firstArgRange)
-		appliedRange = ast.RangeBetween(appliedRange, lastArgRange)
+		appliedRange := ir.RangeBetween(base, firstArgRange)
+		appliedRange = ir.RangeBetween(appliedRange, lastArgRange)
 
-		return &ast.AppliedType{
+		return &ir.AppliedType{
 			Base:       *base,
 			Args:       targs,
 			Positioner: appliedRange,
@@ -367,10 +391,10 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 	case typeRange:
 		lb := st.expandRec(ty.lowerBound)
 		ub := st.expandRec(ty.upperBound)
-		return &ast.TypeBounds{
+		return &ir.TypeBounds{
 			Lower: lb,
 			Upper: ub,
-			Range: ast.Range{
+			Range: ir.Range{
 				PosStart: lb.Pos(),
 				PosEnd:   ub.Pos(),
 			},
@@ -389,7 +413,7 @@ func (st *expanderState) expandRec(t SimpleType) ast.Type {
 }
 
 // expandFieldType converts a simple fieldType to an ast.Field.
-func (st *expanderState) expandFieldType(ft fieldType) ast.Field {
+func (st *expanderState) expandFieldType(ft fieldType) ir.FieldType {
 	panic("TODO: Implement expandFieldType for record fields")
 	// // Note: In Scala, FieldType's lb defaults to BotType. Here, it might be nil or bottomType.
 	// var lb ast.Type
@@ -402,7 +426,7 @@ func (st *expanderState) expandFieldType(ft fieldType) ast.Field {
 	// } else {
 	// 	// If lb is nil or Bot, use field's provenance range as approximation for merging
 	// 	lbRange = ft.prov().Range
-	// 	// lb remains nil for ast.Field.In
+	// 	// lb remains nil for ast.FieldType.In
 	// }
 
 	// ub := st.expandRec(ft.upperBound)
@@ -410,11 +434,11 @@ func (st *expanderState) expandFieldType(ft fieldType) ast.Field {
 
 	// fieldRange := ast.MergeRanges(lbRange, ubRange) // Calculate overall field range
 
-	// // Create the ast.Field - Assuming ast.Field has In *ast.Type and Out ast.Type
+	// // Create the ast.FieldType - Assuming ast.FieldType has In *ast.Type and Out ast.Type
 	// var lbPtr *ast.Type
 	// if lb != nil {
 	// 	lbPtr = &lb // Take address only if lb is not nil (and not Bot)
 	// }
 
-	// return ast.Field{In: lbPtr, Out: ub, Positioner: fieldRange}
+	// return ast.FieldType{In: lbPtr, Out: ub, Range: fieldRange}
 }

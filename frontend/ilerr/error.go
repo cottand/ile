@@ -33,6 +33,9 @@ func (r *Errors) Merge(err *Errors) *Errors {
 }
 
 func (r *Errors) Errors() []IleError {
+	if r == nil {
+		return nil
+	}
 	return r.errs
 }
 
