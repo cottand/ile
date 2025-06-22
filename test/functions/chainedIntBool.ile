@@ -1,0 +1,27 @@
+//ile:compilerTest test.Test() | int64(42)
+package test
+
+fn IntPlusOne(a: Int): Int {
+  a + 1
+}
+
+fn is2(i: Int){
+    when i {
+        2 -> True
+        _ -> False
+    }
+}
+
+fn asInt(b): Int {
+    when b {
+        True -> 1
+        False -> 2
+    }
+}
+
+fn Test() {
+    val plus1 = IntPlusOne(1)
+    val asIntIs2 = asInt(is2(plus1))
+
+    IntPlusOne(asIntIs2)
+}

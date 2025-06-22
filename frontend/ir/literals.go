@@ -50,3 +50,18 @@ func FloatLiteral(value string, in ast.Node) *Literal {
 		Kind:   token.FLOAT,
 	}
 }
+
+// NewBool returns an expression that represents a compile time boolean value
+//
+// Semantics for later converting to the appropriate type must follow Go's (see https://go.dev/ref/spec#Constants)
+func NewBool(value bool, in ast.Node) Type {
+	rng := RangeOf(in)
+	name := FalseName
+	if value {
+		name = TrueName
+	}
+	return &TypeName{
+		Name:  name,
+		Range: rng,
+	}
+}

@@ -22,6 +22,11 @@ var (
 		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
+	floatType = classTag{
+		id:             &ir.Var{Name: ir.FloatTypeName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
+		withProvenance: withProvenance{builtinProv},
+	}
 	stringType = classTag{
 		id:             &ir.Var{Name: ir.StringTypeName},
 		parents:        set.From([]typeName{ir.AnyTypeName}),
@@ -45,10 +50,10 @@ var (
 )
 
 type universeStruct struct {
-	any, nothing      SimpleType
-	string, int       SimpleType
-	true, false, bool SimpleType
-	plus              SimpleType
+	any, nothing       SimpleType
+	string, int, float SimpleType
+	true, false, bool  SimpleType
+	plus               SimpleType
 }
 
 func (t *Fresher) universeEnv() map[string]typeInfo {
@@ -94,16 +99,19 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 }
 
 // universeInit should only be called during NewFresher
+// it is a function rather than a static struct so that it can instantiate
+// polymorphic types (which require first instantiating the type variables).
 func (t *Fresher) universeInit() universeStruct {
 	return universeStruct{
 		any:     anyClassTag,
 		nothing: bottomType,
 		string:  stringType,
 		int:     intType,
+		float:   floatType,
 		true:    trueType,
 		false:   falseType,
 		bool:    boolType,
-		// overloading plus for string concatenation can only be done via
+		// overloading plus for string concatenation or floats can only be done via
 		// overloading, and the only overloading MLStruct supports
 		// is type class overloading, so we are leaving that for later for now
 		plus: func() SimpleType {
@@ -133,6 +141,12 @@ var builtinTypes = []TypeDefinition{
 		name:        ir.IntTypeName,
 		bodyType:    topType,
 		baseClasses: intType.parents,
+	},
+	{
+		defKind:     ir.KindClass,
+		name:        ir.FloatTypeName,
+		bodyType:    topType,
+		baseClasses: floatType.parents,
 	},
 	{
 		defKind:     ir.KindClass,

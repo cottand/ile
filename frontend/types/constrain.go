@@ -7,6 +7,7 @@ import (
 	"github.com/cottand/ile/util"
 	set "github.com/hashicorp/go-set/v3"
 	"go/token"
+	"math"
 	"reflect"
 	"slices"
 )
@@ -336,6 +337,7 @@ func (cs *constraintSolver) recImpl(
 	cctx constraintContext,
 	shadows *shadowsState,
 ) bool {
+	math.IsInf(math.Inf(1), 1)
 	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
@@ -840,13 +842,14 @@ func (cs *constraintSolver) goToWork(
 }
 
 // constrainDNF handles constraining when types have been converted to DNF.
-// This corresponds to the logic within goToWork after normalization in the scala reference.
+// This corresponds to the logic within goToWork inside constraining in the scala reference.
 func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
 	logger.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
 	cs.annoyingCalls++
 
 	// Iterate through each conjunct C in the LHS DNF (LHS = C1 | C2 | ...)
 	// We need to ensure C <: RHS for all C.
+eachConj:
 	for _, conj := range lhs {
 		if !conj.vars.Empty() {
 			// Case 1: The conjunct has positive variables (TV & L & ~R & ~N <: RHS)
@@ -861,64 +864,60 @@ func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constra
 			}
 			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
 			cs.rec(first, newRhs, true, cctx, shadows)
-		} else {
-			// Case 2: The conjunct C has no positive variables (L & ~R & ~N <: RHS)
+			break eachConj
+		}
+		// Case 2: The conjunct C has no positive variables (L & ~R & ~N <: RHS)
 
-			nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
-				return ops.mkDeep(nvar, true)
-			})
-			fullRhs := ops.or(rhs, ops.mkDeep(conj.rhs.toType(), false))
-			for nvar := range nvarsAsDNF {
-				fullRhs = ops.or(fullRhs, nvar)
+		nvarsAsDNF := util.MapIter(conj.nvars.Items(), func(nvar *typeVariable) dnf {
+			return ops.mkDeep(nvar, true)
+		})
+		fullRhs := ops.or(rhs, ops.mkDeep(conj.rhs.toType(), false))
+		for nvar := range nvarsAsDNF {
+			fullRhs = ops.or(fullRhs, nvar)
+		}
+
+		logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
+
+		lnf := conj.lhs
+
+		possibleConjuncts := make([]conjunct, 0, len(fullRhs))
+		for _, rConj := range fullRhs {
+			_, isBot := rConj.rhs.(rhsBot)
+			// Early exit check (corresponds to Scala's `if ((r.rnf is RhsBot)...)`)
+			if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
+				// If rConj is just an LHS part (rConj.lhs)
+				if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
+					logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
+					break eachConj // Skip to the next conjunct in the outer loop (lhs)
+				}
 			}
 
-			logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
+			// Filtering logic (corresponds to Scala's `filter` conditions)
+			// 1. `!vars.exists(r.nvars)` - Always true here as conj.vars is empty.
+			// 2. `((lnf & r.lnf)).isDefined` - Check if intersection is possible.
+			_, ok := lnf.and(rConj.lhs, cs.ctx)
 
-			lnf := conj.lhs
-
-			possibleConjuncts := make([]conjunct, 0, len(fullRhs))
-			for _, rConj := range fullRhs {
-				_, isBot := rConj.rhs.(rhsBot)
-				// Early exit check (corresponds to Scala's `if ((r.rnf is RhsBot)...)`)
-				if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
-					// If rConj is just an LHS part (rConj.lhs)
-					if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
-						logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
-						goto nextLhsConjunct // Skip to the next conjunct in the outer loop (lhs)
-					}
-				}
-
-				// Filtering logic (corresponds to Scala's `filter` conditions)
-				// 1. `!vars.exists(r.nvars)` - Always true here as conj.vars is empty.
-				// 2. `((lnf & r.lnf)).isDefined` - Check if intersection is possible.
-				_, ok := lnf.and(rConj.lhs, cs.ctx)
-
-				if !ok {
-					logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
-					continue
-				}
-
-				// 3. Tag checks (simplified version)
-				if ok := checkTagCompatibility(lnf, rConj.rhs); !ok {
-					logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
-					continue // Skip this rConj
-				}
-
-				// If all checks pass, add to possible conjuncts
-				possibleConjuncts = append(possibleConjuncts, rConj)
+			if !ok {
+				logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
+				continue
 			}
-			logger.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
-			possibleAsTypes := make([]SimpleType, 0, len(possibleConjuncts))
-			for _, rConj := range possibleConjuncts {
-				possibleAsTypes = append(possibleAsTypes, rConj.toType())
+
+			// 3. Tag checks (simplified version)
+			if ok := checkTagCompatibility(lnf, rConj.rhs); !ok {
+				logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
+				continue // Skip this rConj
 			}
-			cs.annoying(cctx, nil, lnf, possibleAsTypes, &rhsBot{})
-			panic("TODO implement rest of constrainDNF")
 
-		} // End of else block (Case 2)
-
-	nextLhsConjunct: // Label for the early exit goto
-	} // End of loop through lhs conjuncts
+			// If all checks pass, add to possible conjuncts
+			possibleConjuncts = append(possibleConjuncts, rConj)
+		}
+		logger.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
+		possibleAsTypes := make([]SimpleType, 0, len(possibleConjuncts))
+		for _, rConj := range possibleConjuncts {
+			possibleAsTypes = append(possibleAsTypes, rConj.toType())
+		}
+		cs.annoying(cctx, nil, lnf, possibleAsTypes, &rhsBot{})
+	}
 }
 
 func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {

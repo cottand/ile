@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"github.com/cottand/ile/frontend/ir"
+	"go/constant"
 	gotypes "go/types"
 )
 
@@ -15,6 +16,8 @@ func convertGoType(obj gotypes.Object, in ir.Range) ir.Type {
 			return ir.BoolType
 		case gotypes.Invalid:
 		case gotypes.Int:
+			// TODO account for 32-bit systems
+			return ir.IntType
 		case gotypes.Int8:
 		case gotypes.Int16:
 		case gotypes.Int64:
@@ -28,18 +31,20 @@ func convertGoType(obj gotypes.Object, in ir.Range) ir.Type {
 		case gotypes.Uintptr:
 		case gotypes.Float32:
 		case gotypes.Float64:
-			return ir.FloatLiteral(t.String(), in)
+			return ir.FloatType
 		case gotypes.Complex64:
 		case gotypes.Complex128:
 		case gotypes.String:
-			return ir.StringLiteral(t.String(), in)
+			return ir.StringType
 		case gotypes.UnsafePointer:
 		case gotypes.UntypedBool:
+			return ir.NewBool(constant.BoolVal(asConst.Val()), in)
 		case gotypes.UntypedRune:
 		case gotypes.UntypedFloat:
 			return ir.FloatLiteral(t.String(), in)
 		case gotypes.UntypedComplex:
 		case gotypes.UntypedString:
+			return ir.StringLiteral(asConst.Val().ExactString(), in)
 		case gotypes.UntypedNil:
 			return ir.NilType
 		//gotypes.Byte:

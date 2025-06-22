@@ -202,6 +202,11 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 			typeArgs:       typeArgs,
 			withProvenance: type_.withProvenance,
 		}
+	case wrappingProvType:
+		return wrappingProvType{
+			SimpleType:      t.freshen(l, limit, type_.SimpleType, rigidify),
+			proxyProvenance: type_.proxyProvenance,
+		}
 
 	default:
 		panic("unhandled type for freshen: " + reflect.TypeOf(type_).String())

@@ -15,6 +15,7 @@ const (
 
 var (
 	IntType           = &TypeName{Name: IntTypeName}
+	FloatType         = &TypeName{Name: FloatTypeName}
 	StringType        = &TypeName{Name: StringTypeName}
 	BoolTypeUnaliased = &UnionType{
 		Left:       FalseType,

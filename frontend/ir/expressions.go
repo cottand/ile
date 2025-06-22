@@ -152,7 +152,7 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 func (e *Literal) CanonicalSyntax() string {
 	switch e.Kind {
 	case token.FLOAT:
-		return fmt.Sprintf("%f", e.Syntax)
+		return fmt.Sprintf("%s", e.Syntax)
 	case token.STRING:
 		return "\"" + e.Syntax + "\""
 	case token.INT:

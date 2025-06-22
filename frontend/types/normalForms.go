@@ -680,8 +680,31 @@ func (r *rhsBases) lessThanOrEqual(nf rhsNF) bool {
 func (r *rhsBases) isRhsNf() {}
 
 // toType reconstructs the SimpleType representation of the union.
+// tagN | tag(N-1) | ... | tag1 | rest | typeRef1 | ... | typeRefN
 func (r *rhsBases) toType() SimpleType {
-	panic("TODO implement rhsBases toType in scala's RhsNf")
+	var res SimpleType
+	switch t := r.rest.(type) {
+	case *rhsField:
+		res = t.toType()
+		// case for function, tuple, namedTuple, or array types
+	case SimpleType:
+		res = t
+	default:
+		if r.rest != nil {
+			panic(fmt.Sprintf("unreachable case: unexpected type in rhsBases.toType: %T", t))
+		}
+		res = bottomType
+	}
+	sortedRefs := slices.SortedFunc(slices.Values(r.typeRefs), util.ComparingHashable)
+	for _, ref := range sortedRefs {
+		res = unionOf(res, ref, unionOpts{})
+	}
+	sortedTags := slices.SortedFunc(slices.Values(r.tags), util.ComparingHashable)
+	slices.Reverse(sortedTags)
+	for _, tag := range sortedTags {
+		res = unionOf(tag, res, unionOpts{})
+	}
+	return res
 }
 
 // level calculates the maximum polymorphism level among all components.
@@ -730,7 +753,7 @@ func (r *rhsBases) String() string {
 
 	// Tags (sorted)
 	sortedTags := slices.Clone(r.tags)
-	slices.SortFunc(sortedTags, func(a, b objectTag) int { return a.Compare(b) })
+	slices.SortFunc(sortedTags, util.ComparingHashable)
 	for _, tag := range sortedTags {
 		parts = append(parts, tag.String())
 	}

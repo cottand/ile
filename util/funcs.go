@@ -1,6 +1,7 @@
 package util
 
 import (
+	"cmp"
 	"github.com/hashicorp/go-set/v3"
 	"iter"
 	"slices"
@@ -77,3 +78,9 @@ func SetFromSeq[V comparable](s iter.Seq[V], size int) *set.Set[V] {
 	return newSet
 }
 
+
+
+func ComparingHashable[A set.Hasher[B], B set.Hash](a, b A) int {
+	return cmp.Compare(a.Hash(), b.Hash())
+
+}

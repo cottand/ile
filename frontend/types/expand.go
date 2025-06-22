@@ -297,6 +297,7 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 		}
 
 	case negType:
+		st.ctx.addFailure(fmt.Sprintf("failed to expand negated type %s", ty), ty.provenance)
 		// Assuming ast.Neg exists
 		panic("TODO: Implement expandRec for negType - requires ast.Neg")
 		// inner := st.expandRec(ty.negated)

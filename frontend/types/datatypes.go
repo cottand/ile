@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
@@ -549,7 +550,7 @@ func (t classTag) String() string {
 	return fmt.Sprintf("#%s<%s>", t.id.CanonicalSyntax(), strings.Join(t.parents.Slice(), ","))
 }
 func (t classTag) Compare(other objectTag) int {
-	panic("implement me")
+	return cmp.Compare(t.Hash(), other.Hash())
 }
 func (t classTag) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
 
@@ -865,11 +866,11 @@ func (t recordType) inner(ctx *TypeCtx) SimpleType {
 func (t recordType) String() string {
 	var fieldStrs = make([]string, 0, len(t.fields))
 	for i, field := range t.fields {
-		if i > 2 {
+		if i > 3 {
 			fieldStrs = append(fieldStrs, "...")
 			break
 		}
-		fieldStrs[i] = field.name.Name + ": " + field.type_.String() + ","
+		fieldStrs = append(fieldStrs, field.name.Name+": "+field.type_.String()+",")
 	}
 	return "{" + strings.Join(fieldStrs, " ") + "}"
 }
