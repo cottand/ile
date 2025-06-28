@@ -82,3 +82,21 @@ func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
 	}
 	return intersectionType{lhs: this, rhs: that, withProvenance: opts.prov.embed()}
 }
+
+func recordUnionOf(left, right []recordField) []recordField {
+	rightAsMap := make(map[string]recordField, len(right))
+	for _, rf := range right {
+		rightAsMap[rf.name.Name] = rf
+	}
+	res := make([]recordField, 0, len(left)+len(right))
+	for _, lf := range left {
+		if rf, ok := rightAsMap[lf.name.Name]; ok {
+			field := recordField{name: lf.name, type_: lf.type_.union(rf.type_, emptyProv)}
+			res = append(res, field)
+		} else {
+			res = append(res, lf)
+		}
+	}
+	return res
+}
+

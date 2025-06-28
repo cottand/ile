@@ -174,7 +174,7 @@ func (ctx *TypeCtx) checkCycle(
 			}
 		}
 		return true
-	case extremeType, objectTag, funcType, arrayBase:
+	case extremeType, objectTag, funcType, arrayBase, recordType:
 		return true
 
 	default:

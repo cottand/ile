@@ -109,9 +109,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	// logger.Debug("⬤ Cleaned up:", "type", cur, "bounds", boundsString(cur))
 	// logger.Debug("⬤ Unskid:", "type", cur, "bounds", boundsString(cur))
 
-	// TODO: Implement and call simplifyType again (Resim) after normalization.
-	// cur = simplifier.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
-	// logger.Debug("⬤ Resim:", "type", cur, "bounds", boundsString(cur))
+	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// TODO: Implement and insert final factoring step (factorRecursiveTypes_!) here.
 	// logger.Debug("⬤ Factored:", "type", cur, "bounds", boundsString(cur))

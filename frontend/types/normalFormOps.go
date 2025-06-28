@@ -32,9 +32,8 @@ func newOpsDNF(ctx *TypeCtx, preserveTypeRefs bool) *opsDNF {
 func (o *opsDNF) and(d dnf, other dnf) dnf {
 	result := o.extr(false)
 	for _, c2 := range other {
-		if merged := o.andConjunct(d, c2); merged != nil {
-			result = o.or(merged, result)
-		}
+		merged := o.andConjunct(d, c2)
+		result = o.or(merged, result)
 	}
 	return result
 }
@@ -63,6 +62,8 @@ func (o *opsDNF) andConjunct(d dnf, c conjunct) dnf {
 func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
 	panic(fmt.Sprintf("opsDNF.conjunctOrConjunct: not implemented for conjuncts %v and %v", left, right))
 }
+
+// TODO PICKUP!!!!!!!!!!!!!!
 func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 	if o.ctx.isSubtype(left.toType(), right.toType(), nil) {
 		return conjunct{}, false
@@ -79,31 +80,14 @@ func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 	mergedVars := left.vars.Union(right.vars)
 	mergedNvars := left.nvars.Union(right.nvars)
 
-	// Check for variable constraint conflicts
-	// A variable cannot be both positive and negative
-	if !isDisjoint(mergedVars, mergedNvars) {
-		return conjunct{}, false // Variable conflict, intersection is empty
-	}
-
 	// Merge the RHS components
-	var mergedRhs rhsNF
-	if _, isBot := left.rhs.(rhsBot); isBot {
-		// If left RHS is bottom, use right RHS
-		mergedRhs = right.rhs
-	} else if _, isBot := right.rhs.(rhsBot); isBot {
-		// If right RHS is bottom, use left RHS
-		mergedRhs = left.rhs
-	} else {
-		// Both have non-bottom RHS components, try to merge them
-		merged, ok := o.tryMergeIntersection(left.rhs, right.rhs)
-		if !ok {
-			return conjunct{}, false // Cannot merge RHS, intersection is empty
-		}
-		mergedRhs = merged
+	mergedRhs, ok := o.toCNF().rhsOrRhs(left.rhs, right.rhs)
+	if !ok {
+		return conjunct{}, false
 	}
 
 	// Create the merged conjunct
-	return newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars), true
+	return o.simplifyConjunct(newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars))
 }
 
 // orConjunct computes the union of a DNF and a single Conjunct (this | c).
@@ -113,13 +97,10 @@ func (o *opsDNF) orConjunct(d dnf, c conjunct) (ret dnf) {
 	toMerge := c
 
 	defer func() {
-		slices.SortFunc(ret, func(a, b conjunct) int {
-			return cmp.Compare(a.Hash(), b.Hash())
-		})
+		slices.SortFunc(ret, util.ComparingHashable)
 	}()
 
 	for i, c := range d {
-
 		if c.lessThanOrEqual(toMerge) {
 			remaining := d[i+1:]
 			ret = append(acc, toMerge)
@@ -161,84 +142,81 @@ func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
 
 	// Case 1: If both conjuncts have the same variable sets
 	if left.vars.EqualSet(right.vars) && left.nvars.EqualSet(right.nvars) && left.lhs.isLeftNfTop() && right.lhs.isLeftNfTop() {
-		// Try merging LHS components first
-		var mergedRhs rhsNF
-
-		if _, isBot := left.rhs.(rhsBot); isBot {
-			mergedRhs = right.rhs
-		} else if _, isBot := right.rhs.(rhsBot); isBot {
-			mergedRhs = left.rhs
-		} else {
-			// Attempt to merge RHS components
-			mergedRhsOpt, ok := o.tryMergeIntersection(left.rhs, right.rhs)
-			if !ok {
-				return ret, false // Cannot merge RHS, so overall merge fails
+		if left.lhs.isLeftNfTop() && right.lhs.isLeftNfTop() {
+			inter, ok := o.tryMergeIntersection(left.rhs, right.rhs)
+			if ok {
+				return newConjunct(lhsTop{}, inter, left.vars, left.nvars), true
 			}
-			mergedRhs = mergedRhsOpt
 		}
-		// Create the merged conjunct
-		result := newConjunct(lhsTop{}, mergedRhs, left.vars, left.nvars)
-		return result, true
+
 	}
 
-	o.Warn("DNF.tryMergeUnion: potentially not implemented", "left", left, "right", right)
+	leftRefined, ok := left.lhs.(*lhsRefined)
+	if !ok {
+		return ret, false
+	}
+	rightRefined, ok := right.lhs.(*lhsRefined)
+	if !ok {
+		return ret, false
+	}
 
-	// Case 2: Handle situations where one conjunct has variables the other doesn't
-	// If lhs has all variables of rhs, and their common structures are compatible
-	if right.vars.Subset(left.vars) && isDisjoint(right.vars, left.nvars) &&
-		isDisjoint(left.vars, right.nvars) {
+	equalTypeRefs := slices.EqualFunc(leftRefined.typeRefs, rightRefined.typeRefs, Equal)
+	if leftRefined.base == nil ||
+		rightRefined.base == nil ||
+		!equalTypeRefs ||
+		!Equal(leftRefined.base, rightRefined.base) ||
+		!leftRefined.traitTags.EqualSet(rightRefined.traitTags) ||
+		!left.vars.EqualSet(right.vars) ||
+		!left.nvars.EqualSet(right.nvars) ||
+		!left.rhs.equal(right.rhs) {
+		return ret, false
+	}
 
-		// Try merging compatible parts
-		if lhsMerged, ok := left.lhs.and(right.lhs, o.ctx); ok {
-			// Create result with the union of variables
-			mergedVars := left.vars.Union(right.vars)
+	// Case2: both are leftRefined with the same base types. Let's try to merge them
 
-			// Handle RHS merging based on bot status
-			var mergedRhs rhsNF
-			if _, isBot := left.rhs.(rhsBot); isBot {
-				mergedRhs = right.rhs
-			} else if _, isBot := right.rhs.(rhsBot); isBot {
-				mergedRhs = left.rhs
-			} else {
-				mergedRhsOpt, ok := o.tryMergeIntersection(left.rhs, right.rhs)
-				if !ok {
-					return ret, false
-				}
-				mergedRhs = mergedRhsOpt
-			}
-
-			result := newConjunct(lhsMerged, mergedRhs, mergedVars, left.nvars)
-			return result, true
+	fnType := leftRefined.fn
+	if !Equal(leftRefined.fn, rightRefined.fn) {
+		if leftRefined.fn == nil || rightRefined.fn == nil || len(leftRefined.fn.args) != len(rightRefined.fn.args) {
+			return ret, false
+		}
+		args := make([]SimpleType, len(leftRefined.fn.args))
+		for i, arg := range leftRefined.fn.args {
+			args[i] = intersectionOf(arg, rightRefined.fn.args[i], unionOpts{})
+		}
+		fnType = &funcType{
+			args: args,
+			ret:  unionOf(leftRefined.fn.ret, rightRefined.fn.ret, unionOpts{}),
 		}
 	}
 
-	// Similar check for rhs containing all variables of lhs
-	if left.vars.Subset(right.vars) && isDisjoint(left.vars, right.nvars) &&
-		isDisjoint(right.vars, left.nvars) {
-
-		if lhsMerged, ok := left.lhs.and(right.lhs, o.ctx); ok {
-			mergedVars := left.vars.Union(right.vars)
-
-			var mergedRhs rhsNF
-			if _, isBot := left.rhs.(rhsBot); isBot {
-				mergedRhs = right.rhs
-			} else if _, isBot := right.rhs.(rhsBot); isBot {
-				mergedRhs = left.rhs
-			} else {
-				mergedRhsOpt, ok := o.tryMergeIntersection(left.rhs, right.rhs)
-				if !ok {
-					return ret, false
-				}
-				mergedRhs = mergedRhsOpt
-			}
-
-			result := newConjunct(lhsMerged, mergedRhs, mergedVars, right.nvars)
-			return result, true
-		}
+	arrType := leftRefined.arr
+	if !Equal(leftRefined.arr, rightRefined.arr) {
+		o.Warn("DNF.tryMergeUnion: merging arrays not implemented", "left", left, "right", right)
+		return ret, false
 	}
 
-	// No merge possible
-	return ret, false
+	typeRefs := leftRefined.typeRefs
+	if !slices.EqualFunc(typeRefs, rightRefined.typeRefs, Equal) {
+		typeRefs = mergeTypeRefs(typeRefs, rightRefined.typeRefs)
+	}
+
+	recType := recordType{
+		fields: recordUnionOf(leftRefined.reft.fields, rightRefined.reft.fields),
+	}
+
+	return conjunct{
+		lhs: &lhsRefined{
+			base:      leftRefined.base,
+			fn:        fnType,
+			arr:       arrType,
+			traitTags: leftRefined.traitTags,
+			reft:      recType,
+			typeRefs:  typeRefs,
+		},
+		rhs:   left.rhs,
+		vars:  left.vars,
+		nvars: left.nvars,
+	}, true
 }
 
 // Helper function to check if two sets are disjoint
@@ -669,7 +647,7 @@ func (o *opsCNF) mk(ty SimpleType, pol bool) cnf {
 		// RecordType {f: T, g: U} becomes CNF: ({f: T}) & ({g: U})
 		disjuncts := make([]disjunct, 0, len(t.fields))
 		for _, field := range t.fields {
-			rnfField := &rhsField{name: field.name.Name, ty: field.type_}
+			rnfField := &rhsField{ty: field.type_, name: field.name}
 			disjuncts = append(disjuncts, newDisjunct(lhsTop{}, rnfField, nil, nil))
 		}
 		return disjuncts
@@ -801,8 +779,8 @@ func (o *opsCNF) andDisjunct(c cnf, d disjunct) cnf {
 // Returns nil if the result is Top.
 func (o *opsCNF) disjunctOrDisjunct(left, right disjunct) *disjunct {
 	// Corresponds to Disjunct.| in Scala
-	newRnf := o.rhsOrRhs(left.right, right.right)
-	if newRnf == nil { // If Rhs union results in Top
+	newRnf, ok := o.rhsOrRhs(left.right, right.right)
+	if !ok { // If Rhs union results in Top
 		return nil
 	}
 	newLnf, ok := left.left.and(right.left, o.ctx)
@@ -819,46 +797,44 @@ func (o *opsCNF) disjunctOrDisjunct(left, right disjunct) *disjunct {
 
 // rhsOrRhs computes the union of two RhsNf components.
 // Returns nil if the result is Top.
-func (o *opsCNF) rhsOrRhs(left, right rhsNF) rhsNF {
+func (o *opsCNF) rhsOrRhs(left, right rhsNF) (res rhsNF, ok bool) {
 	// This logic mirrors RhsNf.| in Scala
 	// Need to handle combinations of RhsBot, RhsField, RhsBases
 
-	// Base cases
-	if _, ok := left.(rhsBot); ok {
-		return right
-	}
 	if _, ok := right.(rhsBot); ok {
-		return left
+		return left, true
 	}
 
 	switch l := left.(type) {
+	case rhsBot:
+		return right, true
 	case *rhsField:
 		switch r := right.(type) {
 		case *rhsField:
 			// {f: T} | {g: U} -> Top if f != g
 			// {f: T} | {f: U} -> {f: T | U}
-			if l.name == r.name {
+			if l.name.Name == r.name.Name {
 				newTy := o.fieldTypeUnion(l.ty, r.ty) // Need fieldTypeUnion helper
-				return &rhsField{name: l.name, ty: newTy}
+				return &rhsField{name: l.name, ty: newTy}, true
 			}
-			return nil // Represents Top
+			return nil, false // Represents Top
 		case *rhsBases:
 			// {f: T} | (Tags | Rest | Refs) -> Top if Rest is Func/Array
 			// {f: T} | (Tags | {g: U} | Refs) -> Top if f != g
 			// {f: T} | (Tags | {f: U} | Refs) -> (Tags | {f: T | U} | Refs)
 			if r.rest != nil {
 				if rField, ok := r.rest.(*rhsField); ok {
-					if l.name == rField.name {
+					if l.name.Name == rField.name.Name {
 						newTy := o.fieldTypeUnion(l.ty, rField.ty)
 						newRest := &rhsField{name: l.name, ty: newTy}
-						return &rhsBases{tags: r.tags, rest: newRest, typeRefs: r.typeRefs}
+						return &rhsBases{tags: r.tags, rest: newRest, typeRefs: r.typeRefs}, true
 					}
 				}
 				// If rest is not a field or names don't match, result is Top
-				return nil
+				return nil, false
 			}
 			// If r.rest is nil, add l as the rest
-			return &rhsBases{tags: r.tags, rest: l, typeRefs: r.typeRefs}
+			return &rhsBases{tags: r.tags, rest: l, typeRefs: r.typeRefs}, true
 		}
 	case *rhsBases:
 		switch r := right.(type) {
@@ -871,9 +847,9 @@ func (o *opsCNF) rhsOrRhs(left, right rhsNF) rhsNF {
 			newRefs := mergeTypeRefs(l.typeRefs, r.typeRefs) // Union of refs
 			newRest := o.rhsRestOrRhsRest(l.rest, r.rest)
 			if newRest == nil && (l.rest != nil || r.rest != nil) { // If rest union resulted in Top
-				return nil
+				return nil, false
 			}
-			return &rhsBases{tags: newTags, rest: newRest, typeRefs: newRefs}
+			return &rhsBases{tags: newTags, rest: newRest, typeRefs: newRefs}, true
 		}
 	}
 	// Should not be reached if all rhsNF types are handled
@@ -949,7 +925,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 		if r, ok := right.(*rhsField); ok {
 			// {f: T} | {g: U} -> Top if f != g
 			// {f: T} | {f: U} -> {f: T | U}
-			if l.name == r.name {
+			if l.name.Name == r.name.Name {
 				newTy := o.fieldTypeUnion(l.ty, r.ty)
 				return &rhsField{name: l.name, ty: newTy}
 			}
@@ -957,7 +933,8 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 		return nil // FieldType | Func/Array -> Top
 	}
 	// Should not be reached
-	panic(fmt.Sprintf("rhsRestOrRhsRest: unhandled combination %T | %T", left, right))
+	o.ctx.addFailure(fmt.Sprintf("rhsRestOrRhsRest: unhandled combination %T | %T", left, right), nil)
+	return left
 }
 
 // --- Helper functions for CNF ---

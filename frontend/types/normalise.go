@@ -98,8 +98,9 @@ func (n typeNormaliser) processDNF(d dnf, pol polarity) (res SimpleType) {
 			n.processTypeVar(v)
 		}
 		typed := conj.toTypeWith(
+			// TODO doc for why we are inverting polarity here
 			func(nf lhsNF) SimpleType { return n.lhsNFToType(pol.inverse(), nf) },
-			n.rhsNFToType,
+			func(nf rhsNF) SimpleType { return n.rhsNFToType(pol.inverse(), nf) },
 		)
 		conjAsType = unionOf(conjAsType, typed, unionOpts{})
 	}
@@ -107,6 +108,7 @@ func (n typeNormaliser) processDNF(d dnf, pol polarity) (res SimpleType) {
 	return unionOf(conjAsType, conjNegAsType, unionOpts{})
 }
 
+// lhsNFToType processes the types in lhsNF before calling lhsNF's toType()
 func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 	defer func() {
 		n.Debug("processed normal form LHS ToType", "type", lhs, "polarity", pol, "result", ret)
@@ -170,15 +172,64 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 	n.addFailure(fmt.Sprintf("unexpected LHS normal form %T for %s", lhs, lhs), emptyProv)
 	return errorType()
 }
-func (n typeNormaliser) rhsNFToType(rhs rhsNF) SimpleType {
-	switch rhs.(type) {
+
+// rhsNFToType processes the types in rhsNF before calling rhsNF's normalForm.toType
+func (n typeNormaliser) rhsNFToType(pol polarity, rhs rhsNF) SimpleType {
+	switch rhs := rhs.(type) {
 	case rhsBot:
 		return bottomType
-	case *rhsBases:
 	case *rhsField:
+		field := rhs.ty
+		newField := fieldType{
+			lowerBound:     n.processType(field.lowerBound, pol.inverse()),
+			upperBound:     n.processType(field.upperBound, pol),
+			withProvenance: field.withProvenance,
+		}
+		return recordType{
+			fields: []recordField{{
+				name:  rhs.name,
+				type_: newField,
+			}},
+		}
+	case *rhsBases:
+		var res SimpleType
+		switch rest := rhs.rest.(type) {
+		case *rhsField:
+			newField := rhsField{
+				name: rest.name,
+				ty: fieldType{
+					lowerBound:     n.processType(rest.ty.lowerBound, pol.inverse()),
+					upperBound:     n.processType(rest.ty.upperBound, pol),
+					withProvenance: rest.ty.withProvenance,
+				},
+			}
+			res = newField.toType()
+		case SimpleType:
+			res = n.processType(rest, pol)
+		default:
+			if rest != nil {
+				n.addFailure(fmt.Sprintf("unexpected case for rgsBases.rest %T", rhs.rest), emptyProv)
+			}
+			res = bottomType
+		}
+		sortedTypeRefs := slices.SortedFunc(slices.Values(rhs.typeRefs), util.ComparingHashable)
+		var mergedTypeRefs SimpleType = bottomType
+		for _, typeRef := range sortedTypeRefs {
+			processed := n.processType(typeRef, pol)
+			mergedTypeRefs = unionOf(mergedTypeRefs, processed, unionOpts{})
+		}
+
+		sortedTags := slices.SortedFunc(slices.Values(rhs.tags), util.ComparingHashable)
+		for _, tag := range sortedTags {
+			processed := n.processType(tag, pol)
+			res = unionOf(res, processed, unionOpts{})
+		}
+
+		return unionOf(mergedTypeRefs, res, unionOpts{})
+	default:
+		n.addFailure(fmt.Sprintf("unexpected RHS normal form %T for %s", rhs, rhs), emptyProv)
+		return rhs.toType()
 	}
-	n.addFailure(fmt.Sprintf("unexpected RHS normal form %T for %s", rhs, rhs), emptyProv)
-	return rhs.toType()
 }
 
 func (ctx *TypeCtx) factorise(typ SimpleType) SimpleType {

@@ -503,6 +503,24 @@ func (tp *Transpiler) transpileWhen(e *ir.WhenMatch) (statements []goast.Stmt, f
 				currentIf.Else = &goast.BlockStmt{List: branchResultPath}
 				continue
 			}
+			if astType.Name == ir.TrueName {
+				addIf(&goast.IfStmt{
+					Cond: subjectIdent,
+					Body: &goast.BlockStmt{List: branchResultPath},
+				})
+				continue
+			}
+			if astType.Name == ir.FalseName {
+				addIf(&goast.IfStmt{
+					Cond: &goast.UnaryExpr{
+						Op: token.NOT,
+						X:  subjectIdent,
+					},
+					Body: &goast.BlockStmt{List: branchResultPath},
+				})
+				continue
+			}
+
 			goType, err := tp.transpileType(astType)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to transpile when case type name expression: %v", err)

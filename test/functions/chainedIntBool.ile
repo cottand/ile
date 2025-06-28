@@ -1,4 +1,4 @@
-//ile:compilerTest test.Test() | int64(42)
+//ile:compilerTest test.Test() | int64(2)
 package test
 
 fn IntPlusOne(a: Int): Int {
@@ -14,8 +14,8 @@ fn is2(i: Int){
 
 fn asInt(b): Int {
     when b {
-        True -> 1
-        False -> 2
+        False -> 0 + 0
+        True -> 0 + 1
     }
 }
 

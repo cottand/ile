@@ -94,7 +94,9 @@ type SimpleType interface {
 	children(includeBounds bool) iter.Seq[SimpleType]
 }
 
-type BasicType interface {
+type basicType interface {
+	SimpleType
+	isBasicType()
 }
 
 var (
@@ -116,6 +118,12 @@ var (
 	_ arrayBase = (*namedTupleType)(nil)
 	_ arrayBase = (*arrayType)(nil)
 
+	_ basicType = (*tupleType)(nil)
+	_ basicType = (*namedTupleType)(nil)
+	_ basicType = (*arrayType)(nil)
+	_ basicType = (*classTag)(nil)
+	_ basicType = (*traitTag)(nil)
+
 	_ SimpleType = (*recordType)(nil)
 
 	_ SimpleType = (*PolymorphicType)(nil)
@@ -136,6 +144,7 @@ func (t wrappingProvType) prov() typeProvenance { return t.proxyProvenance }
 // arrayBase is implemented by types which wrap other types
 type arrayBase interface {
 	SimpleType
+	basicType
 	inner(ctx *TypeCtx) SimpleType
 }
 
@@ -532,6 +541,7 @@ func (t *typeVariable) doMap(f func(SimpleType) SimpleType) SimpleType {
 
 type objectTag interface {
 	SimpleType
+	basicType
 	Compare(other objectTag) int
 	Id() ir.AtomicExpr
 }
@@ -542,6 +552,7 @@ type classTag struct {
 	withProvenance
 }
 
+func (t classTag) isBasicType()                                         {}
 func (t classTag) Id() ir.AtomicExpr                                    { return t.id }
 func (t classTag) level() level                                         { return 0 }
 func (t classTag) uninstantiatedBody() SimpleType                       { return t }
@@ -568,6 +579,7 @@ type traitTag struct {
 	withProvenance
 }
 
+func (traitTag) isBasicType()                                           {}
 func (t traitTag) Id() ir.AtomicExpr                                    { return t.id }
 func (t traitTag) level() level                                         { return 0 }
 func (t traitTag) uninstantiatedBody() SimpleType                       { return t }
@@ -725,6 +737,7 @@ type tupleType struct {
 	withProvenance
 }
 
+func (t tupleType) isBasicType()                           {}
 func (t tupleType) uninstantiatedBody() SimpleType         { return t }
 func (t tupleType) instantiate(*Fresher, level) SimpleType { return t }
 func (t tupleType) level() level {
@@ -784,6 +797,7 @@ type namedTupleType struct {
 	withProvenance
 }
 
+func (t namedTupleType) isBasicType()                           {}
 func (t namedTupleType) uninstantiatedBody() SimpleType         { return t }
 func (t namedTupleType) instantiate(*Fresher, level) SimpleType { return t }
 func (t namedTupleType) level() level {
@@ -942,6 +956,14 @@ func (t fieldType) children(bool) iter.Seq[SimpleType] {
 	}
 }
 
+func (t fieldType) union(other fieldType, prov typeProvenance) fieldType {
+	return fieldType{
+		lowerBound:     intersectionOf(t.lowerBound, other.lowerBound, unionOpts{}),
+		upperBound:     unionOf(t.upperBound, other.upperBound, unionOpts{}),
+		withProvenance: withProvenance{provenance: prov},
+	}
+}
+
 // arrayType is like tupleType, except we don't know how many elements there are,
 // so instead of enumerating them they all get the same innerT type
 type arrayType struct {
@@ -949,6 +971,7 @@ type arrayType struct {
 	withProvenance
 }
 
+func (t arrayType) isBasicType()                           {}
 func (t arrayType) uninstantiatedBody() SimpleType         { return t }
 func (t arrayType) instantiate(*Fresher, level) SimpleType { return t }
 func (t arrayType) level() level                           { return t.innerT.level() }

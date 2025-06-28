@@ -69,6 +69,267 @@ func newConjunct(left lhsNF, right rhsNF, vars, nvars set.Collection[*typeVariab
 	}
 }
 
+// simplifyConjunct corresponds to Conjunct.mk in the Scala reference
+// we do not implement it as a normal constructor because it has a failure path when ok = false
+func (o *opsDNF) simplifyConjunct(c conjunct) (res conjunct, ok bool) {
+	rightBases, okRightBases := c.rhs.(*rhsBases)
+	if !okRightBases {
+		return c, true
+	}
+	leftRefined, okLeftRefined := c.lhs.(*lhsRefined)
+	if !okLeftRefined {
+		newTags := make([]objectTag, 0, 1)
+		for _, tag := range rightBases.tags {
+			// throw away the tag if it cannot be &'d with
+			if _, ok := o.leftNFAndType(c.lhs, tag); ok {
+				newTags = append(newTags, tag)
+			}
+		}
+
+		newRest := rightBases.rest
+		// throw away the negated side if it is a type, and we cannot &'d it with the LHS
+		// eg, True & ~False -> True
+		if newRest != nil {
+			restAsType, ok := newRest.(basicType)
+			if ok {
+				if _, ok := o.leftNFAndType(c.lhs, restAsType); !ok {
+					newRest = nil
+				}
+			}
+		}
+		return conjunct{
+			lhs: leftRefined,
+			rhs: &rhsBases{
+				tags:     newTags,
+				rest:     newRest,
+				typeRefs: rightBases.typeRefs,
+			},
+		}, true
+	}
+	// path where LHS is refined and RHS is bases has a specific case where they should not be merged
+	// we don't merge anything in the meantime
+	o.Error("simplifyConjunct path not implemented")
+	return c, false
+}
+
+func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
+	// Implementation based on LhsNf.&(that: BasicType) from Scala
+	switch l := left.(type) {
+	case lhsTop:
+		// Cases for lhsTop
+		switch bt := b.(type) {
+		case tupleType:
+			return &lhsRefined{
+				base:      nil,
+				fn:        nil,
+				arr:       bt,
+				traitTags: set.NewTreeSet(compareTraitTags),
+				reft:      recordType{},
+				typeRefs:  nil,
+			}, true
+		case arrayType:
+			return &lhsRefined{
+				base:      nil,
+				fn:        nil,
+				arr:       bt,
+				traitTags: set.NewTreeSet(compareTraitTags),
+				reft:      recordType{},
+				typeRefs:  nil,
+			}, true
+		case *classTag:
+			return &lhsRefined{
+				base:      bt,
+				fn:        nil,
+				arr:       nil,
+				traitTags: set.NewTreeSet(compareTraitTags),
+				reft:      recordType{},
+				typeRefs:  nil,
+			}, true
+		case traitTag:
+			traitTags := set.NewTreeSet(compareTraitTags)
+			traitTags.Insert(bt)
+			return &lhsRefined{
+				base:      nil,
+				fn:        nil,
+				arr:       nil,
+				traitTags: traitTags,
+				reft:      recordType{},
+				typeRefs:  nil,
+			}, true
+		default:
+			o.Error("leftNFAndType: unsupported basicType for lhsTop", "lhsTop", b)
+			return nil, false
+		}
+	case *lhsRefined:
+		// Cases for lhsRefined
+		switch bt := b.(type) {
+		case traitTag:
+			// Add the trait tag to the existing trait tags
+			newTraitTags := set.NewTreeSet(compareTraitTags)
+			if l.traitTags != nil {
+				for tag := range l.traitTags.Items() {
+					newTraitTags.Insert(tag)
+				}
+			}
+			newTraitTags.Insert(bt)
+
+			return &lhsRefined{
+				base:      l.base,
+				fn:        l.fn,
+				arr:       l.arr,
+				traitTags: newTraitTags,
+				reft:      l.reft,
+				typeRefs:  l.typeRefs,
+			}, true
+		case *classTag:
+			if l.base == nil {
+				// No class tag yet, add it
+				return &lhsRefined{
+					base:      bt,
+					fn:        l.fn,
+					arr:       l.arr,
+					traitTags: l.traitTags,
+					reft:      l.reft,
+					typeRefs:  l.typeRefs,
+				}, true
+			} else {
+				// Already has a class tag, find the greatest lower bound
+				// In Scala: cls.glb(that).map(cls => LhsRefined(S(cls), f1, a1, ts, r1, trs))
+				// In Go, we need to check if one is a subtype of the other
+				if o.ctx.isSubtype(*bt, *l.base, nil) {
+					// bt is a subtype of l.base, so use bt
+					return &lhsRefined{
+						base:      bt,
+						fn:        l.fn,
+						arr:       l.arr,
+						traitTags: l.traitTags,
+						reft:      l.reft,
+						typeRefs:  l.typeRefs,
+					}, true
+				} else if o.ctx.isSubtype(*l.base, *bt, nil) {
+					// l.base is a subtype of bt, so keep l.base
+					return l, true
+				} else {
+					// Incompatible class tags
+					return nil, false
+				}
+			}
+		case tupleType:
+			if l.arr == nil {
+				// No array base yet, add it
+				return &lhsRefined{
+					base:      l.base,
+					fn:        l.fn,
+					arr:       bt,
+					traitTags: l.traitTags,
+					reft:      l.reft,
+					typeRefs:  l.typeRefs,
+				}, true
+			} else {
+				// Already has an array base, merge them
+				var result arrayBase
+
+				switch at := l.arr.(type) {
+				case tupleType:
+					// Check if tuple sizes match
+					if len(at.fields) != len(bt.fields) {
+						return nil, false
+					}
+
+					// Create a new tuple with intersected element types
+					fields := make([]SimpleType, len(at.fields))
+					for i := 0; i < len(at.fields); i++ {
+						fields[i] = intersectionOf(at.fields[i], bt.fields[i], unionOpts{})
+					}
+
+					result = tupleType{
+						fields:         fields,
+						withProvenance: at.withProvenance,
+					}
+				case arrayType:
+					// Convert tuple to array and intersect with the array type
+					fields := make([]SimpleType, len(bt.fields))
+					for i, field := range bt.fields {
+						fields[i] = intersectionOf(at.innerT, field, unionOpts{})
+					}
+
+					result = tupleType{
+						fields:         fields,
+						withProvenance: bt.withProvenance,
+					}
+				default:
+					o.Error("leftNFAndType: unsupported array base combination", "left", l.arr, "type", bt)
+					return nil, false
+				}
+
+				return &lhsRefined{
+					base:      l.base,
+					fn:        l.fn,
+					arr:       result,
+					traitTags: l.traitTags,
+					reft:      l.reft,
+					typeRefs:  l.typeRefs,
+				}, true
+			}
+		case arrayType:
+			if l.arr == nil {
+				// No array base yet, add it
+				return &lhsRefined{
+					base:      l.base,
+					fn:        l.fn,
+					arr:       bt,
+					traitTags: l.traitTags,
+					reft:      l.reft,
+					typeRefs:  l.typeRefs,
+				}, true
+			} else {
+				// Already has an array base, merge them
+				var result arrayBase
+
+				switch at := l.arr.(type) {
+				case tupleType:
+					// Convert tuple to array and intersect with the array type
+					fields := make([]SimpleType, len(at.fields))
+					for i, field := range at.fields {
+						fields[i] = intersectionOf(field, bt.innerT, unionOpts{})
+					}
+
+					result = tupleType{
+						fields:         fields,
+						withProvenance: at.withProvenance,
+					}
+				case arrayType:
+					// Intersect element types
+					innerT := intersectionOf(at.innerT, bt.innerT, unionOpts{})
+
+					result = arrayType{
+						innerT:         innerT,
+						withProvenance: at.withProvenance,
+					}
+				default:
+					o.Error("leftNFAndType: unsupported array base combination", "left", l.arr, "type", bt)
+					return nil, false
+				}
+
+				return &lhsRefined{
+					base:      l.base,
+					fn:        l.fn,
+					arr:       result,
+					traitTags: l.traitTags,
+					reft:      l.reft,
+					typeRefs:  l.typeRefs,
+				}, true
+			}
+		default:
+			o.Error("leftNFAndType: unsupported basicType for lhsRefined", "type", bt)
+			return nil, false
+		}
+	default:
+		o.Error("leftNFAndType: unsupported lhsNF", "left", left)
+		return nil, false
+	}
+}
+
 func (j disjunct) String() string {
 	sb := &strings.Builder{}
 	sb.WriteString(j.right.String())
@@ -593,6 +854,7 @@ type rhsNF interface {
 	normalForm
 	// lessThanOrEqual is written as <:< in the scala reference
 	lessThanOrEqual(rhsNF) bool
+	equal(rhsNF) bool
 	isRhsNf() // marker for sealed hierarchy
 	isRhsBot() bool
 }
@@ -614,10 +876,11 @@ func (rhsBot) toType() SimpleType              { return bottomType }
 func (rhsBot) level() level                    { return bottomType.level() }
 func (rhsBot) hasTag(_ traitTag) bool          { return false }
 func (rhsBot) size() int                       { return 0 }
+func (rhsBot) equal(other rhsNF) bool          { return other.isRhsBot() }
 
 // rhsField corresponds to RhsField in Scala. Represents a single record field {name: type}.
 type rhsField struct {
-	name string
+	name ir.Var
 	ty   fieldType
 }
 
@@ -629,12 +892,12 @@ func (r *rhsField) lessThanOrEqual(nf rhsNF) bool {
 
 func (r *rhsField) isRhsNf() {}
 func (r *rhsField) String() string {
-	return fmt.Sprintf("{%s: %s}", r.name, r.ty.String())
+	return fmt.Sprintf("{%s: %s}", r.name.Name, r.ty.String())
 }
 func (r *rhsField) toType() SimpleType {
 	// Represents the type `{name: ty}` which is a RecordType
 	return recordType{
-		fields: []recordField{{name: ir.Var{Name: r.name}, type_: r.ty}},
+		fields: []recordField{{name: r.name, type_: r.ty}},
 		// Use a relevant provenance if available, otherwise emptyProv
 		withProvenance: r.ty.withProvenance, // Use fieldType's provenance
 	}
@@ -647,6 +910,13 @@ func (r *rhsField) hasTag(_ traitTag) bool {
 }
 func (r *rhsField) size() int {
 	return 1 // Represents a single field component
+}
+func (r *rhsField) equal(other rhsNF) bool {
+	asRhsField, ok := other.(*rhsField)
+	return ok &&
+		r.name.Name == asRhsField.name.Name &&
+		Equal(r.ty.lowerBound, asRhsField.ty.lowerBound) &&
+		Equal(r.ty.upperBound, asRhsField.ty.upperBound)
 }
 
 // rhsRest represents the `FunOrArrType \/ RhsField` part in Scala's RhsBases.
@@ -666,7 +936,7 @@ func (*rhsField) isRhsRest()      {} // Pointer receiver to match interface
 type rhsBases struct {
 	// Slice of class/trait tags (needs sorting for canonical representation)
 	tags []objectTag
-	// Optional function/array/field component
+	// rest is an optional function/array/field component (ie, can be nil)
 	rest rhsRest
 	// Slice of type references (needs sorting for canonical representation)
 	typeRefs []typeRef
@@ -769,15 +1039,7 @@ func (r *rhsBases) String() string {
 
 	// Type references (sorted)
 	sortedTrefs := slices.Clone(r.typeRefs)
-	slices.SortFunc(sortedTrefs, func(a, b typeRef) int {
-		if a.defName != b.defName {
-			if a.defName < b.defName {
-				return -1
-			}
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(sortedTrefs, util.ComparingHashable)
 	for _, tr := range sortedTrefs {
 		parts = append(parts, tr.String())
 	}
@@ -786,6 +1048,33 @@ func (r *rhsBases) String() string {
 		return "⊥" // Should technically be handled by rhsBot, but good fallback
 	}
 	return strings.Join(parts, "|")
+}
+
+func (r *rhsBases) equal(other rhsNF) bool {
+	otherBases, ok := other.(*rhsBases)
+	if !ok {
+		return false
+	}
+	if !slices.EqualFunc(r.tags, otherBases.tags, Equal) {
+		return false
+	}
+	if !slices.EqualFunc(r.typeRefs, otherBases.typeRefs, Equal) {
+		return false
+	}
+	asType, thisIsType := r.rest.(SimpleType)
+	otherAsType, otherIsType := otherBases.rest.(SimpleType)
+	if thisIsType && otherIsType {
+		return Equal(asType, otherAsType)
+	}
+	if thisIsType != otherIsType {
+		return false
+	}
+	asField, thisIsField := r.rest.(*rhsField)
+	otherAsField, otherIsField := otherBases.rest.(*rhsField)
+	if thisIsField && otherIsField {
+		return asField.equal(otherAsField)
+	}
+	return false
 }
 
 // --- DNF/CNF Types ---
