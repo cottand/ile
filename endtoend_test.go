@@ -112,7 +112,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		if cErrs.HasError() {
 			var errStrings []string
 			for _, e := range cErrs.Errors() {
-				errStrings = append(errStrings, ilerr.FormatWithCode(e))
+				errStrings = append(errStrings, ilerr.FormatWithCodeAndPos(e, pkg))
 			}
 			// we don't try to continue for proper compile errors
 			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))

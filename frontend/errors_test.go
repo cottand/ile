@@ -2,6 +2,7 @@ package frontend_test
 
 import (
 	"fmt"
+	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
 	"slices"
@@ -25,7 +26,7 @@ package main
 
 val exprTest = (%v)
 		`, expr)
-			_, errs, err := ile.NewPackageFromBytes([]byte(progTemplate))
+			pkg, errs, err := ile.NewPackageFromBytes([]byte(progTemplate))
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)
@@ -35,6 +36,7 @@ val exprTest = (%v)
 			errsAsStrings := make([]string, len(errs.Errors()))
 			for i, err := range errs.Errors() {
 				errsAsStrings[i] = err.Error()
+				println(ilerr.FormatWithCodeAndPos(err, pkg))
 			}
 			for _, expectedMessage := range expected {
 				found := slices.ContainsFunc(errsAsStrings, func(s string) bool {

@@ -125,7 +125,7 @@ func (l *listener) ExitVarDecl(ctx *parser.VarDeclContext) {
 			if !ok {
 				l.visitErrors = append(l.visitErrors, fmt.Errorf("type stack is empty"))
 			} else {
-				expr = &ir.Ascribe{Expr: expr, Type_: type_, Range: getPos(ctx.COLON())}
+				expr = &ir.Ascribe{Expr: expr, Type_: type_, Range: getTokenPos(ctx.COLON().GetSymbol())}
 			}
 		}
 		declaration := ir.Declaration{
@@ -243,7 +243,7 @@ func (l *listener) ExitArithmeticExpr(ctx *parser.ArithmeticExprContext) {
 	}
 
 	l.expressionStack.Push(&ir.Call{
-		Func:  ir.BinOp(parser.IleTokenInGo[binOp], intervalTo2Pos(ctx.GetSourceInterval())),
+		Func:  ir.BinOp(parser.IleTokenInGo[binOp], getPos(ctx)),
 		Args:  []ir.Expr{lhs, rhs},
 		Range: intervalTo2Pos(antlr.Interval{Start: antlrPos, Stop: antlrPos}),
 	})
@@ -258,7 +258,7 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 	if ctx.OperandName() != nil {
 		l.expressionStack.Push(&ir.Var{
 			Name:  ctx.GetText(),
-			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+			Range: getPos(ctx),
 		})
 		return
 	}
@@ -284,7 +284,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 		if name := ctx.OperandName(); name != nil {
 			callee = &ir.Var{
 				Name:  name.GetText(),
-				Range: intervalTo2Pos(name.GetSourceInterval()),
+				Range: getPos(name),
 			}
 		} else if primaryExpr != nil {
 			var ok bool
@@ -296,7 +296,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 		l.expressionStack.Push(&ir.Call{
 			Func:  callee,
 			Args:  args,
-			Range: intervalTo2Pos(ctx.GetSourceInterval()),
+			Range: getPos(ctx),
 		})
 		return
 	}
@@ -310,7 +310,7 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 		l.expressionStack.Push(&ir.RecordSelect{
 			Record: qualifier,
 			Label:  ctx.IDENTIFIER().GetText(),
-			Range:  intervalTo2Pos(ctx.GetSourceInterval()),
+			Range:  getPos(ctx),
 		})
 		return
 	}
@@ -324,11 +324,25 @@ func intervalTo2Pos(i antlr.Interval) ir.Range {
 	}
 }
 
-func getPos(i antlr.SyntaxTree) ir.Range {
-	interval := i.GetSourceInterval()
+type antlrTokenPositioner interface {
+	GetStart() antlr.Token
+	GetStop() antlr.Token
+}
+type antlrPositioner interface {
+	GetStart() int
+	GetStop() int
+}
+
+func getPos(i antlrTokenPositioner) ir.Range {
 	return ir.Range{
-		PosStart: token.Pos(interval.Start),
-		PosEnd:   token.Pos(interval.Stop),
+		PosStart: token.Pos(i.GetStart().GetStart()),
+		PosEnd:   token.Pos(i.GetStop().GetStop()),
+	}
+}
+func getTokenPos(i antlrPositioner) ir.Range {
+	return ir.Range{
+		PosStart: token.Pos(i.GetStart()),
+		PosEnd:   token.Pos(i.GetStop()),
 	}
 }
 
@@ -345,7 +359,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 
 			l.expressionStack.Push(ir.StringLiteral(
 				strings.Trim(strLit.GetText(), "`"),
-				intervalTo2Pos(ctx.GetSourceInterval()),
+				getPos(ctx),
 			))
 			return
 		}
@@ -353,7 +367,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 
 			l.expressionStack.Push(ir.StringLiteral(
 				strings.Trim(strLit.GetText(), "\""),
-				intervalTo2Pos(ctx.GetSourceInterval()),
+				getPos(ctx),
 			))
 			return
 		}
@@ -362,7 +376,7 @@ func (l *listener) ExitLiteral(ctx *parser.LiteralContext) {
 	if ctx.Integer() != nil {
 		l.expressionStack.Push(ir.IntLiteral(
 			ctx.Integer().GetText(),
-			intervalTo2Pos(ctx.GetSourceInterval()),
+			getPos(ctx),
 		))
 	}
 }
@@ -490,7 +504,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	if len(cases) < 1 {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("expected at least one case enforced by grammar"))
 		l.expressionStack.Push(&ir.ErrorExpr{
-			Range:  getPos(ctx.WHEN()),
+			Range:  getTokenPos(ctx.WHEN().GetSymbol()),
 			Syntax: ctx.GetText(),
 		})
 		return
@@ -517,7 +531,7 @@ func (l *listener) ExitWhenBlock(ctx *parser.WhenBlockContext) {
 	whenExpr := &ir.WhenMatch{
 		Value:      subjectExpr,
 		Cases:      astCases,
-		Positioner: getPos(ctx.WHEN()),
+		Positioner: getTokenPos(ctx.WHEN().GetSymbol()),
 	}
 	l.expressionStack.Push(whenExpr)
 }
@@ -537,7 +551,7 @@ func (l *listener) doWhenCase(ctx parser.IWhenCaseContext) (ir.WhenCase, error) 
 	} else {
 		caseExpr = &ir.ErrorExpr{
 			Syntax: ctx.GetText(),
-			Range:  getPos(ctx.ARROW()),
+			Range:  getTokenPos(ctx.ARROW().GetSymbol()),
 		}
 	}
 
@@ -611,7 +625,7 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
 	l.errors = append(l.errors, ilerr.NewParse{
 		ParserMessage: "error at: " + node.GetText(),
-		Positioner:    getPos(node),
+		Positioner:    getTokenPos(node.GetSymbol()),
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {

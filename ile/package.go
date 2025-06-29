@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 	"testing/fstest"
 )
 
@@ -43,6 +44,9 @@ type Package struct {
 	fSet         *token.FileSet
 	errors       *ilerr.Errors
 	TypeCtx      *types.TypeCtx
+	// originalSource is an index of filename to the character array with the original text source of each file.
+	// It is used to reconstruct error messages with source text
+	originalSource map[string][]rune
 
 	//typeInfo     *infer.TypeEnv
 }
@@ -73,7 +77,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		return nil, err
 	}
 	if len(files) > 1 {
-		packageLogger.Warn("multiple Syntax found, but we do not support multi-astFile projects - using the first one")
+		packageLogger.Warn("multiple files found, but we do not support multiple file projects yet - using the first one")
 	}
 	file := files[0]
 	fileOpen, err := dir.ReadFile(path.Join(dirPath, file.Name()))
@@ -84,18 +88,31 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 	pkg := &Package{
 		// TODO set path and name when we have modules
 		//  https://github.com/cottand/ile/issues/8
-		path:         "ilePackageNameless",
-		name:         "ilePackageNameless",
-		imports:      make(map[string]*Package),
-		goImports:    make(map[string]*gopackages.Package),
-		declarations: make(map[string]ir.Type),
-		TypeCtx:      types.NewEmptyTypeCtx(),
+		path:           "ilePackageNameless",
+		name:           "ilePackageNameless",
+		imports:        make(map[string]*Package),
+		goImports:      make(map[string]*gopackages.Package),
+		declarations:   make(map[string]ir.Type),
+		TypeCtx:        types.NewEmptyTypeCtx(),
+		originalSource: make(map[string][]rune),
+		fSet:           token.NewFileSet(),
 	}
-	fSet := token.NewFileSet()
-	_ = fSet.AddFile(file.Name(), -1, len(fileOpen))
+
+	// keep track of source
+	fileName := file.Name()
+	fileAsString := string(fileOpen)
+	fileAsRunes := []rune(fileAsString)
+	tokenFile := pkg.fSet.AddFile(file.Name(), -1, len(fileAsRunes))
+	tokenFile.AddLine(0)
+	for i, c := range fileAsRunes {
+		if c == '\n' {
+			tokenFile.AddLine(i)
+		}
+	}
+	pkg.originalSource[fileName] = fileAsRunes
 
 	// parse phase
-	astFile, compileErrors, err := frontend.ParseToAST(string(fileOpen))
+	astFile, compileErrors, err := frontend.ParseToAST(fileAsString)
 	pkg.errors = pkg.errors.Merge(compileErrors)
 	if err != nil {
 		return nil, fmt.Errorf("parse to AST: %w", err)
@@ -249,4 +266,56 @@ func (p *Package) WriteTranspiledModule(dir string) error {
 		}
 	}
 	return err
+}
+
+type SourceFinder interface {
+	FindSnippet(start, end token.Pos) (string, error)
+	GetLine(pos token.Pos) (string, error)
+	Position(token.Pos) token.Position
+}
+
+func (p *Package) FindSnippet(positioner ir.Positioner) (string, error) {
+	startPosition := p.Position(positioner.Pos())
+	endPosition := p.Position(positioner.End())
+	if startPosition.Filename != endPosition.Filename {
+		return "", fmt.Errorf("start and end positions are in different files")
+	}
+	snippetFile, ok := p.originalSource[startPosition.Filename]
+	if !ok {
+		return "", fmt.Errorf("could not find source for file %s", startPosition.Filename)
+	}
+	if startPosition.Line != endPosition.Line {
+		return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
+	}
+	snippetLine := snippetFile[startPosition.Offset:(endPosition.Offset + 1)]
+	return string(snippetLine), nil
+}
+
+// GetLine returns the line in the original source for the given token.Pos
+func (p *Package) GetLine(pos token.Pos) (string, error) {
+	file := p.fSet.File(pos)
+	lines := file.Lines()
+	line := file.Line(pos)
+	if len(lines) < line {
+		return "", fmt.Errorf("could not find line %d in file %s (which has %d lines)", line, file.Name(), len(lines))
+	}
+	lineStart := file.LineStart(line)
+	var lineEnd token.Pos
+	// if this was the last line
+	if line+1 > file.LineCount() {
+		lineEnd = token.Pos(int(file.Pos(-1)) + file.Size())
+	} else {
+		lineEnd = file.LineStart(line+1) - 1
+	}
+
+	snippet, err := p.FindSnippet(ir.Range{PosStart: lineStart, PosEnd: lineEnd})
+	if err != nil {
+		return "", fmt.Errorf("could not find snippet for line %d in file %s: %w", line, file.Name(), err)
+	}
+	snippet = strings.Trim(snippet, "\n")
+	return snippet, nil
+}
+
+func (p *Package) Position(t token.Pos) token.Position {
+	return p.fSet.Position(t)
 }

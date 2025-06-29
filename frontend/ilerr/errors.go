@@ -3,6 +3,7 @@ package ilerr
 import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ir"
+	"go/token"
 	"runtime/debug"
 	"strings"
 )
@@ -47,6 +48,34 @@ func FormatWithCode(e IleError) string {
 		return fmt.Sprintf("%s:(E%03d) %s", stack, e.Code(), e.Error())
 	}
 	return fmt.Sprintf("(E%03d) %s", e.Code(), e.Error())
+}
+
+type SourceFinder interface {
+	FindSnippet(positioner ir.Positioner) (string, error)
+	GetLine(pos token.Pos) (string, error)
+	Position(token.Pos) token.Position
+}
+
+// FormatWithCodeAndPos formats an error with an inline highlight of the code snippet(s) that produced it.
+// This is useful for displaying errors in the CLI.
+func FormatWithCodeAndPos(e IleError, finder SourceFinder) string {
+	line, err := finder.GetLine(e.Pos())
+	if err != nil {
+		return FormatWithCode(e)
+	}
+	columnStart := finder.Position(e.Pos()).Column
+	columnEnd := finder.Position(e.End()).Column + 1
+	indent := strings.Repeat(" ", columnStart-1)
+	highlight := strings.Repeat("^", columnEnd-columnStart)
+	return fmt.Sprintf(`
+In the following snippet:
+
+   | %s
+   | %s
+   %s
+
+  %s
+`, line, indent+highlight, FormatWithCode(e))
 }
 
 func New[E IleError](err E) IleError {
