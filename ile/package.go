@@ -98,11 +98,15 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		fSet:           token.NewFileSet(),
 	}
 
+	fileInfo, err := file.Info()
+	if err != nil {
+		return nil, err
+	}
 	// keep track of source
-	fileName := file.Name()
+	fileName := path.Join(config.MetadataRootDir, config.Dir, fileInfo.Name())
 	fileAsString := string(fileOpen)
 	fileAsRunes := []rune(fileAsString)
-	tokenFile := pkg.fSet.AddFile(file.Name(), -1, len(fileAsRunes))
+	tokenFile := pkg.fSet.AddFile(fileName, -1, len(fileAsRunes))
 	tokenFile.AddLine(0)
 	for i, c := range fileAsRunes {
 		if c == '\n' {
@@ -222,17 +226,20 @@ type PkgLoadSettings struct {
 	// Dir is the path of the folder in the filesystem where the package is located
 	// the default is `.`
 	Dir string
+
+	// MetadataRootDir the path of the root of the package, for debugging info
+	MetadataRootDir string
 }
 
 // NewPackageFromBytes does all frontend passes end-to-end for a single file, meant for testing
-func NewPackageFromBytes(data []byte) (*Package, *ilerr.Errors, error) {
+func NewPackageFromBytes(data []byte, fileName string) (*Package, *ilerr.Errors, error) {
 	filesystem := fstest.MapFS{
-		"test.ile": &fstest.MapFile{
+		path.Base(fileName): &fstest.MapFile{
 			Data: data,
 		},
 	}
-	pkg, err := LoadPackage(filesystem, PkgLoadSettings{})
-	if err != nil && pkg == nil {
+	pkg, err := LoadPackage(filesystem, PkgLoadSettings{MetadataRootDir: path.Dir(fileName)})
+	if err != nil || pkg == nil {
 		return nil, nil, err
 	}
 	pkg.name = "test"
@@ -294,6 +301,9 @@ func (p *Package) FindSnippet(positioner ir.Positioner) (string, error) {
 // GetLine returns the line in the original source for the given token.Pos
 func (p *Package) GetLine(pos token.Pos) (string, error) {
 	file := p.fSet.File(pos)
+	if file == nil {
+		return "", fmt.Errorf("could not find file for position %d", pos)
+	}
 	lines := file.Lines()
 	line := file.Line(pos)
 	if len(lines) < line {
@@ -318,4 +328,24 @@ func (p *Package) GetLine(pos token.Pos) (string, error) {
 
 func (p *Package) Position(t token.Pos) token.Position {
 	return p.fSet.Position(t)
+}
+
+// Highlight prints a snippet with the source surrounding the given ir.Positioner
+// highlighting the specific text corresponding to the ir.Positioner
+// with the given highlightChar
+func (p *Package) Highlight(highlightChar rune, pos ir.Positioner) (string, error) {
+	line, err := p.GetLine(pos.Pos())
+	if err != nil {
+		return "", err
+	}
+	startPosition := p.Position(pos.Pos())
+	columnStart := startPosition.Column
+	columnEnd := p.Position(pos.End()).Column + 1
+	indent := strings.Repeat(" ", columnStart-1)
+	highlight := strings.Repeat(string(highlightChar), columnEnd-columnStart)
+	return fmt.Sprintf(`
+%s:
+   | %s
+   | %s
+`, startPosition.String(), line, indent+highlight), nil
 }

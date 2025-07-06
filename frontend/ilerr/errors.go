@@ -1,6 +1,7 @@
 package ilerr
 
 import (
+	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ir"
 	"go/token"
@@ -56,26 +57,45 @@ type SourceFinder interface {
 	Position(token.Pos) token.Position
 }
 
-// FormatWithCodeAndPos formats an error with an inline highlight of the code snippet(s) that produced it.
+type SourceHighlighter interface {
+	Highlight(rune, ir.Positioner) (string, error)
+}
+
+// FormatWithCodeAndSource formats an error with an inline highlight of the code snippet(s) that produced it.
 // This is useful for displaying errors in the CLI.
-func FormatWithCodeAndPos(e IleError, finder SourceFinder) string {
-	line, err := finder.GetLine(e.Pos())
+func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
+	highlight, err := highlighter.Highlight('^', e)
 	if err != nil {
-		return FormatWithCode(e)
+		return fmt.Sprintf("(E%03d) %s \n    (failed to show source: %s)", e.Code(), e.Error(), err)
 	}
-	columnStart := finder.Position(e.Pos()).Column
-	columnEnd := finder.Position(e.End()).Column + 1
-	indent := strings.Repeat(" ", columnStart-1)
-	highlight := strings.Repeat("^", columnEnd-columnStart)
-	return fmt.Sprintf(`
-In the following snippet:
+	stack := ""
+	if enableDebugErrorPrinting && e.getStack() != nil {
+		stack = string(e.getStack())
+		if !enableDebugFullStacktrace {
+			stack = strings.TrimSpace(strings.Split(stack, "\n")[6])
+			stack = stack[:len(stack)-7]
+		}
+		stack = "\n    error produced at " + stack
+	}
 
-   | %s
-   | %s
-   %s
+	additionalText := strings.Builder{}
 
-  %s
-`, line, indent+highlight, FormatWithCode(e))
+	var mismatch NewTypeMismatch
+	if errors.As(e, &mismatch) && mismatch.ProvenanceHint != "" {
+		additionalText.WriteString(fmt.Sprintf("\n    hint: %s", mismatch.ProvenanceHint))
+		if mismatch.ProvenanceHintPos != nil {
+			hintPos, err := highlighter.Highlight('^', mismatch.ProvenanceHintPos)
+			if err == nil {
+				additionalText.WriteString(fmt.Sprintf(":%s", hintPos))
+			}
+		}
+	}
+
+	highlight = fmt.Sprintf(`In the following snippet:
+%s
+(E%03d) %s`, highlight, e.Code(), e.Error())
+
+	return highlight + stack + additionalText.String()
 }
 
 func New[E IleError](err E) IleError {
@@ -235,13 +255,18 @@ func (e NewNameRedeclaration) withStack(stack []byte) IleError {
 
 type NewTypeMismatch struct {
 	ir.Positioner
+	AtDescription string
 	First, Second string
 	Reason        string
 	stack         []byte
+
+	// hint metadata
+	ProvenanceHint    string
+	ProvenanceHintPos ir.Positioner
 }
 
 func (e NewTypeMismatch) Error() string {
-	return fmt.Sprintf("type mismatch: types '%s' and '%s' do not match: %s", e.First, e.Second, e.Reason)
+	return fmt.Sprintf("type mismatch%s: types %s and %s do not match: %s", e.First, e.Second, e.Reason)
 }
 func (e NewTypeMismatch) Code() ErrCode    { return TypeMismatch }
 func (e NewTypeMismatch) getStack() []byte { return e.stack }

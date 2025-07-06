@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"go/token"
+	"go/types"
 	"hash/fnv"
 	"strings"
 )
@@ -79,6 +80,7 @@ var (
 	_ NullaryType = (*NothingType)(nil)
 	_ NullaryType = (*TypeName)(nil)
 	_ NullaryType = (*TypeTag)(nil)
+	_ NullaryType = (*GoType)(nil)
 )
 
 type IntersectionType struct {
@@ -225,6 +227,10 @@ func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return typeVar.Identifier 
 type TypeName struct {
 	Name string
 	Range
+
+	// Provenance is a metadata hint for the origin of the type definition for debugging information
+	// (optional)
+	Provenance string
 }
 
 func (n *TypeName) ShowIn(ShowCtx, uint16) string { return n.Name }
@@ -435,3 +441,24 @@ func (e *RecordType) Hash() uint64 {
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }
+
+// GoType is a type that represents an external type in Go.
+//
+// It can only surface in the IR from Go source code.
+type GoType struct {
+	Underlying types.Object
+	Range
+}
+
+func (t *GoType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	return t.Underlying.String()
+}
+func (t *GoType) isNullaryType() {}
+func (t *GoType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("GoType"))
+	_, _ = h.Write([]byte(t.Underlying.String()))
+	_, _ = h.Write([]byte(t.Underlying.Pkg().Path()))
+	return h.Sum64()
+}
+

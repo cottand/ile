@@ -112,19 +112,7 @@ func importGoAsRecordTypeDef(pkg *gopackages.Package) (def ir.TypeDefinition, er
 		if !obj.Exported() {
 			continue
 		}
-
-		t := convertGoType(obj, ir.Range{PosStart: obj.Pos(), PosEnd: obj.Pos()})
-		if t == nil {
-			// TODO https://github.com/cottand/ile/issues/14
-			//	we ignore unsupported Go types until we plan to support them all
-			//errs = errs.With(ilerr.New(ilerr.NewUnsupportedGoType{
-			//	Range: ir.Range{},
-			//	Name:       obj.Type().String(),
-			//}))
-
-			continue
-		}
-		fields = append(fields, ir.RecordField{Name: ir.Var{Name: decl}, Type: ir.FieldType{Out: t}})
+		fields = append(fields, ir.RecordField{Name: ir.Var{Name: decl}, Type: ir.FieldType{Out: &ir.GoType{Underlying: obj}}})
 	}
 	return ir.TypeDefinition{
 		Kind: ir.KindAlias,
@@ -134,6 +122,7 @@ func importGoAsRecordTypeDef(pkg *gopackages.Package) (def ir.TypeDefinition, er
 		Body: &ir.RecordType{
 			Fields: fields,
 		},
+		//Provenance: fmt.Sprintf("Go package (imported from %s)", pkg.PkgPath),
 	}, errs
 }
 

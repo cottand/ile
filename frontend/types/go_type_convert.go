@@ -1,4 +1,4 @@
-package frontend
+package types
 
 import (
 	"github.com/cottand/ile/frontend/ir"

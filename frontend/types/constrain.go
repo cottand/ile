@@ -96,27 +96,42 @@ func (ctx *TypeCtx) newConstraintSolver(
 func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ constraintContext) bool {
 	cs.fuel--
 	cs.depth++
+	lhsProvDesc := ""
+	if currentLhs.prov() != emptyProv {
+		lhsProvDesc = " (" + currentLhs.prov().desc + ")"
+	}
+	rhsProvDesc := ""
+	if currentRhs.prov() != emptyProv {
+		rhsProvDesc = " (" + currentRhs.prov().desc + ")"
+	}
 	if cs.depth > defaultDepthLimit {
 		// Simplified error reporting
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
 			Positioner: cs.prov.Range,
-			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
-			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
+			First:      fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
+			Second:     fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
 			Reason:     "exceeded max depth limit",
 		}))
 	}
 	if cs.fuel <= 0 {
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
 			Positioner: cs.prov.Range,
-			First:      fmt.Sprintf("%s (%s)", currentLhs, currentLhs.prov().desc),
-			Second:     fmt.Sprintf("%s (%s)", currentRhs, currentRhs.prov().desc),
+			First:      fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
+			Second:     fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
 			Reason:     "ran out of fuel",
 		}))
 	}
 	return false // Continue
 }
 
-func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, cctx constraintContext) (terminateEarly bool) {
+func (cs *constraintSolver) reportError(failureMsg string, cctx constraintContext) (terminateEarly bool) {
+	if len(cs.stack) == 0 {
+		// there should be at least one pair in the stack if we hit an error
+		cs.ctx.addFailure("failed to produce compile error for: "+failureMsg, emptyProv)
+		return true
+	}
+	stackPop := cs.stack[len(cs.stack)-1]
+	lhs, rhs := stackPop.lhs, stackPop.rhs
 	// Simplified error reporting. A full implementation would mirror the Scala version's
 	// detailed provenance tracking and message generation.
 	lhsProv := lhs.prov()
@@ -134,6 +149,21 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 		}
 	}
 
+	// (a bit arbitrarily) find the last provenance from the right hand side
+	var rhsProv2 typeProvenance
+	provenanceHint := ""
+	var provenanceHintPos ir.Positioner
+	for _, simpleType := range slices.Backward(cctx.rhsChain) {
+		if simpleType.prov() != emptyProv && !simpleType.prov().IsOrigin() {
+			rhsProv2 = simpleType.prov()
+			provenanceHint = fmt.Sprintf(" constraint arises from %s", rhsProv2.desc)
+			if rhsProv2.Range != (ir.Range{}) {
+				provenanceHintPos = rhsProv2.Range
+			}
+			break
+		}
+	}
+
 	// Use the most relevant Range - often the top-level one
 	pos := cs.prov.Range
 	if lhsProv.Pos() != token.NoPos {
@@ -145,14 +175,24 @@ func (cs *constraintSolver) reportError(failureMsg string, lhs, rhs SimpleType, 
 			failureMsg = fmt.Sprintf("%s is not a subtype of %s", lhsAsTag.Id().CanonicalSyntax(), rhsAsTag.Id().CanonicalSyntax())
 		}
 	}
+	lhsProvDesc := lhsProv.Describe()
+	if lhsProvDesc != "" {
+		lhsProvDesc = " (" + lhsProvDesc + ")"
+	}
+	rhsProvDesc := rhsProv.Describe()
+	if rhsProvDesc != "" {
+		rhsProvDesc = " (" + rhsProvDesc + ")"
+	}
 
 	lhsStr := ir.TypeString(cs.ctx.expandSimpleType(lhs, true))
 	rhsStr := ir.TypeString(cs.ctx.expandSimpleType(rhs, true))
 	err := ilerr.New(ilerr.NewTypeMismatch{
-		Positioner: pos,
-		First:      fmt.Sprintf("%s (%s)", lhsStr, lhsProv.desc),
-		Second:     fmt.Sprintf("%s (%s)", rhsStr, rhsProv.desc),
-		Reason:     failureMsg,
+		Positioner:        pos,
+		First:             fmt.Sprintf("%s%s", lhsStr, lhsProvDesc),
+		Second:            fmt.Sprintf("%s%s", rhsStr, rhsProvDesc),
+		Reason:            failureMsg,
+		ProvenanceHint:    provenanceHint,
+		ProvenanceHintPos: provenanceHintPos,
 	})
 	return cs.onErr(err)
 }
@@ -502,7 +542,7 @@ func (cs *constraintSolver) recImpl(
 			}
 			if !found {
 				// if we got this far, it means that we did not find right's field inside left
-				if cs.reportError(fmt.Sprintf("could not find field %s", rightField.name.Name), lhs, rhs, cctx) {
+				if cs.reportError(fmt.Sprintf("could not find field %s", rightField.name.Name), cctx) {
 					return true
 				}
 			}
@@ -521,7 +561,7 @@ func (cs *constraintSolver) recImpl(
 	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ir.ArrayTypeName {
 		if lhsTypeRef.defName == rhsTypeRef.defName {
 			if len(lhsTypeRef.typeArgs) != len(rhsTypeRef.typeArgs) {
-				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName), lhs, rhs, cctx)
+				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName), cctx)
 			}
 			def, ok := cs.ctx.typeDefs[lhsTypeRef.defName]
 			if !ok {
@@ -544,7 +584,7 @@ func (cs *constraintSolver) recImpl(
 
 		if lhsTag, ok := cs.ctx.classTagFrom(lhsTypeRef); ok {
 			if rhsTag, ok := cs.ctx.classTagFrom(rhsTypeRef); ok && !cs.ctx.isSubtype(lhsTag, rhsTag, nil) {
-				return cs.reportError("type mismatch", lhs, rhs, cctx)
+				return cs.reportError("type mismatch", cctx)
 			}
 		}
 		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
@@ -577,7 +617,7 @@ func (cs *constraintSolver) recImpl(
 	}
 
 	logger.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
-	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs), lhs, rhs, cctx)
+	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs), cctx)
 }
 
 // requiresGoToWork checks if the constraint likely needs DNF/CNF normalization.
@@ -625,7 +665,7 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
 	if extrudedRhs == nil {                            // Extrusion failed or reported error
-		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs), lhs, rhs, cctx)
+		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs), cctx)
 		return true
 	}
 	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
@@ -659,7 +699,7 @@ func (cs *constraintSolver) constrainFuncFunc(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.args) != len(rhs.args) {
-		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), lhs, rhs, cctx)
+		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), cctx)
 	}
 	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
@@ -678,7 +718,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.fields) != len(rhs.fields) {
-		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), lhs, rhs, cctx)
+		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), cctx)
 	}
 
 	// constrain fields covariantly: lhs.field <: rhs.field
@@ -699,7 +739,7 @@ func (cs *constraintSolver) constrainNamedTupleNamedTuple(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.fields) != len(rhs.fields) {
-		return cs.reportError(fmt.Sprintf("named tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), lhs, rhs, cctx)
+		return cs.reportError(fmt.Sprintf("named tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), cctx)
 	}
 
 	// Check names and constrain fields covariantly
@@ -707,7 +747,7 @@ func (cs *constraintSolver) constrainNamedTupleNamedTuple(
 	for i := range lhs.fields {
 		// Assuming fields are ordered or using a map lookup
 		if lhs.fields[i].Fst.Name != rhs.fields[i].Fst.Name {
-			return cs.reportError(fmt.Sprintf("named tuple field name mismatch: '%s' vs '%s'", lhs.fields[i].Fst.Name, rhs.fields[i].Fst.Name), lhs, rhs, cctx)
+			return cs.reportError(fmt.Sprintf("named tuple field name mismatch: '%s' vs '%s'", lhs.fields[i].Fst.Name, rhs.fields[i].Fst.Name), cctx)
 		}
 		if cs.rec(lhs.fields[i].Snd, rhs.fields[i].Snd, false, cctx, shadows) { // Note: sameLevel = false
 			return true // Terminate early
@@ -730,7 +770,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		if Equal(expandedLhs, lhs) && Equal(expandedRhs, rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error
-			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), lhs, rhs, cctx)
+			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), cctx)
 		}
 		return cs.rec(expandedLhs, expandedRhs, true, cctx, shadows)
 	}
@@ -738,16 +778,16 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 	// Same definition, check type arguments based on variance
 	if len(lhs.typeArgs) != len(rhs.typeArgs) {
 		// Should not happen if defName is the same and definitions are consistent
-		return cs.reportError("type argument count mismatch", lhs, rhs, cctx)
+		return cs.reportError("type argument count mismatch", cctx)
 	}
 
 	// Fetch variance info for the definition (needs Ctx support)
 	variances, ok := cs.ctx.getTypeDefinitionVariances(lhs.defName) // Needs implementation
 	if !ok {
-		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName), lhs, rhs, cctx)
+		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName), cctx)
 	}
 	if len(variances) != len(lhs.typeArgs) {
-		return cs.reportError(fmt.Sprintf("variance info mismatch for %s", lhs.defName), lhs, rhs, cctx)
+		return cs.reportError(fmt.Sprintf("variance info mismatch for %s", lhs.defName), cctx)
 	}
 
 	for i, variance := range variances {
@@ -794,7 +834,7 @@ func (cs *constraintSolver) constrainClassRecord(
 		// Simplified lookup:
 		memberTy, err := cs.ctx.LookupField(lhs, fldName) // Needs implementation
 		if err != nil {
-			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name), lhs, rhs, cctx)
+			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name), cctx)
 		}
 
 		// constrain upper bounds: memberTy.ub <: fldTy.ub
@@ -806,7 +846,7 @@ func (cs *constraintSolver) constrainClassRecord(
 		if fldTy.lowerBound != nil {
 			if memberTy.lb == nil {
 				// Trying to assign to a non-mutable field
-				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name), lhs, rhs, cctx)
+				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name), cctx)
 			}
 			if cs.rec(fldTy.lowerBound, memberTy.lb, false, cctx, shadows) {
 				return true

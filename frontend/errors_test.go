@@ -15,6 +15,7 @@ func TestCompileExprErrors(t *testing.T) {
 		`1 + "a"`:                 {"type mismatch", "Int", `"a"`},
 		`"a" + 1`:                 {"type mismatch", "Int", `"a"`},
 		`val a = 1; "a" + a`:      {"type mismatch", "Int", `"a"`},
+		`True + 2`:                {"type mismatch"},
 		`b + 1`:                   {"variable", "b", "not defined"},
 		`val True = 0 != 0; True`: {"True", "identifier", "not", "allowed"},
 	}
@@ -26,7 +27,7 @@ package main
 
 val exprTest = (%v)
 		`, expr)
-			pkg, errs, err := ile.NewPackageFromBytes([]byte(progTemplate))
+			pkg, errs, err := ile.NewPackageFromBytes([]byte(progTemplate), "test")
 			assert.NoError(t, err)
 			if len(expected) == 0 {
 				assert.Empty(t, errs)
@@ -36,7 +37,7 @@ val exprTest = (%v)
 			errsAsStrings := make([]string, len(errs.Errors()))
 			for i, err := range errs.Errors() {
 				errsAsStrings[i] = err.Error()
-				println(ilerr.FormatWithCodeAndPos(err, pkg))
+				println(ilerr.FormatWithCodeAndSource(err, pkg))
 			}
 			for _, expectedMessage := range expected {
 				found := slices.ContainsFunc(errsAsStrings, func(s string) bool {

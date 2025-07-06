@@ -8,6 +8,7 @@ import (
 	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/stdlib"
+	"os"
 
 	"github.com/traefik/yaegi/interp"
 	"go/build"
@@ -25,6 +26,14 @@ const logGoAST = true
 //
 //go:embed test
 var testSet embed.FS
+
+var testSetRoot = func() string {
+	name, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return path.Join(name, "test")
+}()
 
 // format is as follows:
 //
@@ -98,7 +107,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		err = i.Use(stdlib.Symbols)
 		assert.NoError(t, err)
 
-		pkg, cErrs, err := ile.NewPackageFromBytes(content)
+		pkg, cErrs, err := ile.NewPackageFromBytes(content, path.Join(testSetRoot, name))
 		assert.NoError(t, err, "Unexpected failures in NewPackageFromBytes")
 		if err != nil {
 			// the FE had errors, so we add a recover() so that we can handle nil panics
@@ -112,7 +121,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		if cErrs.HasError() {
 			var errStrings []string
 			for _, e := range cErrs.Errors() {
-				errStrings = append(errStrings, ilerr.FormatWithCodeAndPos(e, pkg))
+				errStrings = append(errStrings, ilerr.FormatWithCodeAndSource(e, pkg))
 			}
 			// we don't try to continue for proper compile errors
 			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))

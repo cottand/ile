@@ -83,6 +83,12 @@ func (tp typeProvenance) Pos() token.Pos {
 func (tp typeProvenance) End() token.Pos {
 	return tp.Range.End()
 }
+func (tp typeProvenance) Describe() string  {
+	if tp.originName != "" {
+		return fmt.Sprintf("%s %s", tp.desc, tp.originName)
+	}
+	return tp.desc
+}
 
 // SimpleType is a type without universally quantified type variables
 type SimpleType interface {

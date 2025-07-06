@@ -98,9 +98,13 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 		return unionOf(ctx.typeAstTypeRec(typ.Left), ctx.typeAstTypeRec(typ.Right), opts)
 
 	case *ir.TypeName:
+		provDesc := typ.Provenance
+		if provDesc == "" {
+			provDesc = "type name"
+		}
 		prov := typeProvenance{
 			Range:  ir.RangeOf(typ),
-			desc:   "type name",
+			desc:   provDesc,
 			isType: true,
 		}
 		foundVar, ok := ctx.vars[typ.Name]
@@ -197,11 +201,33 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 				desc:  "record field",
 			}
 			record.fields = append(record.fields, recordField{
-				name: name,
+				name:  name,
 				type_: newFieldTypeUpperBound(valueType, fieldProv),
 			})
 		}
 		return newRecordType(record)
+	case *ir.GoType:
+
+		t := convertGoType(typ.Underlying, ir.RangeOf(typ))
+		if t == nil {
+			// skip unsupported Go types until we plan to support them all
+			//ctx.addError(ilerr.New(ilerr.NewUnsupportedGoType{
+			//	Positioner: ir.RangeOf(typ),
+			//	Name:       typ.Underlying.String(),
+			//}))
+
+			return errorType()
+		}
+		return wrappingProvType{
+			SimpleType: ctx.typeAstTypeRec(t),
+			proxyProvenance: typeProvenance{
+				Range:      ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
+				desc:       "go type",
+				isType:     true,
+				originName: typ.Underlying.Name(),
+			},
+		}
+
 	default:
 		panic(fmt.Sprintf("typeIrType: implement me for the %T %s", typ, ir.TypeString(typ)))
 	}
