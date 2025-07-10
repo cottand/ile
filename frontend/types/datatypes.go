@@ -54,6 +54,9 @@ type typeProvenance struct {
 	desc       string // Description
 	originName string // Optional origin name
 	isType     bool   // Whether this represents a type
+	// Original package where the Range is
+	// should be empty for local types
+	originPackage string
 }
 
 var emptyProv = typeProvenance{}
@@ -83,11 +86,15 @@ func (tp typeProvenance) Pos() token.Pos {
 func (tp typeProvenance) End() token.Pos {
 	return tp.Range.End()
 }
-func (tp typeProvenance) Describe() string  {
+func (tp typeProvenance) Describe() string {
 	if tp.originName != "" {
 		return fmt.Sprintf("%s %s", tp.desc, tp.originName)
 	}
 	return tp.desc
+}
+
+func (tp typeProvenance) PackagePath() string {
+	return tp.originPackage
 }
 
 // SimpleType is a type without universally quantified type variables
@@ -187,7 +194,7 @@ func (t extremeType) String() string {
 
 // Hash generates a hash for wrappingProvType using its underlying SimpleType
 func (t wrappingProvType) Hash() uint64 {
-	return t.SimpleType.Hash()
+	return t.SimpleType.Hash()*31 ^ 3
 }
 
 // doMap for wrappingProvType applies the function to the underlying type and creates a new wrappingProvType

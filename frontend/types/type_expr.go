@@ -67,9 +67,12 @@ func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret Si
 		return ctx.typeWhenMatch(expr, vars)
 	case *ir.Literal:
 		return classTag{
-			id:             expr,
-			parents:        expr.BaseTypes(),
-			withProvenance: prov,
+			id:      expr,
+			parents: expr.BaseTypes(),
+			withProvenance: typeProvenance{
+				Range: prov.provenance.Range,
+				desc:  "literal value",
+			}.embed(),
 		}
 		// the reference implementation has two matches here: one without Var (param names) and another with
 		// we will focus on the former for now

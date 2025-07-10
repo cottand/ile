@@ -58,13 +58,13 @@ type SourceFinder interface {
 }
 
 type SourceHighlighter interface {
-	Highlight(rune, ir.Positioner) (string, error)
+	Highlight(rune, ir.ExternalPositioner) (string, error)
 }
 
 // FormatWithCodeAndSource formats an error with an inline highlight of the code snippet(s) that produced it.
 // This is useful for displaying errors in the CLI.
 func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
-	highlight, err := highlighter.Highlight('^', e)
+	highlight, err := highlighter.Highlight('^', ir.ExternalRange{Range: ir.RangeOf(e)})
 	if err != nil {
 		return fmt.Sprintf("(E%03d) %s \n    (failed to show source: %s)", e.Code(), e.Error(), err)
 	}
@@ -81,12 +81,63 @@ func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
 	additionalText := strings.Builder{}
 
 	var mismatch NewTypeMismatch
-	if errors.As(e, &mismatch) && mismatch.ProvenanceHint != "" {
-		additionalText.WriteString(fmt.Sprintf("\n    hint: %s", mismatch.ProvenanceHint))
-		if mismatch.ProvenanceHintPos != nil {
-			hintPos, err := highlighter.Highlight('^', mismatch.ProvenanceHintPos)
-			if err == nil {
-				additionalText.WriteString(fmt.Sprintf(":%s", hintPos))
+	if errors.As(e, &mismatch) {
+		// Add provenance hint if available
+		if mismatch.ProvenanceHint != "" {
+			additionalText.WriteString(fmt.Sprintf("hint: %s", mismatch.ProvenanceHint))
+			if mismatch.ProvenanceHintPos != nil {
+				hintPos, err := highlighter.Highlight('^', mismatch.ProvenanceHintPos)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf(":%s\n", hintPos))
+				}
+			}
+		}
+
+		// Add flow hint if available
+		if mismatch.FlowHint != "" {
+			additionalText.WriteString(fmt.Sprintf(" %s", mismatch.FlowHint))
+			if mismatch.FlowHintPos != nil {
+				flowPos, err := highlighter.Highlight('^', mismatch.FlowHintPos)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf(":%s\n", flowPos))
+				}
+			}
+		}
+
+		//Add type stack hints if available
+		for _, hint := range mismatch.ExpectedStackHints {
+			if hint.Type == "" {
+				additionalText.WriteString(fmt.Sprintf("%s\n", hint.Description))
+			} else {
+				additionalText.WriteString(fmt.Sprintf("%s: %s\n", hint.Description, hint.Type))
+			}
+
+			if hint.Positioner != nil {
+				hintPos, err := highlighter.Highlight('^', hint.Positioner)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf("%s\n", hintPos))
+				}
+			}
+		}
+
+		for i, hint := range mismatch.ActualStackHints {
+			if i == 0 {
+				additionalText.WriteString("actual type comes from ")
+			}
+			if hint.Description == "" {
+				continue
+			}
+			if hint.Type == "" {
+				additionalText.WriteString(hint.Description)
+			} else {
+				additionalText.WriteString(fmt.Sprintf("%s: %s", hint.Description, hint.Type))
+			}
+
+			if hint.Positioner != nil {
+				hintPos, err := highlighter.Highlight('^', hint.Positioner)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf("\ndeclared at: %s", hintPos))
+				}
 			}
 		}
 	}
@@ -95,7 +146,7 @@ func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
 %s
 (E%03d) %s`, highlight, e.Code(), e.Error())
 
-	return highlight + stack + additionalText.String()
+	return highlight + stack + "\n" + additionalText.String()
 }
 
 func New[E IleError](err E) IleError {
@@ -256,17 +307,43 @@ func (e NewNameRedeclaration) withStack(stack []byte) IleError {
 type NewTypeMismatch struct {
 	ir.Positioner
 	AtDescription string
-	First, Second string
-	Reason        string
-	stack         []byte
+
+	Actual, Expected string
+
+	Reason string
+	stack  []byte
 
 	// hint metadata
 	ProvenanceHint    string
-	ProvenanceHintPos ir.Positioner
+	ProvenanceHintPos ir.ExternalPositioner
+
+	// type stack information
+	FlowHint    string
+	FlowHintPos ir.ExternalPositioner
+
+	// ExpectedStackHints contains information about where the expected type came from
+	// expected type arises from desc X from desc Y ....
+	ExpectedStackHints []TypeStackHint
+
+	// ActualStackHints contains information about where the actual type came from
+	// actual type comes from desc X from desc Y ...
+	ActualStackHints []TypeStackHint
+}
+
+// TypeStackHint represents a hint about a type in the constraint stack
+type TypeStackHint struct {
+	Description string
+	Type        string
+	Positioner  ir.ExternalPositioner
 }
 
 func (e NewTypeMismatch) Error() string {
-	return fmt.Sprintf("type mismatch%s: types %s and %s do not match: %s", e.First, e.Second, e.Reason)
+	return fmt.Sprintf(`
+type mismatch %s: 
+  actual type:     %s
+  expected type:   %s
+  ...because %s`,
+		e.AtDescription, e.Actual, e.Expected, e.Reason)
 }
 func (e NewTypeMismatch) Code() ErrCode    { return TypeMismatch }
 func (e NewTypeMismatch) getStack() []byte { return e.stack }

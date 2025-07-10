@@ -1,0 +1,7 @@
+//ile:compilerTest test.res | true
+
+package test
+
+import math "go:math"
+
+val res = math.IsInf(math.Inf(1), 1)

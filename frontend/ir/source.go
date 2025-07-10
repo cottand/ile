@@ -17,10 +17,29 @@ type Positioner interface {
 	End() token.Pos // position of first character immediately after the node
 }
 
+// ExternalPositioner is a Positioner that also has a package path,
+// typically for highlighting sources of external dependencies
+//
+// By convention; an empty PackagePath indicates the local package
+type ExternalPositioner interface {
+	Positioner
+	PackagePath() string
+}
+
 type Range struct {
 	PosStart token.Pos
 	PosEnd   token.Pos
 }
+
+type ExternalRange struct {
+	Range
+	Package string
+}
+
+func (e ExternalRange) PackagePath() string  {
+	return e.Package
+}
+
 
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }

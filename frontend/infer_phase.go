@@ -112,7 +112,12 @@ func importGoAsRecordTypeDef(pkg *gopackages.Package) (def ir.TypeDefinition, er
 		if !obj.Exported() {
 			continue
 		}
-		fields = append(fields, ir.RecordField{Name: ir.Var{Name: decl}, Type: ir.FieldType{Out: &ir.GoType{Underlying: obj}}})
+		fields = append(fields, ir.RecordField{Name: ir.Var{Name: decl}, Type: ir.FieldType{Out: &ir.GoType{
+			Underlying:  obj,
+			PackagePath: pkg.PkgPath,
+			PackageName: pkg.Name,
+			// SourceFile is left empty for now as we don't have direct access to the source file information
+		}}})
 	}
 	return ir.TypeDefinition{
 		Kind: ir.KindAlias,

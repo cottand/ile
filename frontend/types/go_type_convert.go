@@ -6,7 +6,20 @@ import (
 	gotypes "go/types"
 )
 
-func convertGoType(obj gotypes.Object, in ir.Range) ir.Type {
+func convertGoType(obj gotypes.Object) ir.Type {
+	pkg := obj.Pkg().Path()
+	prov := typeProvenance{
+		originPackage: pkg,
+		desc: "go type",
+		Range: ir.Range{
+			PosStart: obj.Pos(),
+			PosEnd:   obj.Pos(),
+		},
+	}
+	// ideally we embed all the provenance info, but we are dealing with ir.Type here so we
+	// will just set the range for hash deduping
+	in := prov.Range
+
 	var ileType ir.Type
 	asConst, _ := obj.(*gotypes.Const)
 	switch t := obj.Type().(type) {
@@ -65,7 +78,7 @@ func convertGoType(obj gotypes.Object, in ir.Range) ir.Type {
 			return nil
 		}
 		if t.Results().Len() == 1 {
-			ret = convertGoType(t.Results().At(0), ir.Range{})
+			ret = convertGoType(t.Results().At(0))
 		}
 		var params []ir.Type
 		if t.Params() == nil {
@@ -73,7 +86,7 @@ func convertGoType(obj gotypes.Object, in ir.Range) ir.Type {
 		}
 		for i := 0; i < t.Params().Len(); i++ {
 			param := t.Params().At(i)
-			params = append(params, convertGoType(param, ir.Range{}))
+			params = append(params, convertGoType(param))
 		}
 		return &ir.FnType{
 			Args:   params,

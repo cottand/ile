@@ -108,23 +108,23 @@ func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ con
 		// Simplified error reporting
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
 			Positioner: cs.prov.Range,
-			First:      fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
-			Second:     fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
+			Actual:     fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
+			Expected:   fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
 			Reason:     "exceeded max depth limit",
 		}))
 	}
 	if cs.fuel <= 0 {
 		return cs.onErr(ilerr.New(ilerr.NewTypeMismatch{
 			Positioner: cs.prov.Range,
-			First:      fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
-			Second:     fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
+			Actual:     fmt.Sprintf("%s%s", currentLhs, lhsProvDesc),
+			Expected:   fmt.Sprintf("%s%s", currentRhs, rhsProvDesc),
 			Reason:     "ran out of fuel",
 		}))
 	}
 	return false // Continue
 }
 
-func (cs *constraintSolver) reportError(failureMsg string, cctx constraintContext) (terminateEarly bool) {
+func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool) {
 	if len(cs.stack) == 0 {
 		// there should be at least one pair in the stack if we hit an error
 		cs.ctx.addFailure("failed to produce compile error for: "+failureMsg, emptyProv)
@@ -132,19 +132,21 @@ func (cs *constraintSolver) reportError(failureMsg string, cctx constraintContex
 	}
 	stackPop := cs.stack[len(cs.stack)-1]
 	lhs, rhs := stackPop.lhs, stackPop.rhs
-	// Simplified error reporting. A full implementation would mirror the Scala version's
-	// detailed provenance tracking and message generation.
+
+	// Get the first non-empty provenance from the left-hand side chain
 	lhsProv := lhs.prov()
-	for _, c := range cctx.lhsChain {
-		if c.prov() != emptyProv && !c.prov().IsOrigin() {
-			lhsProv = c.prov()
+	for _, pair := range cs.stack {
+		if pair.lhs.prov() != emptyProv && !pair.lhs.prov().IsOrigin() {
+			lhsProv = pair.lhs.prov()
 			break
 		}
 	}
+
+	// Get the first non-empty provenance from the right-hand side chain
 	rhsProv := rhs.prov()
-	for c := range util.Reverse(cctx.rhsChain) {
-		if c.prov() != emptyProv && !c.prov().IsOrigin() {
-			rhsProv = c.prov()
+	for _, pair := range slices.Backward(cs.stack) {
+		if pair.rhs.prov() != emptyProv && !pair.rhs.prov().IsOrigin() {
+			rhsProv = pair.rhs.prov()
 			break
 		}
 	}
@@ -152,13 +154,13 @@ func (cs *constraintSolver) reportError(failureMsg string, cctx constraintContex
 	// (a bit arbitrarily) find the last provenance from the right hand side
 	var rhsProv2 typeProvenance
 	provenanceHint := ""
-	var provenanceHintPos ir.Positioner
-	for _, simpleType := range slices.Backward(cctx.rhsChain) {
-		if simpleType.prov() != emptyProv && !simpleType.prov().IsOrigin() {
-			rhsProv2 = simpleType.prov()
+	var provenanceHintPos ir.ExternalPositioner
+	for _, pair := range slices.Backward(cs.stack) {
+		if pair.rhs.prov() != emptyProv && !pair.rhs.prov().IsOrigin() {
+			rhsProv2 = pair.rhs.prov()
 			provenanceHint = fmt.Sprintf(" constraint arises from %s", rhsProv2.desc)
 			if rhsProv2.Range != (ir.Range{}) {
-				provenanceHintPos = rhsProv2.Range
+				provenanceHintPos = rhsProv2
 			}
 			break
 		}
@@ -184,16 +186,102 @@ func (cs *constraintSolver) reportError(failureMsg string, cctx constraintContex
 		rhsProvDesc = " (" + rhsProvDesc + ")"
 	}
 
+	// Find the tightest relevant failure in the LHS chain (similar to Scala's tighestRelevantFailure)
+	var flowHint string
+	var flowHintPos ir.ExternalPositioner
+	for _, pair := range cs.stack {
+		l := pair.lhs
+		// Skip if it's the same as the main error location or has no location
+		if l.prov() == lhsProv || l.prov() == emptyProv || l.prov().Range == (ir.Range{}) {
+			continue
+		}
+
+		// Check if this provenance is relevant (has a location that's different from the main error)
+		if l.prov().Pos() != token.NoPos && l.prov().Pos() != lhsProv.Pos() {
+			flowHint = fmt.Sprintf("but it flows into %s with expected type %s",
+				l.prov().desc,
+				ir.TypeString(cs.ctx.expandSimpleType(rhs, true)))
+			flowHintPos = l.prov()
+			break
+		}
+	}
+
+	seenPositions := make(map[ir.Range]bool, 1)
+
 	lhsStr := ir.TypeString(cs.ctx.expandSimpleType(lhs, true))
 	rhsStr := ir.TypeString(cs.ctx.expandSimpleType(rhs, true))
-	err := ilerr.New(ilerr.NewTypeMismatch{
+	mismatchErr := ilerr.NewTypeMismatch{
 		Positioner:        pos,
-		First:             fmt.Sprintf("%s%s", lhsStr, lhsProvDesc),
-		Second:            fmt.Sprintf("%s%s", rhsStr, rhsProvDesc),
+		Actual:            fmt.Sprintf("%s%s", lhsStr, lhsProvDesc),
+		Expected:          fmt.Sprintf("%s%s", rhsStr, rhsProvDesc),
 		Reason:            failureMsg,
 		ProvenanceHint:    provenanceHint,
 		ProvenanceHintPos: provenanceHintPos,
+		FlowHint:          flowHint,
+		FlowHintPos:       flowHintPos,
+	}
+
+	// Add the main error types first
+	if lhs.prov() != emptyProv && lhs.prov().Range != (ir.Range{}) {
+		mismatchErr.ActualStackHints = append(mismatchErr.ActualStackHints, ilerr.TypeStackHint{
+			Description: lhs.prov().desc,
+			Type:        ir.TypeString(cs.ctx.expandSimpleType(lhs, true)),
+			Positioner:  lhs.prov(),
+		})
+		seenPositions[lhs.prov().Range] = true
+	}
+
+	// Always add the expected type, even if it doesn't have a position
+	mismatchErr.ExpectedStackHints = append(mismatchErr.ExpectedStackHints, ilerr.TypeStackHint{
+		Description: rhsProvDesc,
+		Type:        ir.TypeString(cs.ctx.expandSimpleType(rhs, true)),
+		Positioner:  rhs.prov(),
 	})
+	if rhs.prov() != emptyProv && rhs.prov().Pos() != token.NoPos {
+		seenPositions[rhs.prov().Range] = true
+	}
+
+	// Add hints from RHS chain
+	for _, pair := range cs.stack {
+		r := pair.rhs
+		if r.prov() == emptyProv || r.prov().Range == (ir.Range{}) {
+			continue
+		}
+
+		// Skip duplicates
+		if seenPositions[r.prov().Range] {
+			continue
+		}
+		seenPositions[r.prov().Range] = true
+
+		mismatchErr.ExpectedStackHints = append(mismatchErr.ExpectedStackHints, ilerr.TypeStackHint{
+			Description: r.prov().desc,
+			Type:        ir.TypeString(cs.ctx.expandSimpleType(r, true)),
+			Positioner:  r.prov(),
+		})
+	}
+	// Add hints from LHS chain
+	for _, pair := range cs.stack {
+		l := pair.lhs
+		if l.prov() == emptyProv || l.prov().IsOrigin() || l.prov().Range == (ir.Range{}) {
+			continue
+		}
+
+		// Skip duplicates
+		if seenPositions[l.prov().Range] {
+			continue
+		}
+		seenPositions[l.prov().Range] = true
+
+		mismatchErr.ActualStackHints = append(mismatchErr.ActualStackHints, ilerr.TypeStackHint{
+			Description: l.prov().desc,
+			Type:        ir.TypeString(cs.ctx.expandSimpleType(l, true)),
+			Positioner:  l.prov(),
+		})
+
+	}
+
+	err := ilerr.New(mismatchErr)
 	return cs.onErr(err)
 }
 
@@ -398,8 +486,7 @@ func (cs *constraintSolver) recImpl(
 	// TODO: Update shadows state here.
 
 	// 3. unwrap provenance wrappers so that we do this checking on the underlying types
-	lhs, rhs = unwrapProvenance(lhs), unwrapProvenance(rhs)
-
+	//lhs, rhs = unwrapProvenance(lhs), unwrapProvenance(rhs)
 	// 4. Handle specific type combinations (using if statements with type assertions)
 
 	if lhsExtreme, ok := lhs.(extremeType); ok && lhsExtreme.polarity {
@@ -408,6 +495,13 @@ func (cs *constraintSolver) recImpl(
 	if rhsExtreme, ok := rhs.(extremeType); ok && rhsExtreme.isTop() {
 		return false
 	}
+	if leftProxy, ok := lhs.(wrappingProvType); ok {
+		return cs.rec(leftProxy.SimpleType, rhs, true, cctx, shadows)
+	}
+	if rightProxy, ok := rhs.(wrappingProvType); ok {
+		return cs.rec(lhs, rightProxy.SimpleType, true, cctx, shadows)
+	}
+
 	if rhs, ok := rhs.(recordType); ok && len(rhs.fields) == 0 {
 		return false
 	}
@@ -500,12 +594,6 @@ func (cs *constraintSolver) recImpl(
 		}
 		return cs.rec(lhs, rhsInter.rhs, true, cctx, shadows)
 	}
-	if leftProxy, ok := lhs.(wrappingProvType); ok {
-		return cs.rec(leftProxy.underlying(), rhs, true, cctx, shadows)
-	}
-	if rightProxy, ok := rhs.(wrappingProvType); ok {
-		return cs.rec(lhs, rightProxy.underlying(), true, cctx, shadows)
-	}
 	lhsIsErr := isErrorType(lhs)
 	if lhsIsErr {
 		rhsFn, isRhsFn := rhs.(funcType)
@@ -542,7 +630,7 @@ func (cs *constraintSolver) recImpl(
 			}
 			if !found {
 				// if we got this far, it means that we did not find right's field inside left
-				if cs.reportError(fmt.Sprintf("could not find field %s", rightField.name.Name), cctx) {
+				if cs.reportError(fmt.Sprintf("could not find field %s", rightField.name.Name)) {
 					return true
 				}
 			}
@@ -561,7 +649,7 @@ func (cs *constraintSolver) recImpl(
 	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ir.ArrayTypeName {
 		if lhsTypeRef.defName == rhsTypeRef.defName {
 			if len(lhsTypeRef.typeArgs) != len(rhsTypeRef.typeArgs) {
-				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName), cctx)
+				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName))
 			}
 			def, ok := cs.ctx.typeDefs[lhsTypeRef.defName]
 			if !ok {
@@ -584,7 +672,7 @@ func (cs *constraintSolver) recImpl(
 
 		if lhsTag, ok := cs.ctx.classTagFrom(lhsTypeRef); ok {
 			if rhsTag, ok := cs.ctx.classTagFrom(rhsTypeRef); ok && !cs.ctx.isSubtype(lhsTag, rhsTag, nil) {
-				return cs.reportError("type mismatch", cctx)
+				return cs.reportError("type mismatch")
 			}
 		}
 		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
@@ -617,7 +705,7 @@ func (cs *constraintSolver) recImpl(
 	}
 
 	logger.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
-	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs), cctx)
+	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs))
 }
 
 // requiresGoToWork checks if the constraint likely needs DNF/CNF normalization.
@@ -665,7 +753,7 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
 	if extrudedRhs == nil {                            // Extrusion failed or reported error
-		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs), cctx)
+		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs))
 		return true
 	}
 	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
@@ -699,7 +787,7 @@ func (cs *constraintSolver) constrainFuncFunc(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.args) != len(rhs.args) {
-		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)), cctx)
+		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)))
 	}
 	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
@@ -718,7 +806,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.fields) != len(rhs.fields) {
-		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), cctx)
+		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)))
 	}
 
 	// constrain fields covariantly: lhs.field <: rhs.field
@@ -739,7 +827,7 @@ func (cs *constraintSolver) constrainNamedTupleNamedTuple(
 	shadows *shadowsState,
 ) bool {
 	if len(lhs.fields) != len(rhs.fields) {
-		return cs.reportError(fmt.Sprintf("named tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)), cctx)
+		return cs.reportError(fmt.Sprintf("named tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)))
 	}
 
 	// Check names and constrain fields covariantly
@@ -747,7 +835,7 @@ func (cs *constraintSolver) constrainNamedTupleNamedTuple(
 	for i := range lhs.fields {
 		// Assuming fields are ordered or using a map lookup
 		if lhs.fields[i].Fst.Name != rhs.fields[i].Fst.Name {
-			return cs.reportError(fmt.Sprintf("named tuple field name mismatch: '%s' vs '%s'", lhs.fields[i].Fst.Name, rhs.fields[i].Fst.Name), cctx)
+			return cs.reportError(fmt.Sprintf("named tuple field name mismatch: '%s' vs '%s'", lhs.fields[i].Fst.Name, rhs.fields[i].Fst.Name))
 		}
 		if cs.rec(lhs.fields[i].Snd, rhs.fields[i].Snd, false, cctx, shadows) { // Note: sameLevel = false
 			return true // Terminate early
@@ -770,7 +858,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		if Equal(expandedLhs, lhs) && Equal(expandedRhs, rhs) { // Avoid infinite loop
 			// Check structural subtyping via tags if possible (Scala: mkClsTag)
 			// Or report error
-			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName), cctx)
+			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName))
 		}
 		return cs.rec(expandedLhs, expandedRhs, true, cctx, shadows)
 	}
@@ -778,16 +866,16 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 	// Same definition, check type arguments based on variance
 	if len(lhs.typeArgs) != len(rhs.typeArgs) {
 		// Should not happen if defName is the same and definitions are consistent
-		return cs.reportError("type argument count mismatch", cctx)
+		return cs.reportError("type argument count mismatch")
 	}
 
 	// Fetch variance info for the definition (needs Ctx support)
 	variances, ok := cs.ctx.getTypeDefinitionVariances(lhs.defName) // Needs implementation
 	if !ok {
-		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName), cctx)
+		return cs.reportError(fmt.Sprintf("unknown type definition %s", lhs.defName))
 	}
 	if len(variances) != len(lhs.typeArgs) {
-		return cs.reportError(fmt.Sprintf("variance info mismatch for %s", lhs.defName), cctx)
+		return cs.reportError(fmt.Sprintf("variance info mismatch for %s", lhs.defName))
 	}
 
 	for i, variance := range variances {
@@ -834,7 +922,7 @@ func (cs *constraintSolver) constrainClassRecord(
 		// Simplified lookup:
 		memberTy, err := cs.ctx.LookupField(lhs, fldName) // Needs implementation
 		if err != nil {
-			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name), cctx)
+			return cs.reportError(fmt.Sprintf("class %s has no field %s required by record", className, fldName.Name))
 		}
 
 		// constrain upper bounds: memberTy.ub <: fldTy.ub
@@ -846,7 +934,7 @@ func (cs *constraintSolver) constrainClassRecord(
 		if fldTy.lowerBound != nil {
 			if memberTy.lb == nil {
 				// Trying to assign to a non-mutable field
-				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name), cctx)
+				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name))
 			}
 			if cs.rec(fldTy.lowerBound, memberTy.lb, false, cctx, shadows) {
 				return true

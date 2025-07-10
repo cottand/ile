@@ -207,8 +207,7 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 		}
 		return newRecordType(record)
 	case *ir.GoType:
-
-		t := convertGoType(typ.Underlying, ir.RangeOf(typ))
+		t := convertGoType(typ.Underlying)
 		if t == nil {
 			// skip unsupported Go types until we plan to support them all
 			//ctx.addError(ilerr.New(ilerr.NewUnsupportedGoType{
@@ -218,14 +217,17 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 
 			return errorType()
 		}
+		resolved := ctx.typeAstTypeRec(t)
+		goProvenance := typeProvenance{
+			Range: ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
+			desc:  fmt.Sprintf("imported go value"),
+			isType:        true,
+			originName:    typ.Underlying.Name(),
+			originPackage: typ.Underlying.Pkg().Path(),
+		}
 		return wrappingProvType{
-			SimpleType: ctx.typeAstTypeRec(t),
-			proxyProvenance: typeProvenance{
-				Range:      ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
-				desc:       "go type",
-				isType:     true,
-				originName: typ.Underlying.Name(),
-			},
+			SimpleType:      resolved,
+			proxyProvenance: goProvenance,
 		}
 
 	default:

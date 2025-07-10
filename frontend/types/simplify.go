@@ -683,7 +683,7 @@ func (a2 *analysis2State) processVarOcc(st SimpleType, pol polarity) {
 				// Intersect existing with current path's co-occs
 				a2.coOccurrences[key] = existingCoOccs.Intersect(currentCoOccs)
 			} else {
-				// First time seeing this var at this polarity, store current co-occs
+				// Actual time seeing this var at this polarity, store current co-occs
 				a2.coOccurrences[key] = currentCoOccs.Copy()
 			}
 		}

@@ -683,6 +683,7 @@ func (e *WhenMatch) Transform(f func(expr Expr) Expr) Expr {
 	copied.Cases = cases
 	return f(&copied)
 }
+
 func (e *WhenMatch) Hash() uint64 {
 	h := fnv.New64a()
 	arr := []byte(e.ExprName())

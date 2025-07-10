@@ -13,8 +13,8 @@ var enabledSections = []string{
 	//"package",
 	//"inference",
 	//"inference.simplify",
-	"inference.normalise",
-	"inference.DNF",
+	//"inference.normalise",
+	//"inference.DNF",
 }
 
 var LoggerOpts = &slog.HandlerOptions{

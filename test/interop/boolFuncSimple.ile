@@ -1,7 +1,7 @@
-//ile:compilerTest test.res | true
+//ile:compilerTest true | true
 
 package test
 
 import math "go:math"
 
-val res = math.IsInf(math.Inf(1), 1)
+val res: Float = math.Inf(1)

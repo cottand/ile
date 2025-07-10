@@ -20,7 +20,7 @@ import (
 
 func goLoadPkgsConfig() *gopackages.Config {
 	return &gopackages.Config{
-		Mode: gopackages.NeedName | gopackages.NeedImports | gopackages.NeedDeps | gopackages.NeedTypesInfo | gopackages.NeedTypes,
+		Mode: gopackages.NeedName | gopackages.NeedImports | gopackages.NeedDeps | gopackages.NeedTypesInfo | gopackages.NeedTypes | gopackages.NeedFiles,
 	}
 }
 
@@ -281,26 +281,32 @@ type SourceFinder interface {
 	Position(token.Pos) token.Position
 }
 
-func (p *Package) FindSnippet(positioner ir.Positioner) (string, error) {
-	startPosition := p.Position(positioner.Pos())
-	endPosition := p.Position(positioner.End())
+func findSnippet(fSet *token.FileSet, positioner ir.Positioner) (string, error) {
+	startPosition := fSet.Position(positioner.Pos())
+	endPosition := fSet.Position(positioner.End())
 	if startPosition.Filename != endPosition.Filename {
 		return "", fmt.Errorf("start and end positions are in different files")
 	}
-	snippetFile, ok := p.originalSource[startPosition.Filename]
-	if !ok {
-		return "", fmt.Errorf("could not find source for file %s", startPosition.Filename)
+	snippetFileBytes, err := os.ReadFile(startPosition.Filename)
+	if err != nil {
+		return "", fmt.Errorf("could not read file %s: %w", startPosition.Filename, err)
 	}
 	if startPosition.Line != endPosition.Line {
 		return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
 	}
+	// go package filesets measure offsets in bytes, not runes
+	if path.Ext(startPosition.Filename) == ".go" {
+		snippetLine := snippetFileBytes[startPosition.Offset:(endPosition.Offset + 1)]
+		return string(snippetLine), nil
+	}
+	snippetFile := []rune(string(snippetFileBytes))
 	snippetLine := snippetFile[startPosition.Offset:(endPosition.Offset + 1)]
 	return string(snippetLine), nil
 }
 
-// GetLine returns the line in the original source for the given token.Pos
-func (p *Package) GetLine(pos token.Pos) (string, error) {
-	file := p.fSet.File(pos)
+// findLineInFileset returns the line in the original source fset for the given token.Pos
+func findLineInFileset(pos token.Pos, fset *token.FileSet) (string, error) {
+	file := fset.File(pos)
 	if file == nil {
 		return "", fmt.Errorf("could not find file for position %d", pos)
 	}
@@ -309,7 +315,6 @@ func (p *Package) GetLine(pos token.Pos) (string, error) {
 	if len(lines) < line {
 		return "", fmt.Errorf("could not find line %d in file %s (which has %d lines)", line, file.Name(), len(lines))
 	}
-	lineStart := file.LineStart(line)
 	var lineEnd token.Pos
 	// if this was the last line
 	if line+1 > file.LineCount() {
@@ -318,7 +323,7 @@ func (p *Package) GetLine(pos token.Pos) (string, error) {
 		lineEnd = file.LineStart(line+1) - 1
 	}
 
-	snippet, err := p.FindSnippet(ir.Range{PosStart: lineStart, PosEnd: lineEnd})
+	snippet, err := findSnippet(fset, ir.Range{PosStart: file.LineStart(line), PosEnd: lineEnd})
 	if err != nil {
 		return "", fmt.Errorf("could not find snippet for line %d in file %s: %w", line, file.Name(), err)
 	}
@@ -333,14 +338,27 @@ func (p *Package) Position(t token.Pos) token.Position {
 // Highlight prints a snippet with the source surrounding the given ir.Positioner
 // highlighting the specific text corresponding to the ir.Positioner
 // with the given highlightChar
-func (p *Package) Highlight(highlightChar rune, pos ir.Positioner) (string, error) {
-	line, err := p.GetLine(pos.Pos())
+func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (string, error) {
+	fSet := p.fSet
+	if externalPath := pos.PackagePath(); externalPath != "" && externalPath != p.path {
+		import_, ok := p.imports[externalPath]
+		if ok {
+			return import_.Highlight(highlightChar, pos)
+		}
+		goImport, ok := p.goImports[externalPath]
+		if !ok {
+			return "", fmt.Errorf("could not find import %s", externalPath)
+		}
+		fSet = goImport.Fset
+	}
+
+	line, err := findLineInFileset(pos.Pos(), fSet)
 	if err != nil {
 		return "", err
 	}
-	startPosition := p.Position(pos.Pos())
+	startPosition := fSet.Position(pos.Pos())
 	columnStart := startPosition.Column
-	columnEnd := p.Position(pos.End()).Column + 1
+	columnEnd := fSet.Position(pos.End()).Column + 1
 	indent := strings.Repeat(" ", columnStart-1)
 	highlight := strings.Repeat(string(highlightChar), columnEnd-columnStart)
 	return fmt.Sprintf(`

@@ -448,9 +448,16 @@ func (e *RecordType) Hash() uint64 {
 type GoType struct {
 	Underlying types.Object
 	Range
+	// Package provenance information
+	PackagePath string // Full import path of the package
+	PackageName string // Short name of the package
+	SourceFile  string // Source file where the type is defined (if available)
 }
 
 func (t *GoType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	if t.PackageName != "" {
+		return fmt.Sprintf("%s.%s", t.PackageName, t.Underlying.Name())
+	}
 	return t.Underlying.String()
 }
 func (t *GoType) isNullaryType() {}
@@ -461,4 +468,3 @@ func (t *GoType) Hash() uint64 {
 	_, _ = h.Write([]byte(t.Underlying.Pkg().Path()))
 	return h.Sum64()
 }
-

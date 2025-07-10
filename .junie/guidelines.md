@@ -38,6 +38,8 @@ symlink for reference.
 - Tests are written as Ile source files with special comments
 - Each test file should have a comment in the format: `//ile:compilerTest <expression> | <expected value>`
 - The test framework compiles the Ile code to Go, executes it, and compares the result with the expected value
+- Not all tests will pass all the time, as the language is still WIP. Do not try to fix every failing test you see
+  necessarily, unless it indicates regression.
 
 
 ## Contributing
