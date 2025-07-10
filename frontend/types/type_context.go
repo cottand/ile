@@ -358,7 +358,7 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 				// but intuition tells me there can be a type definition where
 				// a ref points to a simple alias? Maybe this is caught in a different path?
 				// Just logging for now to assess how frequently it really happens
-				ctx.logger.Warn("isSubtype seems to be undefined for aliases", "typeDef", typeDef.name, "thisRef", thisRef.defName)
+				//ctx.logger.Warn("isSubtype seems to be undefined for aliases", "typeDef", typeDef.name, "thisRef", thisRef.defName)
 			}
 			return false
 		}

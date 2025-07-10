@@ -1,0 +1,10 @@
+//ile:compilerTest test.res | int64(1)
+
+package test
+
+fn intAndBool(a: Int, b: Bool): Int {
+    a
+}
+
+
+val res = intAndBool(1, True)

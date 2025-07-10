@@ -791,12 +791,12 @@ func (cs *constraintSolver) constrainFuncFunc(
 	}
 	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
-		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) { // Note: sameLevel = false
-			return true // Terminate early
+		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) {
+			return true
 		}
 	}
 	// constrain return type covariantly: lhs.ret <: rhs.ret
-	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows) // Note: sameLevel = false
+	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows)
 }
 
 // constrainTupleTuple handles `TupleType <: TupleType`

@@ -11,7 +11,7 @@ var enabledSections = []string{
 	//"frontend",
 	//"desugar",
 	//"package",
-	//"inference",
+	"inference",
 	//"inference.simplify",
 	//"inference.normalise",
 	//"inference.DNF",

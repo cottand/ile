@@ -271,7 +271,8 @@ func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
 	if callArgs != nil {
 		parsedArgs := callArgs.AllExpression()
 		args := make([]ir.Expr, len(parsedArgs))
-		for i, _ := range parsedArgs {
+		// we pop expressionStack from the end, so we must add to the args from the back
+		for i, _ := range slices.Backward(parsedArgs) {
 			var ok bool
 			args[i], ok = l.expressionStack.Pop()
 			if !ok {
