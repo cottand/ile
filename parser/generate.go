@@ -5,7 +5,7 @@ import (
 	"go/token"
 )
 
-// ANTLR_BIN is set by Nix during the build
+// ANTLR_BIN is set by Nix during nix build and nix develop
 //go:generate bash -c "$ANTLR_BIN -Dlanguage=Go -no-visitor -package parser *.g4"
 
 // IleParserBase implementation.

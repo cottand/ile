@@ -150,8 +150,10 @@ primaryExpr
     : operand
     | operandName fnCallArgs
     | primaryExpr (DOT IDENTIFIER | fnCallArgs) // select ecxpression (a.b)
+    | listLiteral
     ;
 
+listLiteral : L_BRACKET (expression (COMMA expression)* (COMMA)?)? R_BRACKET;
 
 whenBlock
     : WHEN arithmeticExpr L_CURLY (whenCase EOS)+ R_CURLY

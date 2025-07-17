@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/go-set/v3"
 	"log/slog"
 	"slices"
+	"strconv"
 )
 
 // normaliseType corresponds to normalizeTypes_! in the scala reference
@@ -144,8 +145,69 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 
 		var newArray arrayBase
 		if lhs.arr != nil {
-			n.addFailure("LHS ND with arr types not implemented, see normalizeTypes_!()-helper()", emptyProv)
-			return lhs.toType()
+			switch arr := lhs.arr.(type) {
+			case tupleType:
+				arity := len(arr.fields)
+				// Partition the record fields into component fields (those that start with "_" followed by a number)
+				// and regular record fields
+				componentFields := make(map[int]fieldType)
+				regularFields := make([]recordField, 0)
+
+				// Process record fields if they exist
+				if len(lhs.reft.fields) > 0 {
+					for _, field := range lhs.reft.fields {
+						fieldName := field.name.Name
+						if len(fieldName) > 1 && fieldName[0] == '_' {
+							// Check if the rest of the name is a number
+							indexStr := fieldName[1:]
+							if index, err := strconv.Atoi(indexStr); err == nil {
+								if index <= arity && index > 0 {
+									// This is a component field
+									componentFields[index] = field.type_
+									continue
+								}
+							}
+						}
+						// This is a regular field
+						regularFields = append(regularFields, field)
+					}
+				}
+
+				// Create new tuple components by combining the original tuple types with the corresponding component fields
+				newFields := make([]SimpleType, len(arr.fields))
+				for i, field := range arr.fields {
+					index := i + 1 // 1-based indexing
+					if componentField, ok := componentFields[index]; ok {
+						// Process the field type with the appropriate polarity
+						upperBound := n.processType(componentField.upperBound, pol)
+						// Also process lowerBound even though we don't use it directly
+						_ = n.processType(componentField.lowerBound, pol.inverse())
+						// Combine with the original field
+						newFields[i] = intersectionOf(field, upperBound, unionOpts{})
+					} else {
+						newFields[i] = n.processType(field, pol)
+					}
+				}
+
+				// Create a new tuple type with the processed components
+				newArray = tupleType{
+					fields:         newFields,
+					withProvenance: arr.withProvenance,
+				}
+
+				// Update lhs.reft with the regular fields
+				if len(regularFields) > 0 {
+					lhs.reft = recordType{
+						fields:         regularFields,
+						withProvenance: lhs.reft.withProvenance,
+					}
+				} else {
+					lhs.reft = recordType{} // Empty record type
+				}
+			default:
+				n.addFailure(fmt.Sprintf("LHS ND with arr types (in this case %T) not implemented, see normalizeTypes_!()-helper()", lhs.arr), emptyProv)
+				return lhs.toType()
+			}
 		}
 
 		if lhs.base != nil {

@@ -265,6 +265,12 @@ func (l *listener) ExitOperand(ctx *parser.OperandContext) {
 }
 
 func (l *listener) ExitPrimaryExpr(ctx *parser.PrimaryExprContext) {
+	// list literal case
+	if ctx.ListLiteral() != nil {
+		// The ExitListLiteral method will handle this
+		return
+	}
+
 	// function call case (a() or a.b())
 	primaryExpr := ctx.PrimaryExpr()
 	callArgs := ctx.FnCallArgs()
@@ -619,6 +625,7 @@ func (l *listener) ExitType_(ctx *parser.Type_Context) {
 	l.typeStack.Push(t)
 }
 
+
 //
 // Errors
 //
@@ -630,4 +637,24 @@ func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
 	})
 }
 func (l *listener) VisitTerminal(node antlr.TerminalNode) {
+}
+
+func (l *listener) ExitListLiteral(ctx *parser.ListLiteralContext) {
+	expressions := ctx.AllExpression()
+	args := make([]ir.Expr, len(expressions))
+
+	// We pop expressions from the stack in reverse order since they were pushed in order
+	for i, _ := range slices.Backward(expressions) {
+		var ok bool
+		args[i], ok = l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("list literal: expression stack is empty"))
+			return
+		}
+	}
+
+	l.expressionStack.Push(&ir.ListLiteral{
+		Args:       args,
+		Positioner: getPos(ctx),
+	})
 }

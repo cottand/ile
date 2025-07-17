@@ -73,6 +73,8 @@ var (
 	_ Type = (*TypeBounds)(nil)
 	_ Type = (*ConstrainedType)(nil)
 	_ Type = (*FnType)(nil)
+	_ Type = (*ListLiteralType)(nil)
+	_ Type = (*ListType)(nil)
 
 	_ NullaryType = (*TypeVar)(nil)
 	_ NullaryType = (*Literal)(nil)
@@ -466,5 +468,57 @@ func (t *GoType) Hash() uint64 {
 	_, _ = h.Write([]byte("GoType"))
 	_, _ = h.Write([]byte(t.Underlying.String()))
 	_, _ = h.Write([]byte(t.Underlying.Pkg().Path()))
+	return h.Sum64()
+}
+
+// ListType represents a list type with elements of a specific type
+type ListType struct {
+	ElementType Type
+	Positioner
+}
+
+func (t *ListType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	return "List<" + t.ElementType.ShowIn(ctx, 0) + ">"
+}
+
+func (t *ListType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("ListType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.ElementType.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
+// ListLiteralType represents a tuple type with elements of specific types
+// It's used for tuples of known width and subtypes (e.g., [Int, String, Int])
+type ListLiteralType struct {
+	ElementTypes []Type
+	// InnerType lazily resolves the common supertype of all the ElementTypes
+	InnerType func() Type
+	Positioner
+}
+
+func (t *ListLiteralType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	sb := strings.Builder{}
+	sb.WriteString("[")
+	for i, elemType := range t.ElementTypes {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(elemType.ShowIn(ctx, 0))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func (t *ListLiteralType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("ListLiteralType"))
+	arr := make([]byte, 0)
+	for _, elemType := range t.ElementTypes {
+		arr = binary.LittleEndian.AppendUint64(arr, elemType.Hash())
+	}
+	_, _ = h.Write(arr)
 	return h.Sum64()
 }

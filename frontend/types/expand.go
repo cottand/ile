@@ -246,22 +246,31 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 		}
 		return record
 	case tupleType:
-		// Assuming ast.Tuple exists
-		panic("TODO: Implement expandRec for tupleType - requires ast.Tuple")
-		// fields := make([]ast.Type, len(ty.fields))
-		// var firstFieldRange, lastFieldRange ast.Range
-		// for i, f := range ty.fields {
-		// 	fields[i] = st.expandRec(f)
-		// 	// ... range calculation ...
-		// }
-		// tupRange := rng // Default
-		// if len(fields) > 0 {
-		// 	tupRange = ast.MergeRanges(firstFieldRange, lastFieldRange)
-		// }
-		// return &ast.Tuple{
-		// 	Fields: fields,
-		// 	Range:  tupRange,
-		// }
+		fields := make([]ir.Type, len(ty.fields))
+		var firstFieldRange, lastFieldRange ir.Range
+		for i, field := range ty.fields {
+			fields[i] = st.expandRec(field)
+			if i == 0 {
+				firstFieldRange = ir.RangeOf(fields[i])
+			}
+			if i == len(ty.fields)-1 {
+				lastFieldRange = ir.RangeOf(fields[i])
+			}
+		}
+
+		// Calculate range for ListLiteralType
+		listRange := rng // Default
+		if len(fields) > 0 {
+			listRange = ir.RangeBetween(firstFieldRange, lastFieldRange)
+		}
+
+		return &ir.ListLiteralType{
+			ElementTypes: fields,
+			Positioner:   listRange,
+			InnerType: func() ir.Type {
+				return st.expandRec(ty.inner(st.ctx))
+			},
+		}
 
 	case namedTupleType:
 		// Assuming ast.NamedTuple exists
