@@ -14,7 +14,6 @@ import (
 var (
 	_ Expr = (*Literal)(nil)
 	_ Expr = (*Var)(nil)
-	_ Expr = (*Deref)(nil)
 	_ Expr = (*Call)(nil)
 	_ Expr = (*Ascribe)(nil)
 	_ Expr = (*Func)(nil)
@@ -49,7 +48,6 @@ func (e *Literal) Describe() string {
 }
 
 func (e *Var) Describe() string            { return "variable" }
-func (e *Deref) Describe() string          { return "dereference" }
 func (e *Call) Describe() string           { return "function call" }
 func (e *Ascribe) Describe() string        { return "type annotation" }
 func (e *Func) Describe() string           { return "function" }
@@ -253,29 +251,6 @@ func (e *Var) Hash() uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(e.Name))
 	return h.Sum64()
-}
-
-// Dereference: `*x`
-type Deref struct {
-	Ref      Expr
-	inferred Type
-	Range
-}
-
-// "Deref"
-func (e *Deref) ExprName() string { return "Deref" }
-
-func (e *Deref) Copy() Expr {
-	copied := *e
-	return &copied
-}
-func (e *Deref) Transform(f func(expr Expr) Expr) Expr {
-	copied := *e
-	return f(&copied)
-}
-
-func (e *Deref) Hash() uint64 {
-	return e.Hash() ^ 31
 }
 
 // Application: `f(x)`

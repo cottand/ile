@@ -151,9 +151,14 @@ primaryExpr
     | operandName fnCallArgs
     | primaryExpr (DOT IDENTIFIER | fnCallArgs) // select ecxpression (a.b)
     | listLiteral
+    | structLiteral
     ;
 
 listLiteral : L_BRACKET (expression (COMMA expression)* (COMMA)?)? R_BRACKET;
+
+structLiteral : L_CURLY (structElement (COMMA structElement)* COMMA?)? R_CURLY;
+
+structElement :  operandName ASSIGN expression;
 
 whenBlock
     : WHEN arithmeticExpr L_CURLY (whenCase EOS)+ R_CURLY
@@ -207,5 +212,5 @@ eos
     : SEMI
     | EOF
     | EOS
-//  TODO  | {p.closingBracket()}?
+    | {p.closingBracket()}?
     ;

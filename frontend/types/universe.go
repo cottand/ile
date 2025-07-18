@@ -101,6 +101,7 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 		"==":         comparisonBinOp(),
 		"!=":         comparisonBinOp(),
 		"println":    funcType{args: []SimpleType{stringType}, ret: unitType},
+		"panic":      funcType{args: []SimpleType{anyClassTag}, ret: bottomType},
 	}
 }
 
