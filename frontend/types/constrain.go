@@ -7,6 +7,7 @@ import (
 	"github.com/cottand/ile/util"
 	set "github.com/hashicorp/go-set/v3"
 	"go/token"
+	"log/slog"
 	"math"
 	"reflect"
 	"slices"
@@ -49,6 +50,7 @@ type constraintSolver struct {
 	prov  typeProvenance                                 // Provenance of the top-level constraint
 	onErr func(err ilerr.IleError) (terminateEarly bool) // Error callback
 	level level                                          // Current polymorphism level during solving
+	*slog.Logger
 
 	cache          *set.HashSet[*constraintPair, uint64]
 	extrusionCache map[polarVariableKey]*typeVariable // Cache for extrude: (original_var, polarity) -> extruded_var
@@ -87,6 +89,7 @@ func (ctx *TypeCtx) newConstraintSolver(
 		fuel:           defaultStartingFuel,
 		depth:          0,
 		stack:          make([]constraintPair, 0, defaultDepthLimit),
+		Logger:         ctx.logger.With("section", "inference.constrain"),
 		// Initialize shadows, extrCtx etc. if implemented
 	}
 }
@@ -341,7 +344,7 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
 func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
-	logger.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
+	cs.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
 	// the reference implementation uses foldLeft so we concatenate and iterate in reverse
 	chains := util.ConcatIter(slices.Values(cctx.rhsChain), util.Reverse(cctx.lhsChain))
 	newBound := rhs
@@ -364,7 +367,7 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
 func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
-	logger.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
+	cs.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
 	newBound := lhs
 	for c := range util.ConcatIter(slices.Values(cctx.lhsChain), util.Reverse(cctx.rhsChain)) {
 		if c.prov() != emptyProv {
@@ -392,7 +395,7 @@ func (ctx *TypeCtx) constrain(
 ) bool {
 	solver := ctx.newConstraintSolver(prov, onErr)
 
-	logger.Debug("constrain: begin for", "lhs", lhs, "rhs", rhs)
+	solver.Debug("constrain: begin for", "lhs", lhs, "rhs", rhs)
 
 	// fmt.Printf("  where %s\n", functionType{args: []SimpleType{lhs}, ret: rhs}.String()) // Assuming functionType exists
 
@@ -466,7 +469,7 @@ func (cs *constraintSolver) recImpl(
 	shadows *shadowsState,
 ) bool {
 	math.IsInf(math.Inf(1), 1)
-	logger.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
+	cs.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
@@ -704,12 +707,12 @@ func (cs *constraintSolver) recImpl(
 		return cs.goToWork(lhs, rhs, cctx, shadows)
 	}
 
-	logger.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
+	cs.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
 	return cs.reportError(fmt.Sprintf("cannot constrain %T <: %T", lhs, rhs))
 }
 
 // requiresGoToWork checks if the constraint likely needs DNF/CNF normalization.
-func requiresGoToWork(lhs, rhs SimpleType) bool {
+func requiresGoToWork(lhs, rhs SimpleType, logger *slog.Logger) bool {
 	// Simplified check. Scala logic is more involved.
 	_, lhsIsUnion := lhs.(unionType)
 	_, rhsIsInter := rhs.(intersectionType)
@@ -750,7 +753,7 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 	}
 
 	// Extrusion needed for RHS
-	logger.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
+	cs.Debug("constraint: extruding RHS for type-variable LHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedRhs := cs.extrude(rhs, lhs.level(), false) // Needs extrude implementation
 	if extrudedRhs == nil {                            // Extrusion failed or reported error
 		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs))
@@ -771,7 +774,7 @@ func (cs *constraintSolver) constrainTypeVarRhs(
 		return cs.addLowerBound(rhs, lhs, cctx)
 	}
 
-	logger.Debug("constraint: extruding LHS for type-variable RHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
+	cs.Debug("constraint: extruding LHS for type-variable RHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
 	extrudedLhs := cs.extrude(lhs, rhs.level(), true) // Needs extrude implementation
 	if extrudedLhs == nil {                           // Extrusion failed or reported error
 		return true
@@ -955,7 +958,7 @@ func (cs *constraintSolver) goToWork(
 ) bool {
 	opsDnf := &opsDNF{
 		ctx:    cs.ctx,
-		Logger: cs.ctx.logger.With("section", "inference.constraintSolver"),
+		Logger: cs.Logger.With("section", "inference.constraintSolver"),
 	}
 	// constrainDNF is not resilient yet to partial implementation, which can result in a panic
 	// I dislike recovering a panic deep inside the inference engine, but the alternative
@@ -972,7 +975,7 @@ func (cs *constraintSolver) goToWork(
 // constrainDNF handles constraining when types have been converted to DNF.
 // This corresponds to the logic within goToWork inside constraining in the scala reference.
 func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
-	logger.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
+	ops.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
 	cs.annoyingCalls++
 
 	// Iterate through each conjunct C in the LHS DNF (LHS = C1 | C2 | ...)
@@ -1004,7 +1007,7 @@ eachConj:
 			fullRhs = ops.or(fullRhs, nvar)
 		}
 
-		logger.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
+		ops.Debug(fmt.Sprintf("constrainDNF: considering %s <: %s", conj.lhs, fullRhs))
 
 		lnf := conj.lhs
 
@@ -1015,7 +1018,7 @@ eachConj:
 			if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
 				// If rConj is just an LHS part (rConj.lhs)
 				if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
-					logger.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
+ 				ops.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
 					break eachConj // Skip to the next conjunct in the outer loop (lhs)
 				}
 			}
@@ -1026,20 +1029,20 @@ eachConj:
 			_, ok := lnf.and(rConj.lhs, cs.ctx)
 
 			if !ok {
-				logger.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
+				ops.Debug("constrainDNF: Filtered (Lnf intersection failed)", "lnf", lnf, "rConj.lhs", rConj.lhs.String())
 				continue
 			}
 
 			// 3. Tag checks (simplified version)
 			if ok := checkTagCompatibility(lnf, rConj.rhs); !ok {
-				logger.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
+				ops.Debug("constrainDNF: Filtered (Tag incompatibility) !<:", "lnf", lnf, "rConj.rhs", rConj.rhs.String())
 				continue // Skip this rConj
 			}
 
 			// If all checks pass, add to possible conjuncts
 			possibleConjuncts = append(possibleConjuncts, rConj)
 		}
-		logger.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
+		ops.Debug("constrainDNF: possible conjuncts", "possibleConjuncts", possibleConjuncts)
 		possibleAsTypes := make([]SimpleType, 0, len(possibleConjuncts))
 		for _, rConj := range possibleConjuncts {
 			possibleAsTypes = append(possibleAsTypes, rConj.toType())
@@ -1049,7 +1052,7 @@ eachConj:
 }
 
 func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
-	logger.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
+	cs.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
 	cs.annoyingCalls++
 
 }
@@ -1271,11 +1274,11 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 			// Scala seems to return the original typeRef here. Let's do that.
 			// This might be incorrect if the typeRef *contains* higher-level variables.
 			// A safer approach might be to report an error.
-			logger.Warn("extrude: unknown type definition, cannot extrude TypeRef arguments", "typeRef", t)
+			cs.Warn("extrude: unknown type definition, cannot extrude TypeRef arguments", "typeRef", t)
 			return t // Or return nil and report error?
 		}
 		if len(variances) != len(t.typeArgs) {
-			logger.Warn("extrude: variance/type argument mismatch", "typeRef", t)
+			cs.Warn("extrude: variance/type argument mismatch", "typeRef", t)
 			return t // Or return nil and report error?
 		}
 

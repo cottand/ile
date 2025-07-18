@@ -16,6 +16,11 @@ func SetLevel(l slog.Level) {
 	refreshLogger()
 }
 
+func AddSource(addSource bool) {
+	LoggerOpts.AddSource = addSource
+	refreshLogger()
+}
+
 var enabledSections = []string{
 	//"frontend",
 	//"desugar",
@@ -23,6 +28,7 @@ var enabledSections = []string{
 	"inference",
 	//"inference.simplify",
 	//"inference.normalise",
+	"inference.constrain",
 	//"inference.DNF",
 }
 

@@ -29,7 +29,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		_ = os.RemoveAll(path)
 	}(tmpFolder)
 
+	// quieten the logger
 	log.SetLevel(slog.LevelError)
+	log.AddSource(false)
 
 	target, err := filepath.Abs(args[0])
 	if err != nil {

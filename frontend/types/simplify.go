@@ -198,7 +198,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 			_, hasOtherPolarity := analyzer1.occNums[polarVariableKey{pol: pol.inverse(), tv: tv}]
 			if num == 1 && !hasOtherPolarity {
 				if _, exists := varSubst[tv]; !exists {
-					logger.Debug("simplifyType: [sub] Rule 1 (Polar, Occ=1)", "var", tv, "action", "remove")
+					simplifier.Debug("simplifyType: [sub] Rule 1 (Polar, Occ=1)", "var", tv, "action", "remove")
 					varSubst[tv] = nil // Mark for removal
 				}
 			}
@@ -218,7 +218,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 			_, hasNeg := coOccurrences[polarVariableKey{pol: negative, tv: tv.id}]
 
 			if hasPos != hasNeg { // If strictly polar
-				logger.Debug("simplifyType: [sub] Rule 2 (Non-Rec, Polar)", "var", tv, "action", "remove")
+				simplifier.Debug("simplifyType: [sub] Rule 2 (Non-Rec, Polar)", "var", tv, "action", "remove")
 				varSubst[tv.id] = nil // Mark for removal
 			}
 		}
