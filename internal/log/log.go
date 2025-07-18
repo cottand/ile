@@ -7,6 +7,15 @@ import (
 	"slices"
 )
 
+func SetEnabledSections(sections ...string) {
+	enabledSections = sections
+}
+
+func SetLevel(l slog.Level) {
+	LoggerOpts.Level = l
+	refreshLogger()
+}
+
 var enabledSections = []string{
 	//"frontend",
 	//"desugar",
@@ -19,7 +28,7 @@ var enabledSections = []string{
 
 var LoggerOpts = &slog.HandlerOptions{
 	AddSource: true,
-	Level:     slog.LevelDebug,
+	Level:     slog.LevelInfo,
 	ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == "time" {
 			return slog.Attr{}
@@ -28,10 +37,15 @@ var LoggerOpts = &slog.HandlerOptions{
 	},
 }
 
-var DefaultLogger = slog.New(&filteringHandler{underlying: slog.NewTextHandler(os.Stdout, LoggerOpts)})
+var DefaultLogger *slog.Logger
+
+func refreshLogger() {
+	DefaultLogger = slog.New(&filteringHandler{underlying: slog.NewTextHandler(os.Stdout, LoggerOpts)})
+	slog.SetDefault(DefaultLogger)
+}
 
 func init() {
-	slog.SetDefault(DefaultLogger)
+	refreshLogger()
 }
 
 var _ slog.Handler = &filteringHandler{}
@@ -46,7 +60,7 @@ func (f filteringHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (f filteringHandler) Handle(ctx context.Context, record slog.Record) error {
-	// always handle warnings
+	// always handle warnings or above
 	if record.Level >= slog.LevelWarn {
 		return f.underlying.Handle(ctx, record)
 	}

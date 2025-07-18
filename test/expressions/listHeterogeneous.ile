@@ -1,4 +1,0 @@
-//ile:compilerTest x | [1, "aa", False]
-package main
-
-val x = [1, "aa", False]

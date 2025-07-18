@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/internal/log"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"iter"
@@ -125,7 +124,7 @@ func NewEmptyTypeCtx() *TypeCtx {
 			cache:             make(map[exprCacheEntry]nodeCacheEntry, 1),
 			expandedTypeCache: make(map[exprCacheEntry]ir.Type, 1),
 		},
-		logger: slog.New(ir.IleAstHandler(log.DefaultLogger.Handler())).With("section", "inference"),
+		logger: slog.New(ir.IleAstHandler(slog.Default().Handler())).With("section", "inference"),
 	}
 }
 

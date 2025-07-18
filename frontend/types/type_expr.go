@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/internal/log"
 	"log/slog"
 	"reflect"
 )
 
-var logger = slog.New(ir.IleAstHandler(log.DefaultLogger.Handler())).With("section", "inference")
+var logger = slog.New(ir.IleAstHandler(slog.Default().Handler())).With("section", "inference")
 
 func (ctx *TypeCtx) TypeLetRecBody(name string, body ir.Expr) PolymorphicType {
 	panic("TODO implement me")

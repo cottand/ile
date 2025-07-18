@@ -7,11 +7,11 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
-	"github.com/cottand/ile/internal/log"
 	"go/format"
 	"go/token"
 	gopackages "golang.org/x/tools/go/packages"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"strings"
@@ -24,7 +24,7 @@ func goLoadPkgsConfig() *gopackages.Config {
 	}
 }
 
-var packageLogger = log.DefaultLogger.With("section", "package")
+var packageLogger = slog.With("section", "package")
 
 // Package is a single build unit for a program
 // Packages can import each other,
@@ -63,13 +63,19 @@ type readFileDirFS interface {
 // LoadPackage returns a Package, where dir is the root folder for that package
 //
 // Only single-file filesets are supported TODO https://github.com/cottand/ile/issues/10
-func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
+func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	dirPath := config.Dir
 	if dirPath == "" {
 		dirPath = "."
 	}
+
+	asReadWriteFileDirFS, ok := dir.(readFileDirFS)
+	if !ok {
+		return nil, fmt.Errorf("dir must be a ReadFileDirFS (TODO should support more file systems)")
+	}
+
 	// for now, ile projects must always be a single astFile
-	files, err := dir.ReadDir(dirPath)
+	files, err := asReadWriteFileDirFS.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +86,7 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		packageLogger.Warn("multiple files found, but we do not support multiple file projects yet - using the first one")
 	}
 	file := files[0]
-	fileOpen, err := dir.ReadFile(path.Join(dirPath, file.Name()))
+	fileOpen, err := asReadWriteFileDirFS.ReadFile(path.Join(dirPath, file.Name()))
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +95,6 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 		// TODO set path and name when we have modules
 		//  https://github.com/cottand/ile/issues/8
 		path:           "ilePackageNameless",
-		name:           "ilePackageNameless",
 		imports:        make(map[string]*Package),
 		goImports:      make(map[string]*gopackages.Package),
 		declarations:   make(map[string]ir.Type),
@@ -121,6 +126,8 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse to AST: %w", err)
 	}
+	// set package name while we are at it
+	pkg.name = astFile.PkgName
 
 	// desugar phase
 	astFile, errorsDesugar := frontend.DesugarPhase(astFile)
@@ -168,6 +175,10 @@ func LoadPackage(dir readFileDirFS, config PkgLoadSettings) (*Package, error) {
 	pkg.syntax, errorsInference, err = frontend.InferencePhase(pkg.inferenceEnv(), pkg.TypeCtx)
 	pkg.errors = pkg.errors.Merge(errorsInference)
 	return pkg, err
+}
+
+func (p *Package) Errors() *ilerr.Errors {
+	return p.errors
 }
 
 func tmpGoModTemplate() string {

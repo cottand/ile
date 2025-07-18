@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -150,6 +151,7 @@ func (e *Literal) Transform(f func(expr Expr) Expr) Expr {
 // CanonicalSyntax must TODO desugar identical literals (01 == 1)
 // when this Literal is token.STRING, it should return the escaped string
 func (e *Literal) CanonicalSyntax() string {
+	astLogger := slog.With("section", "ast")
 	switch e.Kind {
 	case token.FLOAT:
 		return fmt.Sprintf("%s", e.Syntax)
@@ -159,7 +161,7 @@ func (e *Literal) CanonicalSyntax() string {
 		if e.Syntax == "0" {
 			return "0"
 		}
-		logger := logger.With("type", e.Kind.String(), "syntax", e.Syntax)
+		logger := astLogger.With("type", e.Kind.String(), "syntax", e.Syntax)
 		if strings.HasPrefix(e.Syntax, "0x") {
 			logger.Warn("CanonicalSyntax: cannot do integer hex notation yet")
 			return e.Syntax
@@ -174,7 +176,7 @@ func (e *Literal) CanonicalSyntax() string {
 		}
 		return strings.TrimPrefix(e.Syntax, "0")
 	default:
-		logger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax", "literal", e.Syntax, "type", e.Kind.String())
+		astLogger.Warn("CanonicalSyntax: unrecognized literal type, not providing canonical syntax", "literal", e.Syntax, "type", e.Kind.String())
 		return e.Syntax
 	}
 }
@@ -196,7 +198,7 @@ func (e *Literal) BaseTypes() set.Collection[string] {
 		return set.From(superTypes[FloatTypeName])
 
 	default:
-		logger.Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
+		slog.With("section", "ast").Warn("unrecognized literal type, not providing base types", "type", e.Kind.String())
 		// TODO add base types for each lit type (LitImpl in reference scala implementation)
 		return set.New[string](0)
 	}

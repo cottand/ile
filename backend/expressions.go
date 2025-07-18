@@ -158,11 +158,17 @@ func (tp *Transpiler) transpileListLiteral(expr ir.Expr) (goast.Expr, error) {
 }
 
 // transpileExpressionToStatements makes a []ast.Stmt
-// that produces the result of expr, and places it on a final variable finalLocalVarName
-// the caller will then need to synthesise a final statement that use that value.
-// Exceptionally, if finalLocalVarName is a string with "return",
-// then transpileExpressionToStatements makes the last statement a return statement
-// for the resulting ast.Expr
+// that produces the result of expr, and places it on a final variable finalLocalVarName.
+//
+// The caller will then need to synthesise a final statement that use that value.
+//
+// Exceptionally, if finalLocalVarName is a string with
+//
+//   - "return":
+//     then transpileExpressionToStatements makes the last statement a return statement
+//     for the resulting ast.Expr.
+//
+//   - Empty string "": the result is not placed in any variables (useful for discarding results)
 func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]goast.Stmt, error) {
 	var statements []goast.Stmt
 	var finalExpr goast.Expr
@@ -235,7 +241,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVa
 	var finalStatement goast.Stmt
 	switch finalLocalVarName {
 	case "":
-		return nil, errors.New("unexpected empty local variable name")
+		finalStatement = &goast.ExprStmt{X: finalExpr}
 	case "return":
 		finalStatement = &goast.ReturnStmt{
 			Results: []goast.Expr{finalExpr},

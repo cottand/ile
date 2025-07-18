@@ -22,6 +22,15 @@ symlink for reference.
   - `test/functions/`: Tests for function definitions and calls
   - `test/interop/`: Tests for Go interoperability
 
+## Type representations
+
+There are two ways to represent types:
+- ir.Type (for the IR)
+- SimpleType (internal type representation that does not leave the `types` package).
+
+We can go from ir.Type to SimpleType via TypeCtx.ProcessTypeDefs(), and the other way around via
+TypeCtx.expandSimpleType().
+
 
 ## Language Features
 

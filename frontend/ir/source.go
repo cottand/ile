@@ -2,13 +2,10 @@ package ir
 
 import (
 	"fmt"
-	"github.com/cottand/ile/internal/log"
 	"go/token"
 	"unicode"
 	"unicode/utf8"
 )
-
-var logger = log.DefaultLogger.With("section", "ast")
 
 // Positioner allows finding the location in the original source file.
 // The easiest way to be a Positioner is to embed a Range
@@ -36,10 +33,9 @@ type ExternalRange struct {
 	Package string
 }
 
-func (e ExternalRange) PackagePath() string  {
+func (e ExternalRange) PackagePath() string {
 	return e.Package
 }
-
 
 func (r Range) Pos() token.Pos { return r.PosStart }
 func (r Range) End() token.Pos { return r.PosEnd }

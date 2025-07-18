@@ -5,17 +5,15 @@ import (
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/internal/log"
 	"github.com/cottand/ile/parser"
 	"go/token"
+	"log/slog"
 )
 
 type CompilationCandidate struct {
 	fileset  *token.FileSet
 	astFiles []*ir.File
 }
-
-var feLogger = log.DefaultLogger.With("section", "frontend")
 
 // ParseToAST returns an ir.File without any additional processing,
 // like type inference
@@ -27,7 +25,7 @@ func ParseToAST(data string) (ir.File, *ilerr.Errors, error) {
 	walker := antlr.NewIterativeParseTreeWalker()
 
 	l := &listener{
-		Logger: feLogger.With("section", "antlrWalker"),
+		Logger: slog.With("section", "frontend").With("section", "antlrWalker"),
 	}
 
 	walker.Walk(l, p.SourceFile())

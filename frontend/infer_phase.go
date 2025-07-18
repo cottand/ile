@@ -6,8 +6,8 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
-	"github.com/cottand/ile/internal/log"
 	gopackages "golang.org/x/tools/go/packages"
+	"log/slog"
 )
 
 //// Universe is the *infer.TypeEnv which corresponds to all symbols that do not need Imports to be used,
@@ -19,7 +19,6 @@ import (
 //	return env
 //}()
 
-var inferenceLogger = log.DefaultLogger.With("section", "inference")
 
 type InferenceEnv struct {
 	// GoImports references Imports by path
@@ -34,6 +33,7 @@ type PackagePublicEnv = map[string]ir.Type
 // InferencePhase mutates pkg to assign types from inference as well as existing ast.TypeAnnotation.
 // It should populate both pkg's Syntax and declarations
 func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ir.File, *ilerr.Errors, error) {
+	var inferenceLogger = slog.With("section", "inference")
 	errs := &ilerr.Errors{}
 	files := make([]ir.File, len(env.Syntax))
 
@@ -101,6 +101,7 @@ func processImports(ctx *types.TypeCtx, env InferenceEnv) *types.TypeCtx {
 // importAsRecordTypeDef creates a TypeDefinition for a Go package that corresponds
 // to a record type, where each exported identifier is a field of the record.
 func importGoAsRecordTypeDef(pkg *gopackages.Package) (def ir.TypeDefinition, errs *ilerr.Errors) {
+	var inferenceLogger = slog.With("section", "inference")
 	fields := make([]ir.RecordField, 0, len(pkg.Types.Scope().Names()))
 
 	for _, decl := range pkg.Types.Scope().Names() {
@@ -158,6 +159,7 @@ func importAsRecordTypeDef(pkg PackagePublicEnv) ir.TypeDefinition {
 // in the context of this Package, by putting the ast.Declaration it contains in scope
 // as well as adding all imports of env to ctx
 func asGroupedLetWithImports(env InferenceEnv, ctx *types.TypeCtx) (*types.TypeCtx, *ir.LetGroup, *ilerr.Errors) {
+	var inferenceLogger = slog.With("section", "inference")
 	var declBindings []ir.LetBinding
 	errs := &ilerr.Errors{}
 	if len(env.Syntax) == 0 {

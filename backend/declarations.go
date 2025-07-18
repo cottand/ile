@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/frontend/types"
 	goast "go/ast"
 	"go/token"
 )
@@ -73,17 +74,25 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ir.Declaration) ([]goast.Decl,
 				continue
 			}
 
-			body, err := tp.transpileExpressionToStatements(fn.Body, "return")
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
 			var resultList *goast.FieldList
 			t, ok := tp.types.TypeOf(fn).(*ir.FnType)
 			if !ok {
 				errs = append(errs, errors.New("expected a function type"))
 			}
-			if t.Return != ir.UnitType {
+			isUnitFunc := types.Equal(t.Return, ir.UnitType)
+
+			var body []goast.Stmt
+			if isUnitFunc {
+				body, err = tp.transpileExpressionToStatements(fn.Body, "")
+			} else {
+				body, err = tp.transpileExpressionToStatements(fn.Body, "return")
+			}
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+
+			if !isUnitFunc {
 				tp.inFunctionSignature = true
 				resultType, err := tp.transpileType(t.Return)
 				tp.inFunctionSignature = false

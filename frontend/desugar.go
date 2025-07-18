@@ -3,11 +3,9 @@ package frontend
 import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/internal/log"
 	"strings"
 )
 
-var logger = log.DefaultLogger.With("section", "desugar")
 
 func DesugarPhase(file ir.File) (ir.File, *ilerr.Errors) {
 	var res *ilerr.Errors

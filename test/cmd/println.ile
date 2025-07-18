@@ -1,0 +1,8 @@
+//ile:compilerTest test.Test("Hello world from ile!") | true
+
+package main
+
+
+fn main() {
+    println("Hello world from ile!")
+}

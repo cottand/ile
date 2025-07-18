@@ -47,6 +47,11 @@ var (
 		rhs:            falseType,
 		withProvenance: withProvenance{builtinProv},
 	}
+	unitType = classTag{
+		id:             &ir.Var{Name: ir.UnitTypeName},
+		parents:        set.From([]typeName{ir.AnyTypeName}),
+		withProvenance: withProvenance{builtinProv},
+	}
 )
 
 type universeStruct struct {
@@ -95,6 +100,7 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 		"<":          comparisonBinOp(),
 		"==":         comparisonBinOp(),
 		"!=":         comparisonBinOp(),
+		"println":    funcType{args: []SimpleType{stringType}, ret: unitType},
 	}
 }
 
@@ -170,6 +176,12 @@ var builtinTypes = []TypeDefinition{
 		defKind:  ir.KindAlias,
 		name:     ir.BoolTypeName,
 		bodyType: boolType,
+	},
+	{
+		defKind:     ir.KindClass,
+		name:        ir.UnitTypeName,
+		bodyType:    topType,
+		baseClasses: set.From([]typeName{ir.AnyTypeName}),
 	},
 }
 
