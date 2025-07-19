@@ -294,8 +294,202 @@ func (n typeNormaliser) rhsNFToType(pol polarity, rhs rhsNF) SimpleType {
 	}
 }
 
+// TODO write tests for factorise once we can compile
+// more complex type unions into Go
 func (ctx *TypeCtx) factorise(typ SimpleType) SimpleType {
-	// we don't add an actual failure with addFailure because this case is hit for every single type
-	logger.Error("factorise not implemented")
-	return typ
+	// Convert the type to DNF
+	dnfOps := newOpsDNF(ctx, true)
+	d := dnfOps.mk(typ, true)
+
+	if len(d) <= 1 {
+		// If there's only one conjunct or none, no factorization needed
+		return typ
+	}
+
+	// Find common factors across all conjuncts
+	factors := make(map[Factorizable]int)
+
+	// Collect all possible factors from the conjuncts
+	for _, c := range d {
+		// Check type variables
+		for v := range c.vars.Items() {
+			factors[v] = factors[v] + 1
+		}
+
+		// Check negated type variables
+		for v := range c.nvars.Items() {
+			negV := negVar{v: v}
+			factors[negV] = factors[negV] + 1
+		}
+
+		// Check for trait tags in the right-hand side
+		if bases, ok := c.rhs.(*rhsBases); ok {
+			for _, tag := range bases.tags {
+				if tt, ok := tag.(traitTag); ok {
+					factors[tt] = factors[tt] + 1
+				}
+			}
+		}
+
+		// Check for class tag in the left-hand side
+		if refined, ok := c.lhs.(*lhsRefined); ok && refined.base != nil {
+			factors[*refined.base] = factors[*refined.base] + 1
+		}
+	}
+
+	// Find the most common factor
+	var bestFactor Factorizable
+	maxCount := 1 // Only consider factors that appear more than once
+
+	for factor, count := range factors {
+		if count > maxCount {
+			bestFactor = factor
+			maxCount = count
+		}
+	}
+
+	// If no common factor found, return the original type
+	if maxCount <= 1 {
+		return typ
+	}
+
+	// Partition the conjuncts based on whether they contain the factor
+	var factored []conjunct
+	var rest []conjunct
+
+	for _, c := range d {
+		containsFactor := false
+
+		switch f := bestFactor.(type) {
+		case *typeVariable:
+			containsFactor = c.vars.Contains(f)
+		case negVar:
+			containsFactor = c.nvars.Contains(f.v)
+		case traitTag:
+			if bases, ok := c.rhs.(*rhsBases); ok {
+				containsFactor = bases.hasTag(f)
+			}
+		case classTag:
+			if refined, ok := c.lhs.(*lhsRefined); ok && refined.base != nil {
+				containsFactor = Equal(*refined.base, f)
+			}
+		}
+
+		if containsFactor {
+			factored = append(factored, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+
+	// Create the factored part: factor & factorizeImpl(factored without the factor)
+	var factoredWithoutFactor []conjunct
+	for _, c := range factored {
+		// Remove the factor from the conjunct
+		newConjunct := c
+
+		switch f := bestFactor.(type) {
+		case *typeVariable:
+			newVars := set.NewTreeSet(compareTypeVars)
+			for v := range c.vars.Items() {
+				if v != f {
+					newVars.Insert(v)
+				}
+			}
+			newConjunct.vars = newVars
+		case negVar:
+			newNVars := set.NewTreeSet(compareTypeVars)
+			for v := range c.nvars.Items() {
+				if v != f.v {
+					newNVars.Insert(v)
+				}
+			}
+			newConjunct.nvars = newNVars
+		case traitTag:
+			if bases, ok := c.rhs.(*rhsBases); ok {
+				newTags := make([]objectTag, 0, len(bases.tags)-1)
+				for _, tag := range bases.tags {
+					if tt, ok := tag.(traitTag); !ok || !Equal(tt, f) {
+						newTags = append(newTags, tag)
+					}
+				}
+				newConjunct.rhs = &rhsBases{
+					tags:     newTags,
+					rest:     bases.rest,
+					typeRefs: bases.typeRefs,
+				}
+			}
+		case classTag:
+			if refined, ok := c.lhs.(*lhsRefined); ok && refined.base != nil {
+				newRefined := *refined
+				newRefined.base = nil
+				newConjunct.lhs = &newRefined
+			}
+		}
+
+		factoredWithoutFactor = append(factoredWithoutFactor, newConjunct)
+	}
+
+	// Recursively factorize the parts without the factor
+	factoredDNF := dnf(factoredWithoutFactor)
+	factoredType := factoredDNF.toType()
+	factoredFactorized := ctx.factorise(factoredType)
+
+	// Convert the factor to a SimpleType
+	var factorType SimpleType
+	switch f := bestFactor.(type) {
+	case *typeVariable:
+		factorType = f
+	case negVar:
+		factorType = negateType(f.v, emptyProv)
+	case traitTag:
+		factorType = f
+	case classTag:
+		factorType = f
+	}
+
+	// Create the factored part: factor & factorizedWithoutFactor
+	factoredPart := intersectionOf(factorType, factoredFactorized, unionOpts{})
+
+	// If there are no rest conjuncts, return just the factored part
+	if len(rest) == 0 {
+		return factoredPart
+	}
+
+	// Recursively factorize the rest part if there are multiple factors
+	restDNF := dnf(rest)
+	restType := restDNF.toType()
+	var restFactorized SimpleType
+
+	if len(factors) > 1 {
+		restFactorized = ctx.factorise(restType)
+	} else {
+		restFactorized = restType
+	}
+
+	// Return the union of the factored part and the rest part
+	return unionOf(factoredPart, restFactorized, unionOpts{})
+}
+
+// Helper type for factorise
+type negVar struct {
+	v *typeVariable
+}
+
+// Factorizable is an interface for types that can be factored out
+type Factorizable interface {
+	Hash() uint64
+}
+
+// Ensure our types implement Factorizable
+var (
+	_ Factorizable = (*typeVariable)(nil)
+	_ Factorizable = negVar{}
+	_ Factorizable = traitTag{}
+	_ Factorizable = classTag{}
+)
+
+// Hash implementation for negVar
+func (n negVar) Hash() uint64 {
+	return n.v.Hash() * 31
 }

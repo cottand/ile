@@ -378,3 +378,17 @@ func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (stri
    | %s
 `, startPosition.String(), line, indent+highlight), nil
 }
+
+
+// DisplayTypes outputs a string which shows each declaration name and its inferred or assigned type
+// in the same lines as the original source
+func (p *Package) DisplayTypes() (string, error) {
+	sb := strings.Builder{}
+	for _, file := range p.syntax {
+		for _, decl := range file.Declarations {
+			sb.WriteString(fmt.Sprintf("%s: %s\n", decl.Name, ir.TypeString(decl.Type)))
+		}
+	}
+
+	return sb.String(), nil
+}

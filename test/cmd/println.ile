@@ -1,4 +1,4 @@
-//ile:compilerTest test.Test("Hello world from ile!") | true
+//ile:compilerTest `Hello world from ile!`
 
 package main
 

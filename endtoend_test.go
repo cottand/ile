@@ -137,12 +137,16 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		err = format.Node(sourceBuf, &token.FileSet{}, &firstGoFile)
 		assert.NoError(t, err)
 
+		typsStr, err := pkg.DisplayTypes()
+		assert.NoError(t, err)
+		t.Logf("program types:\n---\n%s---", typsStr)
+		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
+
 		_, err = i.Eval(sourceBuf.String())
-		assert.NoError(t, err, "compilation errors: ----\n%s\n----", sourceBuf.String())
+		assert.NoError(t, err)
 
 		resActual, err := i.Eval(eval)
-		assert.NoError(t, err, "go program:\n-------\n%v---------", sourceBuf.String())
-		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
+		assert.NoError(t, err)
 
 		iClean := interp.New(interp.Options{})
 		resExpected, err := iClean.Eval(expected)
