@@ -80,14 +80,12 @@ func (tp *Transpiler) transpileWhen(e *ir.WhenMatch) (statements []goast.Stmt, f
 				},
 				Body: &goast.BlockStmt{List: branchResultPath},
 			})
-			// type check against a type name - we do a Go type assertion
-		case *ir.TypeName:
-			// this is the discard pattern - this is the final else case, so we do not need a new if condition
+		// type check against a type name - we do a Go type assertion
+		case *ir.AnyType:
 			// -> `else { branchResultPath }`
-			if astType.Name == "_" {
-				currentIf.Else = &goast.BlockStmt{List: branchResultPath}
-				continue
-			}
+			currentIf.Else = &goast.BlockStmt{List: branchResultPath}
+			continue
+		case *ir.TypeName:
 			if astType.Name == ir.TrueName {
 				addIf(&goast.IfStmt{
 					Cond: subjectIdent,

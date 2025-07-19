@@ -7,6 +7,36 @@
     let
       pkgs = import nixpkgs { inherit system; };
       name = "ile";
+      antlr-format = pkgs.buildNpmPackage {
+        pname = "antlr-format-cli";
+        version = "v1.2.8-cli";
+
+        src = (pkgs.fetchFromGitHub {
+          owner = "antlr-ng";
+          repo = "antlr-format";
+          rev = "v1.2.8-cli";
+          hash = "sha256-yYrBLoT73MVRAOpoJhRNc5wr096FbxJNK8iyNiCiTjI=";
+        }) + "/cli";
+
+        sourceRoot = pkgs.fetchFromGitHub {
+          owner = "antlr-ng";
+          repo = "antlr-format";
+          rev = "v1.2.8-cli";
+          hash = "sha256-yYrBLoT73MVRAOpoJhRNc5wr096FbxJNK8iyNiCiTjI=";
+        };
+
+
+
+        npmDepsHash = "sha256-FlFbTdmBv324jlP85/aHT8FzpR0NzcrGdD2PMuq/TAo=";
+        npmPackFlags = [ "--ignore-scripts" ];
+        installPhase = ''
+          ls -la dist
+          mkdir -p $out/bin
+          cp -r dist/* $out/bin
+        '';
+
+        nativeBuildInputs = [ pkgs.esbuild ];
+      };
     in
     {
       packages.default = self.packages.${system}.ile;
@@ -30,6 +60,7 @@
           pkgs.antlr
           pkgs.installShellFiles
           pkgs.clang # required for testing via Go plugins, which requires CGO
+#          antlr-format
         ];
 
         postInstall = ''

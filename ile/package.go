@@ -7,6 +7,7 @@ import (
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/parser"
 	"go/format"
 	"go/token"
 	gopackages "golang.org/x/tools/go/packages"
@@ -121,7 +122,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	pkg.originalSource[fileName] = fileAsRunes
 
 	// parse phase
-	astFile, compileErrors, err := frontend.ParseToIR(fileAsString)
+	astFile, compileErrors, err := parser.ParseToAST(fileAsString)
 	pkg.errors = pkg.errors.Merge(compileErrors)
 	if err != nil {
 		return nil, fmt.Errorf("parse to AST: %w", err)
@@ -130,19 +131,19 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	pkg.name = astFile.PkgName
 
 	// desugar phase
-	astFile, errorsDesugar := frontend.DesugarPhase(astFile)
+	irFile, errorsDesugar := frontend.DesugarPhase(astFile)
 	pkg.errors = pkg.errors.Merge(errorsDesugar)
 
 	// add file to package
-	pkg.syntax = append(pkg.syntax, astFile)
-	for _, decl := range astFile.Declarations {
+	pkg.syntax = append(pkg.syntax, irFile)
+	for _, decl := range irFile.Declarations {
 		if decl.IsPublic() {
 			pkg.declarations[decl.Name] = decl.Type
 		}
 	}
 
 	// gopackages resolution phase
-	if len(astFile.GoImports) > 0 {
+	if len(irFile.GoImports) > 0 {
 		tmpGoDir, err := tmpGoCompileDir()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temporary go directory: %w", err)
@@ -154,7 +155,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 		}
 		cfg := goLoadPkgsConfig()
 		var goImportPaths []string
-		for _, goImport := range astFile.GoImports {
+		for _, goImport := range irFile.GoImports {
 			goImportPaths = append(goImportPaths, goImport.ImportPath)
 		}
 		goPkgs, err := gopackages.Load(cfg, goImportPaths...)

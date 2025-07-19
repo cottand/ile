@@ -7,7 +7,7 @@ import (
 )
 
 
-func DesugarPhase(file ir.File) (ir.File, *ilerr.Errors) {
+func DesugarPhaseOld(file ir.File) (ir.File, *ilerr.Errors) {
 	var res *ilerr.Errors
 
 	newDecls := make([]ir.Declaration, len(file.Declarations))
