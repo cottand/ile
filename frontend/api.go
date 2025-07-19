@@ -15,9 +15,9 @@ type CompilationCandidate struct {
 	astFiles []*ir.File
 }
 
-// ParseToAST returns an ir.File without any additional processing,
+// ParseToIR returns an ir.File without any additional processing,
 // like type inference
-func ParseToAST(data string) (ir.File, *ilerr.Errors, error) {
+func ParseToIR(data string) (ir.File, *ilerr.Errors, error) {
 	iStream := antlr.NewInputStream(data)
 	tStream := antlr.NewCommonTokenStream(parser.NewIleLexer(iStream), antlr.TokenDefaultChannel)
 	p := parser.NewIleParser(tStream)

@@ -121,7 +121,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	pkg.originalSource[fileName] = fileAsRunes
 
 	// parse phase
-	astFile, compileErrors, err := frontend.ParseToAST(fileAsString)
+	astFile, compileErrors, err := frontend.ParseToIR(fileAsString)
 	pkg.errors = pkg.errors.Merge(compileErrors)
 	if err != nil {
 		return nil, fmt.Errorf("parse to AST: %w", err)
@@ -157,7 +157,6 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 		for _, goImport := range astFile.GoImports {
 			goImportPaths = append(goImportPaths, goImport.ImportPath)
 		}
-		//cfg.Dir = tmpGoDir
 		goPkgs, err := gopackages.Load(cfg, goImportPaths...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load Go gopackages: %w", err)

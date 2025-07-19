@@ -9,7 +9,7 @@ import (
 )
 
 func testAntlrParse(t *testing.T, input string) (ir.File, *ilerr.Errors) {
-	f, cErrs, errs := frontend.ParseToAST(input)
+	f, cErrs, errs := frontend.ParseToIR(input)
 	assert.NoError(t, errs)
 	return f, cErrs
 }

@@ -40,8 +40,4 @@ func DesugarPhase(file ir.File) (ir.File, *ilerr.Errors) {
 	return file, res
 }
 
-func desguarImports() {
-
-}
-
 const GoImportDirectivePrefix = "go:"

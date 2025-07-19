@@ -27,7 +27,7 @@ func testType(t *testing.T, exprStr string, expected ir.Type) {
 package main
 
 val exprTest = ` + exprStr + "\n"
-		file, ilerrs, err := frontend.ParseToAST(fileString)
+		file, ilerrs, err := frontend.ParseToIR(fileString)
 		assert.NoError(t, err)
 		assert.Empty(t, ilerrs.Errors(), "expected no errors, but got:\n%s", ilerrs.Errors())
 		expr := file.Declarations[0].E
