@@ -2,8 +2,13 @@
 
 # codegen
 parser/*.interp
-parser/*.go
-!parser/generate.go
+
+# antlr codegen
+parser/ile_lexer.go
+parser/ile_parser.go
+parser/ileparser_base_listener.go
+parser/ileparser_listener.go
+
 # from the intelliJ antlr plugin
 gen/
 

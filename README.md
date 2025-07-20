@@ -16,6 +16,13 @@ language space. I think there is space for a language with:
   and instead forces us to think about how we initialise data.
 - Fast prototyping capabilities so that you can write safe code without fighting the type system
 
+Some languages that significantly influence ile's design are:
+- Go
+- Gleam
+- Typescript
+- Kotlin
+- Julia
+
 More generally, the language aims to be good at:
 
 - Domain modelling (thanks to union and intersection types)
@@ -30,5 +37,4 @@ proper union types. This is achieved with a type-system primarily based
 on [MLStruct (2022, Parreaux et al.)](https://2022.splashcon.org/details/splash-2022-oopsla/41/MLstruct-Principal-Type-Inference-in-a-Boolean-Algebra-of-Structural-Types).
 
 I am still unsure to what extent the language should leverage principal type inference,
-and types that are part of a library's interface will probably still need them.
-
+and types that are part of a library's public interface will probably still need type annotations.
