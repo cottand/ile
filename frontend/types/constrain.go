@@ -987,12 +987,12 @@ eachConj:
 			// Strategy: Extract one variable TV and constrain TV <: (RHS | ~(L & ~R & ~N))
 			first := util.IterFirstOrPanic(conj.vars.Items())
 			single := set.TreeSetFrom[*typeVariable]([]*typeVariable{first}, compareTypeVars)
-			newC := conjunct{
-				lhs:   conj.lhs,
-				rhs:   conj.rhs,
-				vars:  conj.vars.Difference(single),
-				nvars: conj.nvars,
-			}
+			newC := newConjunct(
+				conj.lhs,
+				conj.rhs,
+				conj.vars.Difference(single),
+				conj.nvars,
+			)
 			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
 			cs.rec(first, newRhs, true, cctx, shadows)
 			break eachConj
@@ -1018,7 +1018,7 @@ eachConj:
 			if isBot && rConj.vars.Empty() && rConj.nvars.Empty() {
 				// If rConj is just an LHS part (rConj.lhs)
 				if lnf.lessThanOrEqual(rConj.lhs) { // Check if lnf <: rConj.lhs
- 				ops.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
+					ops.Debug("constrainDNF: Early exit", "lnf", lnf, "rConj.lhs", rConj.lhs)
 					break eachConj // Skip to the next conjunct in the outer loop (lhs)
 				}
 			}

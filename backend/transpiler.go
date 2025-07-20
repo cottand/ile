@@ -7,6 +7,7 @@ import (
 	"github.com/cottand/ile/frontend/types"
 	goast "go/ast"
 	"go/token"
+	"log/slog"
 )
 
 type Transpiler struct {
@@ -14,11 +15,14 @@ type Transpiler struct {
 	currentExpr ir.Expr
 	// inFunctionSignature is used during transpileType to determine if we can use const types or not
 	inFunctionSignature bool
+
+	*slog.Logger
 }
 
 func NewTranspiler(typeCtx *types.TypeCtx) *Transpiler {
 	return &Transpiler{
 		types: typeCtx,
+		Logger: slog.With("section", "transpiler"),
 	}
 }
 

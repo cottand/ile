@@ -41,9 +41,27 @@
     rec {
       packages.default = self.packages.${system}.ile;
       packages.ile = pkgs.callPackage ./package.nix { };
-      packages.ile-wasm = packages.ile.override {
+      packages."ile-wasm" = packages.ile.overrideAttrs (final: prev: {
         env.GOOS = "js";
         env.GOARCH = "wasm";
+        pname = "ile.wasm";
+
+        # we would need a WASM host to run WASM-compiled tests, so let's not
+        doCheck = false;
+        postInstall = ''
+        '';
+      });
+
+      packages.go-wasm-exec = {
+#        # also add wasm_exec.js, which comes with the go toolchain
+#        postInstall = ''
+#          mkdir -p $out/misc/wasm
+#          GOROOT=$(${pkgs.go}/bin/go env GOROOT)
+#          cp $GOROOT/misc/wasm/*.js $out/misc/wasm
+#        '';
+
+      # TODO derivation with go's files here rather than the postInstall above
       };
+
     }));
 }

@@ -47,8 +47,8 @@ var (
 		rhs:            falseType,
 		withProvenance: withProvenance{builtinProv},
 	}
-	unitType = classTag{
-		id:             &ir.Var{Name: ir.UnitTypeName},
+	nilType = classTag{
+		id:             &ir.Var{Name: ir.NilTypeName},
 		parents:        set.From([]typeName{ir.AnyTypeName}),
 		withProvenance: withProvenance{builtinProv},
 	}
@@ -100,7 +100,7 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 		"<":          comparisonBinOp(),
 		"==":         comparisonBinOp(),
 		"!=":         comparisonBinOp(),
-		"println":    funcType{args: []SimpleType{stringType}, ret: unitType},
+		"println":    funcType{args: []SimpleType{stringType}, ret: nilType},
 		"panic":      funcType{args: []SimpleType{anyClassTag}, ret: bottomType},
 	}
 }
@@ -180,7 +180,7 @@ var builtinTypes = []TypeDefinition{
 	},
 	{
 		defKind:     ir.KindClass,
-		name:        ir.UnitTypeName,
+		name:        ir.NilTypeName,
 		bodyType:    topType,
 		baseClasses: set.From([]typeName{ir.AnyTypeName}),
 	},

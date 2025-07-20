@@ -63,7 +63,6 @@ func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
 	panic(fmt.Sprintf("opsDNF.conjunctOrConjunct: not implemented for conjuncts %v and %v", left, right))
 }
 
-// TODO PICKUP!!!!!!!!!!!!!!
 func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 	if o.ctx.isSubtype(left.toType(), right.toType(), nil) {
 		return conjunct{}, false
@@ -204,8 +203,8 @@ func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
 		fields: recordUnionOf(leftRefined.reft.fields, rightRefined.reft.fields),
 	}
 
-	return conjunct{
-		lhs: &lhsRefined{
+	return newConjunct(
+		&lhsRefined{
 			base:      leftRefined.base,
 			fn:        fnType,
 			arr:       arrType,
@@ -213,10 +212,10 @@ func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
 			reft:      recType,
 			typeRefs:  typeRefs,
 		},
-		rhs:   left.rhs,
-		vars:  left.vars,
-		nvars: left.nvars,
-	}, true
+		left.rhs,
+		left.vars,
+		left.nvars,
+	), true
 }
 
 // Helper function to check if two sets are disjoint
@@ -603,7 +602,7 @@ func (o *opsDNF) mkDeepST(ty SimpleType, pol bool) SimpleType {
 // Helper to check for primitive type names (adjust as needed)
 func isPrimitiveTypeName(name typeName) bool {
 	switch name {
-	case "int", "number", "bool", "true", "false", "string", "unit", "any", "nothing", "error", "nil", "Array": // Added Array
+	case "int", "number", "bool", "true", "false", "string", "any", "nothing", "error", "nil", "Array": // Added Array
 		return true
 	default:
 		return false

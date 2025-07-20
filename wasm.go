@@ -15,7 +15,8 @@ import (
 // and prints the inferred types of the program's top-level
 // declarations, or alternatively displays errors messages if the
 // program does not compile, type-check, or parse
-func checkAndShowTypes(program string) string {
+func checkAndShowTypes(_ js.Value, args []js.Value) any {
+	program := args[0].String()
 	pkg, errs, err := ile.NewPackageFromBytes([]byte(program), "program.ile")
 	if err != nil {
 		return fmt.Sprintf("the compiler encountered a failure:\n%w", err)

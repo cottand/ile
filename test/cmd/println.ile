@@ -3,6 +3,17 @@
 package main
 
 
+fn isEven(x): Bool {
+    when x {
+        0 -> True
+        1 -> False
+        _ -> isEven(x - 2)
+    }
+}
+
 fn main() {
-    println("Hello world from ile!")
+    println(when isEven(1) {
+        True -> "it is even"
+        False -> "lies and slander"
+    })
 }

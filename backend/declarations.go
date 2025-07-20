@@ -79,7 +79,7 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ir.Declaration) ([]goast.Decl,
 			if !ok {
 				errs = append(errs, errors.New("expected a function type"))
 			}
-			isUnitFunc := types.Equal(t.Return, ir.UnitType)
+			isUnitFunc := types.Equal(t.Return, ir.NilType)
 
 			var body []goast.Stmt
 			if isUnitFunc {

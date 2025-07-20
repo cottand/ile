@@ -48,6 +48,8 @@ func nearestGoType(lit *ir.Literal) (goType string, err error) {
 	case token.INT:
 		// TODO we would like to narrow types here (like 3 becomes uint8, not int64)
 		return "int64", nil
+	case token.STRING:
+		return "string", nil
 	default:
 		return "", fmt.Errorf("nearestGoType: unexpected literal type %s", lit.Kind.String())
 	}

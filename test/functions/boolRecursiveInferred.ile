@@ -1,0 +1,19 @@
+//ile:compilerTest test.StringReply(int64(10)) | string("it's even")
+
+package test
+
+fn isEven(x) {
+    when x {
+        0 -> True
+        1 -> False
+        _ -> isEven(x - 2)
+    }
+}
+
+
+fn StringReply(x) {
+    when isEven(x) {
+        True -> "it's even"
+        False -> "not even"
+    }
+}

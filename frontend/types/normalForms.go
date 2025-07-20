@@ -7,6 +7,7 @@ import (
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
 	"hash/fnv"
+	"iter"
 	"slices"
 	"strings"
 )
@@ -73,43 +74,92 @@ func newConjunct(left lhsNF, right rhsNF, vars, nvars set.Collection[*typeVariab
 // we do not implement it as a normal constructor because it has a failure path when ok = false
 func (o *opsDNF) simplifyConjunct(c conjunct) (res conjunct, ok bool) {
 	rightBases, okRightBases := c.rhs.(*rhsBases)
-	if !okRightBases {
-		return c, true
-	}
 	leftRefined, okLeftRefined := c.lhs.(*lhsRefined)
-	if !okLeftRefined {
-		newTags := make([]objectTag, 0, 1)
-		for _, tag := range rightBases.tags {
-			// throw away the tag if it cannot be &'d with
-			if _, ok := o.leftNFAndType(c.lhs, tag); ok {
-				newTags = append(newTags, tag)
-			}
-		}
 
-		newRest := rightBases.rest
-		// throw away the negated side if it is a type, and we cannot &'d it with the LHS
-		// eg, True & ~False -> True
-		if newRest != nil {
-			restAsType, ok := newRest.(basicType)
-			if ok {
-				if _, ok := o.leftNFAndType(c.lhs, restAsType); !ok {
-					newRest = nil
+	foundOccurrence := false
+	// determine if there is a class name X in LHS-refined and a tag Y in RHS-bases such that X == Y
+	// if so, we cannot merge
+	if okLeftRefined && okRightBases {
+		typeRefClasses := util.MapIter(slices.Values(leftRefined.typeRefs), func(tr typeRef) string { return tr.String() })
+		var typeRefBases iter.Seq[string] = func(yield func(string) bool) {
+			for _, ref := range leftRefined.typeRefs {
+				for baseClass := range o.ctx.baseClassesOf(ref.defName) {
+					if !yield(baseClass) {
+						return
+					}
 				}
 			}
 		}
-		return conjunct{
-			lhs: leftRefined,
-			rhs: &rhsBases{
-				tags:     newTags,
-				rest:     newRest,
-				typeRefs: rightBases.typeRefs,
-			},
-		}, true
+		var baseClassNames iter.Seq[string] = func(yield func(string) bool) {
+			base := leftRefined.base
+			if base == nil {
+				return
+			}
+
+			for ref := range base.parents.Items() {
+				if !yield(ref) {
+					return
+				}
+			}
+
+			if base, ok := base.id.(*ir.Var); ok {
+				yield(base.Name)
+			}
+		}
+
+		allClasses := util.ConcatIter(
+			typeRefClasses,
+			typeRefBases,
+			baseClassNames,
+		)
+
+		for className := range allClasses {
+			foundOccurrence = slices.ContainsFunc(rightBases.tags, func(rhsTag objectTag) bool {
+				return rhsTag.Id().CanonicalSyntax() == className
+			})
+			if foundOccurrence {
+				break
+			}
+		}
 	}
-	// path where LHS is refined and RHS is bases has a specific case where they should not be merged
-	// we don't merge anything in the meantime
-	o.Error("simplifyConjunct path not implemented")
-	return c, false
+
+	if foundOccurrence {
+		return conjunct{}, false
+	}
+
+	if !okRightBases {
+		return c, true
+	}
+
+	newTags := make([]objectTag, 0, 1)
+	for _, tag := range rightBases.tags {
+		// throw away the tag if it cannot be &'d with
+		if _, ok := o.leftNFAndType(c.lhs, tag); ok {
+			newTags = append(newTags, tag)
+		}
+	}
+
+	newRest := rightBases.rest
+	// throw away the negated side if it is a type, and we cannot &'d it with the LHS
+	// eg, True & ~False -> True
+	if newRest != nil {
+		restAsType, ok := newRest.(basicType)
+		if ok {
+			if _, ok := o.leftNFAndType(c.lhs, restAsType); !ok {
+				newRest = nil
+			}
+		}
+	}
+	return conjunct{
+		lhs: c.lhs,
+		rhs: &rhsBases{
+			tags:     newTags,
+			rest:     newRest,
+			typeRefs: rightBases.typeRefs,
+		},
+		vars:  c.vars,
+		nvars: c.nvars,
+	}, true
 }
 
 func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
@@ -136,9 +186,9 @@ func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
 				reft:      recordType{},
 				typeRefs:  nil,
 			}, true
-		case *classTag:
+		case classTag:
 			return &lhsRefined{
-				base:      bt,
+				base:      &bt,
 				fn:        nil,
 				arr:       nil,
 				traitTags: set.NewTreeSet(compareTraitTags),
@@ -181,11 +231,11 @@ func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
 				reft:      l.reft,
 				typeRefs:  l.typeRefs,
 			}, true
-		case *classTag:
+		case classTag:
 			if l.base == nil {
 				// No class tag yet, add it
 				return &lhsRefined{
-					base:      bt,
+					base:      &bt,
 					fn:        l.fn,
 					arr:       l.arr,
 					traitTags: l.traitTags,
@@ -196,17 +246,17 @@ func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
 				// Already has a class tag, find the greatest lower bound
 				// In Scala: cls.glb(that).map(cls => LhsRefined(S(cls), f1, a1, ts, r1, trs))
 				// In Go, we need to check if one is a subtype of the other
-				if o.ctx.isSubtype(*bt, *l.base, nil) {
+				if o.ctx.isSubtype(bt, *l.base, nil) {
 					// bt is a subtype of l.base, so use bt
 					return &lhsRefined{
-						base:      bt,
+						base:      &bt,
 						fn:        l.fn,
 						arr:       l.arr,
 						traitTags: l.traitTags,
 						reft:      l.reft,
 						typeRefs:  l.typeRefs,
 					}, true
-				} else if o.ctx.isSubtype(*l.base, *bt, nil) {
+				} else if o.ctx.isSubtype(*l.base, bt, nil) {
 					// l.base is a subtype of bt, so keep l.base
 					return l, true
 				} else {

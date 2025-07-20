@@ -6,9 +6,9 @@ const (
 	IntTypeName     = "Int"
 	FloatTypeName   = "Float"
 	StringTypeName  = "String"
-	BoolTypeName    = "Bool"
-	UnitTypeName    = "Unit"
-	TrueName        = "True"
+	BoolTypeName = "Bool"
+	NilTypeName  = "nil"
+	TrueName     = "True"
 	FalseName       = "False"
 	ArrayTypeName   = "Array"
 )
@@ -25,6 +25,5 @@ var (
 	BoolType  = &TypeName{Name: BoolTypeName}
 	TrueType  = &TypeName{Name: TrueName}
 	FalseType = &TypeName{Name: FalseName}
-	NilType   = &TypeName{Name: "Nil"}
-	UnitType  = &TypeName{Name: UnitTypeName}
+	NilType = &TypeName{Name: NilTypeName}
 )
