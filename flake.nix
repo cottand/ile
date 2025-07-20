@@ -52,7 +52,14 @@
         '';
       });
 
-      packages.go-wasm-exec = {
+      packages.go-wasm-exec = pkgs.runCommand "go-wasm-exec" {} ''
+        mkdir -p $out/lib
+        GOROOT=$(${pkgs.go}/bin/go env GOROOT)
+        ${pkgs.go}/bin/go version
+
+        cp -r $GOROOT/lib/wasm/ $out/lib/wasm
+      '';
+
 #        # also add wasm_exec.js, which comes with the go toolchain
 #        postInstall = ''
 #          mkdir -p $out/misc/wasm
@@ -61,7 +68,6 @@
 #        '';
 
       # TODO derivation with go's files here rather than the postInstall above
-      };
 
     }));
 }
