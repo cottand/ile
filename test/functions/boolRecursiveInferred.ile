@@ -11,9 +11,9 @@ fn isEven(x) {
 }
 
 
-fn StringReply(x) {
-    when isEven(x) {
-        True -> "it's even"
-        False -> "not even"
-    }
-}
+//fn StringReply(x) {
+//    when isEven(x) {
+//        True -> "it's even"
+//       False -> "it's odd"
+//    }
+//}

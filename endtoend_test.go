@@ -127,6 +127,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 			assert.Empty(t, cErrs.Errors(), "compilation errors found: %s", strings.Join(errStrings, ", "))
 			return
 		}
+		typsStr, err := pkg.DisplayTypes()
+		assert.NoError(t, err)
+		t.Logf("program types:\n---\n%s---", typsStr)
 
 		tp := backend.NewTranspiler(pkg.TypeCtx)
 		goAst, err := tp.TranspilePackage(pkg.Name(), pkg.Syntax())
@@ -137,9 +140,6 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		err = format.Node(sourceBuf, &token.FileSet{}, &firstGoFile)
 		assert.NoError(t, err)
 
-		typsStr, err := pkg.DisplayTypes()
-		assert.NoError(t, err)
-		t.Logf("program types:\n---\n%s---", typsStr)
 		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
 
 		_, err = i.Eval(sourceBuf.String())

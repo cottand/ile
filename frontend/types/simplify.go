@@ -49,7 +49,8 @@ func (p simpleTypePolarity) Hash() uint64 {
 type polarity uint8
 
 const (
-	negative = polarity(iota)
+	invalidPolarity polarity = iota
+	negative
 	positive
 	invariant
 )
@@ -73,8 +74,10 @@ func (p polarity) inverse() polarity {
 		return positive
 	case positive:
 		return negative
+	case invariant:
+		return invariant
 	default:
-		return p
+		panic("invalid polarity: " + string(p))
 	}
 }
 
@@ -100,8 +103,10 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 		}
 	}()
 
+	cur := ctx.cleanBounds(st, cleanBoundsOpts{inPlace: false})
+
 	// Corresponds to the first simplifyType call in Scala
-	cur := ctx.simplifyType(st, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	cur = ctx.normaliseType(cur, positive)
 
@@ -185,7 +190,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	// Set of variables considered recursive (might change during processing)
 	recVars := set.New[TypeVarID](0)
 	for _, tv := range allVars {
-		if tv.isRecursive() { // Assuming isRecursive exists
+		if ctx.isRecursive(tv) { // Assuming isRecursive exists
 			recVars.Insert(tv.id)
 		}
 	}
@@ -364,6 +369,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 		renewals:          make(map[*typeVariable]*typeVariable),
 		inlineBounds:      inlineBounds,
 		ctx:               ctx, // Needed for freshVar
+		Logger:            simplifier.Logger.With("section", "simplify.transform"),
 	}
 
 	simplifiedType := transformer.transform(st, pol, nil) // Use initial polarity for transformation
@@ -607,7 +613,7 @@ func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
 	case *PolymorphicType:
 		a2.analyzeImpl(ty.Body, pol)
 	default:
-		panic(fmt.Sprintf("analyze2: unhandled type %T", st))
+		a2.simplifier.addFailure(fmt.Sprintf("analyze2: unhandled type %T", st), st.prov())
 	}
 }
 
@@ -700,12 +706,13 @@ type transformerState struct {
 	renewals          map[*typeVariable]*typeVariable // Map from old TV to renewed fresh TV
 	inlineBounds      bool
 	ctx               *TypeCtx // For creating fresh variables
+	*slog.Logger
 }
 
 // transform applies the substitutions and simplifications.
 func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeVariable) (ret SimpleType) {
 	defer func() {
-		logger.Debug("simplify: transformed", "type", st, "polarity", pol, "result", ret)
+		ts.Debug("simplify: transformed", "type", st, "polarity", pol, "result", ret)
 	}()
 	st = unwrapProvenance(st)
 
@@ -722,25 +729,20 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		// Apply substitution if exists
 		if replacement, exists := ts.varSubst[ty.id]; exists {
 			if replacement != nil {
-				logger.Debug("simplify: transform: Substituting var", "from", ty, "to", replacement)
+				ts.Debug("simplify: transform: Substituting var", "from", ty, "to", replacement)
 				// Replace with another variable, recurse on the replacement
 				return ts.transform(replacement, pol, parent)
 			}
 			if pol == invariant {
 				return ts.ctx.newTypeRange(typeRange{
-					lowerBound: ts.transform(ts.ctx.mergeBounds(ty.lowerBounds, true), positive, parent),
-					upperBound: ts.transform(ts.ctx.mergeBounds(ty.upperBounds, false), negative, parent),
+					lowerBound: ts.mergeTransform(ty, true, ty),
+					upperBound: ts.mergeTransform(ty, false, ty),
 				})
 			}
-
-			boundsToInline := ty.lowerBounds
-			if pol == negative { // Negative polarity
-				boundsToInline = ty.upperBounds
-			}
-			mergedBound := ts.ctx.mergeBounds(boundsToInline, pol == positive)
+			mergedBound := ts.mergeTransform(ty, pol == positive, ty)
 			logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty, "mergedBounds", mergedBound, "polarity", pol.String())
 			// Need to pass parent variable to recursive call to handle cycles during inlining
-			return ts.transform(mergedBound, pol, ty) // Pass 'ty' as parent
+			return mergedBound
 		}
 
 		// No substitution, check if we need to renew or inline bounds
@@ -762,16 +764,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 
 		if shouldInline { // pol != invariant here
 			// Inline bounds and include the renewed variable itself
-			logger.Debug("simplify: transform: inlining non-rec bounds for", "var", ty, "renewed", renewedVar)
-			var mergedTransform SimpleType
-			var boundsToInline []SimpleType
-			// this bit corresponds a mergeTransform in the scala reference
-			if pol == positive {
-				boundsToInline = ty.lowerBounds
-			} else {
-				boundsToInline = ty.upperBounds
-			}
-			mergedTransform = ts.transform(ts.ctx.mergeBounds(boundsToInline, pol == positive), pol, ty)
+			ts.Debug("simplify: transform: inlining non-rec bounds for", "var", ty, "renewed", renewedVar)
+			mergedTransform := ts.mergeTransform(ty, pol == positive, ty)
 			if pol == positive {
 				// Positive polarity: MergedLowerBound | RenewedVar
 				return unionOf(mergedTransform, renewedVar, unionOpts{})
@@ -802,7 +796,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 				break
 			}
 			if onlyVarAsBounds {
-				logger.Debug("simplify: transform: inlining var bounds", "var", ty, "bounds", bounds)
+				ts.Debug("simplify: transform: inlining var bounds", "var", ty, "bounds", bounds)
 				ts.varSubst[ty.id] = nil
 				return ts.transform(ts.ctx.mergeBounds(bounds, pol == positive), pol, parent)
 			}
@@ -821,7 +815,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		renewedVar.lowerBounds = newLowerBounds
 		renewedVar.upperBounds = newUpperBounds
 
-		logger.Debug("simplify: transform: set bounds for", "var", renewedVar, "LB", renewedVar.lowerBounds, "UB", renewedVar.upperBounds)
+		ts.Debug("simplify: transform: set bounds for", "var", renewedVar, "LB", renewedVar.lowerBounds, "UB", renewedVar.upperBounds)
 
 		// Keep the variable (recursive, invariant, or inlining disabled)
 		return renewedVar
@@ -904,7 +898,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		newBody := ts.transform(ty.Body, pol, parent)
 		return &PolymorphicType{Body: newBody, _level: ty._level, withProvenance: ty.withProvenance}
 	default:
-		panic(fmt.Sprintf("simplify: transform: unhandled type %T", st))
+		ts.ctx.addFailure(fmt.Sprintf("simplify: transform: unhandled type %T", st), st.prov())
+		return st
 	}
 }
 
@@ -921,8 +916,15 @@ func (ts *transformerState) transformFieldType(ft fieldType, pol polarity, paren
 	return fieldType{lowerBound: newLb, upperBound: newUb, withProvenance: ft.withProvenance}
 }
 
+func (ts *transformerState) mergeTransform(tv *typeVariable, pol bool, parent *typeVariable) SimpleType {
+	bounds := tv.lowerBounds
+	if !pol {
+		bounds = tv.upperBounds
+	}
+	return ts.transform(ts.ctx.mergeBounds(bounds, pol), polarityFromBool(pol), parent)
+}
+
 // mergeBounds combines bounds with | (for lower=true) or & (for lower=false).
-// It is called mergeTransform in the scala reference
 func (ctx *TypeCtx) mergeBounds(bounds []SimpleType, lower bool) SimpleType {
 	var current SimpleType
 	if lower {
@@ -943,7 +945,7 @@ func (ctx *TypeCtx) mergeBounds(bounds []SimpleType, lower bool) SimpleType {
 // isRecursive checks if a type variable refers to itself in its bounds.
 // TODO: Implement this properly by traversing bounds and checking for `tv.id`.
 // This is a placeholder.
-func (tv *typeVariable) isRecursive() bool {
+func (ctx *TypeCtx) isRecursive(tv *typeVariable) bool {
 	// Placeholder implementation: Needs graph traversal
 	visited := *set.New[TypeVarID](0)
 	var check func(SimpleType) bool
@@ -1017,7 +1019,8 @@ func (tv *typeVariable) isRecursive() bool {
 		case extremeType, classTag, traitTag, *PolymorphicType:
 			return false
 		default:
-			panic(fmt.Sprintf("isRecursive check: unhandled type %T", st))
+			ctx.addFailure(fmt.Sprintf("isRecursive: unhandled type %T", st), st.prov())
+			return false
 		}
 	}
 

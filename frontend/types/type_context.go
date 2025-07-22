@@ -124,7 +124,7 @@ func NewEmptyTypeCtx() *TypeCtx {
 			cache:             make(map[exprCacheEntry]nodeCacheEntry, 1),
 			expandedTypeCache: make(map[exprCacheEntry]ir.Type, 1),
 		},
-		logger: slog.New(ir.IleAstHandler(slog.Default().Handler())).With("section", "inference"),
+		logger: slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
 	}
 }
 

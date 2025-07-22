@@ -25,16 +25,16 @@ var enabledSections = []string{
 	//"frontend",
 	//"desugar",
 	//"package",
-	"inference",
-	//"inference.simplify",
+	//"inference",
+	"inference.simplify",
 	//"inference.normalise",
-	"inference.constrain",
-	//"inference.DNF",
+	//"inference.constrain",
+	"inference.DNF",
 }
 
 var LoggerOpts = &slog.HandlerOptions{
 	AddSource: true,
-	Level:     slog.LevelInfo,
+	Level:     slog.LevelDebug,
 	ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == "time" {
 			return slog.Attr{}

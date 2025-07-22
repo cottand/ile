@@ -26,8 +26,8 @@ func (l exprLogValuer) LogValue() slog.Value {
 }
 func (l typeLogValuer) LogValue() slog.Value { return slog.StringValue(TypeString(l.Type)) }
 
-// IleAstHandler is a slog.Logger capable of lazy-printing expression trees and types
-func IleAstHandler(underlying slog.Handler) slog.Handler {
+// IleIRSlogHandler is a slog.Logger capable of lazy-printing expression trees and types
+func IleIRSlogHandler(underlying slog.Handler) slog.Handler {
 	return &exprLogHandler{underlying: underlying}
 }
 
@@ -72,9 +72,9 @@ func (l *exprLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 			attrs[i] = attr
 		}
 	}
-	return IleAstHandler(l.underlying.WithAttrs(attrs))
+	return IleIRSlogHandler(l.underlying.WithAttrs(attrs))
 }
 
 func (l *exprLogHandler) WithGroup(name string) slog.Handler {
-	return IleAstHandler(l.underlying.WithGroup(name))
+	return IleIRSlogHandler(l.underlying.WithGroup(name))
 }

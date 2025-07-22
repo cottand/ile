@@ -8,7 +8,7 @@ import (
 	"reflect"
 )
 
-var logger = slog.New(ir.IleAstHandler(slog.Default().Handler())).With("section", "inference")
+var logger = slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference")
 
 func (ctx *TypeCtx) TypeLetRecBody(name string, body ir.Expr) PolymorphicType {
 	panic("TODO implement me")

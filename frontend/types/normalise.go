@@ -20,7 +20,7 @@ func (ctx *TypeCtx) normaliseType(st SimpleType, p polarity) (res SimpleType) {
 		DNF:       newOpsDNF(ctx, true),
 	}
 	defer func() {
-		normaliser.Info("normalised successfully", "type", st, "result", res)
+		normaliser.Info("normalised successfully", "type", st, "result", res, "boundsStr", boundsString(res))
 	}()
 	return normaliser.processType(st, p)
 }

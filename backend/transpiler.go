@@ -21,8 +21,8 @@ type Transpiler struct {
 
 func NewTranspiler(typeCtx *types.TypeCtx) *Transpiler {
 	return &Transpiler{
-		types: typeCtx,
-		Logger: slog.With("section", "transpiler"),
+		types:  typeCtx,
+		Logger: slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "transpiler"),
 	}
 }
 
