@@ -61,4 +61,4 @@ TypeCtx.expandSimpleType().
   - eg, when it does not make a difference, I prefer appending to slices as opposed to writing to them via index
 - Writing tests is desired, but as end-to-end as possible (eg, by adding the tested scenario as a source file in ile)
 - When making changes to the type system, ensure compatibility with the MLStruct reference implementation
-- When adding new language features, make sure to add corresponding tests in the appropriate test directory
+- When adding new language features, make sure to add corresponding tests

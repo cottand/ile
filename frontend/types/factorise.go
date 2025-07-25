@@ -293,7 +293,7 @@ func childrenPol(st SimpleType, pol polarity) iter.Seq2[polarity, SimpleType] {
 }
 
 // getVarsPolFor returns an iterator of type variables and their polarities for all type variables in the given SimpleType
-// This is the Go implementation of the getVarsPol method in the Scala reference implementation
+//  TODO should be ordered
 func (ctx *TypeCtx) getVarsPolFor(st SimpleType, pol polarity) iter.Seq2[*typeVariable, polarity] {
 	return func(yield func(*typeVariable, polarity) bool) {
 		// Keep a local map to track what has been seen before

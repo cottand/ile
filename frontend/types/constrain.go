@@ -96,7 +96,7 @@ func (ctx *TypeCtx) newConstraintSolver(
 
 // --- Helper methods for the solver ---
 
-func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType, _ constraintContext) bool {
+func (cs *constraintSolver) consumeFuel(currentLhs, currentRhs SimpleType) bool {
 	cs.fuel--
 	cs.depth++
 	lhsProvDesc := ""
@@ -416,14 +416,14 @@ func (cs *constraintSolver) rec(
 	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
 	cctx constraintContext,
 	shadows *shadowsState, // Pointer to allow modification
-	// prevCctxs []constraintContext, // If needed for extrusion reasons
+// prevCctxs []constraintContext, // If needed for extrusion reasons
 ) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
 	cs.push(lhs, rhs)
 	defer cs.pop() // Ensure stack is popped on return
 
-	if cs.consumeFuel(lhs, rhs, cctx) {
+	if cs.consumeFuel(lhs, rhs) {
 		return true // Terminate due to fuel/depth
 	}
 
@@ -960,14 +960,6 @@ func (cs *constraintSolver) goToWork(
 		ctx:    cs.ctx,
 		Logger: cs.Logger.With("section", "inference.constraintSolver"),
 	}
-	// constrainDNF is not resilient yet to partial implementation, which can result in a panic
-	// I dislike recovering a panic deep inside the inference engine, but the alternative
-	// is to rethink the entire normal forms implementation and this should only be temporary.
-	defer func() {
-		//if recover() != nil {
-		//	cs.simplifier.addFailure("constrainDNF not implemented", lhs.prov())
-		//}
-	}()
 	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
 	return false
 }
@@ -1054,6 +1046,8 @@ eachConj:
 func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
 	cs.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
 	cs.annoyingCalls++
+
+	cs.ctx.addFailure("annoying not implemented", emptyProv)
 
 }
 
