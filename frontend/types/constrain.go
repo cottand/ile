@@ -343,7 +343,7 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 }
 
 // addUpperBound adds rhs as an upper bound to the type variable tv.
-func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType) bool {
 	cs.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
 	// the reference implementation uses foldLeft so we concatenate and iterate in reverse
 	newBound := rhs
@@ -364,7 +364,7 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 
 	// Propagate constraints: L <: new_rhs for all L in lowerBounds
 	for _, lb := range tv.lowerBounds {
-		if cs.rec(lb, rhs, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lb, rhs, true, nil) {
 			return true // Terminate early if propagation fails
 		}
 	}
@@ -372,7 +372,7 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 }
 
 // addLowerBound adds lhs as a lower bound to the type variable tv.
-func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
+func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType) bool {
 	cs.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
 	newBound := lhs
 	for _, pair := range cs.stack {
@@ -392,7 +392,7 @@ func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx
 
 	// Propagate constraints: new_lhs <: U for all U in upperBounds
 	for _, ub := range tv.upperBounds {
-		if cs.rec(lhs, ub, true, cctx, nil /* TODO: shadows */) {
+		if cs.rec(lhs, ub, true, nil) {
 			return true // Terminate early if propagation fails
 		}
 	}
@@ -410,27 +410,15 @@ func (ctx *TypeCtx) constrain(
 
 	solver.Debug("constrain: begin for", "lhs", lhs, "rhs", rhs)
 
-	// fmt.Printf("  where %s\n", functionType{args: []SimpleType{lhs}, ret: rhs}.String()) // Assuming functionType exists
-
-	// Start the recursive constraining process
-	// Initial context and previous contexts are empty
-	initialCtx := constraintContext{lhsChain: nil, rhsChain: nil}
-	// initialPrevCctxs := []constraintContext{} // If needed for extrusion reasons
 	initialShadows := shadowsState{} // Assuming shadowsState is defined
 
-	return solver.rec(lhs, rhs, true, initialCtx, &initialShadows)
+	return solver.rec(lhs, rhs, true, &initialShadows)
 }
 
 // rec is the main recursive function for constraining.
 // It handles fuel, depth, stack, context propagation, and caching.
 // Returns true if constraint solving should terminate early.
-func (cs *constraintSolver) rec(
-	lhs, rhs SimpleType,
-	sameLevel bool, // Indicates if we are in a nested position (affecting context/shadows)
-	cctx constraintContext,
-	shadows *shadowsState, // Pointer to allow modification
-// prevCctxs []constraintContext, // If needed for extrusion reasons
-) bool {
+func (cs *constraintSolver) rec(lhs, rhs SimpleType, sameLevel bool, shadows *shadowsState) bool {
 	cs.constrainCalls++
 	_ = constraintPair{lhs, rhs}
 	cs.push(lhs, rhs)
@@ -440,26 +428,6 @@ func (cs *constraintSolver) rec(
 		return true // Terminate due to fuel/depth
 	}
 
-	// Update context for the recursive call
-	var nextCctx constraintContext
-	if sameLevel {
-		nextCctx = cctx
-		// Prepend without reallocating if possible (optimization)
-		if len(cctx.lhsChain) == 0 || !Equal(cctx.lhsChain[0], lhs) { // Avoid duplicates
-			nextCctx.lhsChain = slices.Insert(cctx.lhsChain, 0, lhs)
-		}
-		if len(cctx.rhsChain) == 0 || !Equal(cctx.rhsChain[0], rhs) { // Avoid duplicates
-			nextCctx.rhsChain = slices.Insert(cctx.rhsChain, 0, rhs)
-		}
-	} else {
-		nextCctx = constraintContext{
-			lhsChain: []SimpleType{lhs},
-			rhsChain: []SimpleType{rhs},
-		}
-	}
-
-	// TODO: Update prevCctxs if needed
-
 	// TODO: Update shadows state
 	nextShadows := shadows // Simplified - needs proper update logic
 	if !sameLevel {
@@ -467,7 +435,7 @@ func (cs *constraintSolver) rec(
 		// nextShadows = shadows.resetCurrent()
 	}
 
-	return cs.recImpl(lhs, rhs, nextCctx, nextShadows)
+	return cs.recImpl(lhs, rhs, nextShadows)
 }
 
 func isErrorType(ty SimpleType) bool {
@@ -476,11 +444,7 @@ func isErrorType(ty SimpleType) bool {
 
 // recImpl contains the core subtyping logic based on type structure.
 // Returns true if constraint solving should terminate early.
-func (cs *constraintSolver) recImpl(
-	lhs, rhs SimpleType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) recImpl(lhs, rhs SimpleType, shadows *shadowsState) bool {
 	math.IsInf(math.Inf(1), 1)
 	cs.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
@@ -512,10 +476,10 @@ func (cs *constraintSolver) recImpl(
 		return false
 	}
 	if leftProxy, ok := lhs.(wrappingProvType); ok {
-		return cs.rec(leftProxy.SimpleType, rhs, true, cctx, shadows)
+		return cs.rec(leftProxy.SimpleType, rhs, true, shadows)
 	}
 	if rightProxy, ok := rhs.(wrappingProvType); ok {
-		return cs.rec(lhs, rightProxy.SimpleType, true, cctx, shadows)
+		return cs.rec(lhs, rightProxy.SimpleType, true, shadows)
 	}
 
 	if rhs, ok := rhs.(recordType); ok && len(rhs.fields) == 0 {
@@ -523,17 +487,17 @@ func (cs *constraintSolver) recImpl(
 	}
 	if lhsRange, ok := lhs.(typeRange); ok {
 		// L..U <: R => U <: R
-		return cs.rec(lhsRange.upperBound, rhs, true, cctx, shadows)
+		return cs.rec(lhsRange.upperBound, rhs, true, shadows)
 	}
 	if rhsRange, ok := rhs.(typeRange); ok {
 		// R <: L..U => U <: L
-		return cs.rec(lhs, rhsRange.lowerBound, true, cctx, shadows)
+		return cs.rec(lhs, rhsRange.lowerBound, true, shadows)
 	}
 	lhsNeg, okLhsNeg := lhs.(negType)
 	if okLhsNeg {
 		if r, ok := rhs.(negType); ok {
 			// ~L <: ~R  =>  R <: L
-			return cs.rec(r.negated, lhsNeg.negated, true, cctx, shadows)
+			return cs.rec(r.negated, lhsNeg.negated, true, shadows)
 		}
 	}
 
@@ -543,13 +507,13 @@ func (cs *constraintSolver) recImpl(
 		if rhsFn, ok := rhs.(funcType); ok {
 			// (L1, L2) -> LR <: (R1, R2) -> RR   =>
 			// R1 <: L1, LR <: LR
-			return cs.constrainFuncFunc(lhsFn, rhsFn, cctx, shadows)
+			return cs.constrainFuncFunc(lhsFn, rhsFn, shadows)
 		}
 		if rhsIsErr {
 			for _, leftArg := range lhsFn.args {
-				cs.rec(rhs, leftArg, false, cctx, shadows)
+				cs.rec(rhs, leftArg, false, shadows)
 			}
-			cs.rec(lhsFn.ret, rhs, false, cctx, shadows)
+			cs.rec(lhsFn.ret, rhs, false, shadows)
 		}
 	}
 
@@ -560,20 +524,20 @@ func (cs *constraintSolver) recImpl(
 	}
 
 	if lhsVar, ok := lhs.(*typeVariable); ok {
-		return cs.constrainTypeVarLhs(lhsVar, rhs, cctx, shadows)
+		return cs.constrainTypeVarLhs(lhsVar, rhs, shadows)
 	}
 	if rhsVar, ok := rhs.(*typeVariable); ok {
-		return cs.constrainTypeVarRhs(lhs, rhsVar, cctx, shadows)
+		return cs.constrainTypeVarRhs(lhs, rhsVar, shadows)
 	}
 	// TODO ARRAYS/TUPLES HERE
 	if lhsTuple, ok := lhs.(tupleType); ok {
 		if r, ok := rhs.(tupleType); ok {
-			return cs.constrainTupleTuple(lhsTuple, r, cctx, shadows)
+			return cs.constrainTupleTuple(lhsTuple, r, shadows)
 		}
 		if r, ok := rhs.(arrayType); ok {
 			// Array subtyping: Tuple<T1,..Tn> <: Array<U> if (T1|...|Tn) <: U
 			innerLhs := lhsTuple.inner(cs.ctx) // Needs implementation
-			return cs.rec(innerLhs, r.innerT, false, cctx, shadows)
+			return cs.rec(innerLhs, r.innerT, false, shadows)
 			// TODO: Handle bounds correctly (recLb in Scala)
 		}
 		// tupleType <: Other? -> goToWork or error
@@ -582,7 +546,7 @@ func (cs *constraintSolver) recImpl(
 	}
 	if lhsNamedTuple, ok := lhs.(namedTupleType); ok {
 		if r, ok := rhs.(namedTupleType); ok {
-			return cs.constrainNamedTupleNamedTuple(lhsNamedTuple, r, cctx, shadows)
+			return cs.constrainNamedTupleNamedTuple(lhsNamedTuple, r, shadows)
 		}
 		// namedTupleType <: Other? -> goToWork or error
 
@@ -592,34 +556,34 @@ func (cs *constraintSolver) recImpl(
 		if r, ok := rhs.(arrayType); ok {
 			// Array<T> <: Array<U> if T <: U (covariance)
 			// TODO: Handle bounds correctly (recLb in Scala for mutable arrays)
-			return cs.rec(lhsArray.innerT, r.innerT, false, cctx, shadows)
+			return cs.rec(lhsArray.innerT, r.innerT, false, shadows)
 		}
 	}
 	// TODO ARRAYS/TUPLES END
 
 	if lhsUnion, ok := lhs.(unionType); ok {
-		if cs.rec(lhsUnion.lhs, rhs, true, cctx, shadows) {
+		if cs.rec(lhsUnion.lhs, rhs, true, shadows) {
 			return true
 		}
-		return cs.rec(lhsUnion.rhs, rhs, true, cctx, shadows)
+		return cs.rec(lhsUnion.rhs, rhs, true, shadows)
 	}
 
 	if rhsInter, ok := rhs.(intersectionType); ok {
-		if cs.rec(lhs, rhsInter.lhs, true, cctx, shadows) {
+		if cs.rec(lhs, rhsInter.lhs, true, shadows) {
 			return true
 		}
-		return cs.rec(lhs, rhsInter.rhs, true, cctx, shadows)
+		return cs.rec(lhs, rhsInter.rhs, true, shadows)
 	}
 	lhsIsErr := isErrorType(lhs)
 	if lhsIsErr {
 		rhsFn, isRhsFn := rhs.(funcType)
 		if isRhsFn {
 			for _, arg := range rhsFn.args {
-				if cs.rec(lhs, arg, false, cctx, shadows) {
+				if cs.rec(lhs, arg, false, shadows) {
 					return true
 				}
 			}
-			return cs.rec(rhsFn.ret, lhs, false, cctx, shadows)
+			return cs.rec(rhsFn.ret, lhs, false, shadows)
 		}
 	}
 
@@ -633,11 +597,11 @@ func (cs *constraintSolver) recImpl(
 
 					// note inverted constrain as this is the LB that we are constraining, so
 					// polarity is as if this was a function return (ie, inverted polarity)
-					if cs.rec(rightField.type_.lowerBound, leftField.type_.lowerBound, false, cctx, shadows) {
+					if cs.rec(rightField.type_.lowerBound, leftField.type_.lowerBound, false, shadows) {
 						return true
 					}
 
-					if cs.rec(leftField.type_.upperBound, rightField.type_.upperBound, false, cctx, shadows) {
+					if cs.rec(leftField.type_.upperBound, rightField.type_.upperBound, false, shadows) {
 						return true
 					}
 					found = true
@@ -677,10 +641,10 @@ func (cs *constraintSolver) recImpl(
 				rightArg := rhsTypeRef.typeArgs[i]
 				variance := def.typeVarVariances[tv.id]
 				if !variance.contravariant {
-					cs.rec(leftArg, rightArg, false, cctx, shadows)
+					cs.rec(leftArg, rightArg, false, shadows)
 				}
 				if !variance.covariant {
-					cs.rec(rightArg, leftArg, false, cctx, shadows)
+					cs.rec(rightArg, leftArg, false, shadows)
 				}
 			}
 			return false
@@ -691,13 +655,13 @@ func (cs *constraintSolver) recImpl(
 				return cs.reportError("type mismatch")
 			}
 		}
-		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
+		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), cs.ctx.expand(rhsTypeRef, expandOpts{}), true, shadows)
 	}
 	if okLhsTypeRef {
-		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), rhs, true, cctx, shadows)
+		return cs.rec(cs.ctx.expand(lhsTypeRef, expandOpts{}), rhs, true, shadows)
 	}
 	if okRhsTypeRef {
-		return cs.rec(lhs, cs.ctx.expand(rhsTypeRef, expandOpts{}), true, cctx, shadows)
+		return cs.rec(lhs, cs.ctx.expand(rhsTypeRef, expandOpts{}), true, shadows)
 	}
 
 	if lhsIsErr || rhsIsErr {
@@ -705,19 +669,19 @@ func (cs *constraintSolver) recImpl(
 	}
 
 	if _, ok := rhs.(unionType); ok {
-		return cs.goToWork(lhs, rhs, cctx, shadows)
+		return cs.goToWork(lhs, rhs, shadows)
 	}
 	if _, ok := lhs.(intersectionType); ok {
-		return cs.goToWork(lhs, rhs, cctx, shadows)
+		return cs.goToWork(lhs, rhs, shadows)
 	}
 
 	if okLhsNeg {
 		// ~L <: _ -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
+		return cs.goToWork(lhs, rhs, shadows)
 	}
 	if _, ok := rhs.(negType); ok {
 		// _ <: ~~R -> Requires DNF/CNF (goToWork)
-		return cs.goToWork(lhs, rhs, cctx, shadows)
+		return cs.goToWork(lhs, rhs, shadows)
 	}
 
 	cs.Error("constrain: no specific rule", "lhs", lhs, "rhs", rhs, "type_lhs", reflect.TypeOf(lhs), "type_rhs", reflect.TypeOf(rhs))
@@ -754,15 +718,10 @@ func isBottom(t SimpleType) bool {
 }
 
 // constrainTypeVarLhs handles `TypeVariable <: Rhs`
-func (cs *constraintSolver) constrainTypeVarLhs(
-	lhs *typeVariable,
-	rhs SimpleType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) constrainTypeVarLhs(lhs *typeVariable, rhs SimpleType, shadows *shadowsState) bool {
 	// Check levels
 	if rhs.level() <= lhs.level() {
-		return cs.addUpperBound(lhs, rhs, cctx)
+		return cs.addUpperBound(lhs, rhs)
 	}
 
 	// Extrusion needed for RHS
@@ -772,19 +731,14 @@ func (cs *constraintSolver) constrainTypeVarLhs(
 		cs.reportError(fmt.Sprintf("cannot extrude RHS for type-variable LHS: %s", rhs))
 		return true
 	}
-	return cs.rec(lhs, extrudedRhs, true, cctx, shadows) // Retry with extruded RHS
+	return cs.rec(lhs, extrudedRhs, true, shadows) // Retry with extruded RHS
 }
 
 // constrainTypeVarRhs handles LHS <: TypeVariable
-func (cs *constraintSolver) constrainTypeVarRhs(
-	lhs SimpleType,
-	rhs *typeVariable,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) constrainTypeVarRhs(lhs SimpleType, rhs *typeVariable, shadows *shadowsState) bool {
 	// Levels match or LHS is lower: Add lower bound
 	if lhs.level() <= rhs.level() {
-		return cs.addLowerBound(rhs, lhs, cctx)
+		return cs.addLowerBound(rhs, lhs)
 	}
 
 	cs.Debug("constraint: extruding LHS for type-variable RHS", "rhs_level", rhs.level(), "lhs_level", lhs.level())
@@ -792,35 +746,27 @@ func (cs *constraintSolver) constrainTypeVarRhs(
 	if extrudedLhs == nil {                           // Extrusion failed or reported error
 		return true
 	}
-	return cs.rec(extrudedLhs, rhs, true, cctx, shadows) // Retry with extruded LHS
+	return cs.rec(extrudedLhs, rhs, true, shadows) // Retry with extruded LHS
 
 }
 
 // constrainFuncFunc handles `FunctionType <: FunctionType`
-func (cs *constraintSolver) constrainFuncFunc(
-	lhs, rhs funcType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) constrainFuncFunc(lhs, rhs funcType, shadows *shadowsState) bool {
 	if len(lhs.args) != len(rhs.args) {
 		return cs.reportError(fmt.Sprintf("function arity mismatch: %d vs %d", len(lhs.args), len(rhs.args)))
 	}
 	// constrain arguments contravariantly: rhs.arg <: lhs.arg
 	for i := range lhs.args {
-		if cs.rec(rhs.args[i], lhs.args[i], false, cctx, shadows) {
+		if cs.rec(rhs.args[i], lhs.args[i], false, shadows) {
 			return true
 		}
 	}
 	// constrain return type covariantly: lhs.ret <: rhs.ret
-	return cs.rec(lhs.ret, rhs.ret, false, cctx, shadows)
+	return cs.rec(lhs.ret, rhs.ret, false, shadows)
 }
 
 // constrainTupleTuple handles `TupleType <: TupleType`
-func (cs *constraintSolver) constrainTupleTuple(
-	lhs, rhs tupleType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) constrainTupleTuple(lhs, rhs tupleType, shadows *shadowsState) bool {
 	if len(lhs.fields) != len(rhs.fields) {
 		return cs.reportError(fmt.Sprintf("tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)))
 	}
@@ -829,7 +775,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 	// TODO: Handle named tuples correctly if names differ.
 	// TODO: Handle bounds correctly (recLb in Scala).
 	for i := range lhs.fields {
-		if cs.rec(lhs.fields[i], rhs.fields[i], false, cctx, shadows) { // Note: sameLevel = false
+		if cs.rec(lhs.fields[i], rhs.fields[i], false, shadows) { // Note: sameLevel = false
 			return true // Terminate early
 		}
 	}
@@ -837,11 +783,7 @@ func (cs *constraintSolver) constrainTupleTuple(
 }
 
 // constrainNamedTupleNamedTuple handles `NamedTupleType <: NamedTupleType`
-func (cs *constraintSolver) constrainNamedTupleNamedTuple(
-	lhs, rhs namedTupleType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) constrainNamedTupleNamedTuple(lhs, rhs namedTupleType, shadows *shadowsState) bool {
 	if len(lhs.fields) != len(rhs.fields) {
 		return cs.reportError(fmt.Sprintf("named tuple size mismatch: %d vs %d", len(lhs.fields), len(rhs.fields)))
 	}
@@ -853,7 +795,7 @@ func (cs *constraintSolver) constrainNamedTupleNamedTuple(
 		if lhs.fields[i].Fst.Name != rhs.fields[i].Fst.Name {
 			return cs.reportError(fmt.Sprintf("named tuple field name mismatch: '%s' vs '%s'", lhs.fields[i].Fst.Name, rhs.fields[i].Fst.Name))
 		}
-		if cs.rec(lhs.fields[i].Snd, rhs.fields[i].Snd, false, cctx, shadows) { // Note: sameLevel = false
+		if cs.rec(lhs.fields[i].Snd, rhs.fields[i].Snd, false, shadows) { // Note: sameLevel = false
 			return true // Terminate early
 		}
 	}
@@ -876,7 +818,7 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 			// Or report error
 			return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhs.defName, rhs.defName))
 		}
-		return cs.rec(expandedLhs, expandedRhs, true, cctx, shadows)
+		return cs.rec(expandedLhs, expandedRhs, true, shadows)
 	}
 
 	// Same definition, check type arguments based on variance
@@ -899,18 +841,18 @@ func (cs *constraintSolver) constrainTypeRefTypeRef(
 		targRhs := rhs.typeArgs[i]
 		switch variance {
 		case Covariant: // targLhs <: targRhs
-			if cs.rec(targLhs, targRhs, false, cctx, shadows) {
+			if cs.rec(targLhs, targRhs, false, shadows) {
 				return true
 			}
 		case Contravariant: // targRhs <: targLhs
-			if cs.rec(targRhs, targLhs, false, cctx, shadows) {
+			if cs.rec(targRhs, targLhs, false, shadows) {
 				return true
 			}
 		case Invariant: // targLhs =:= targRhs (constrain both ways)
-			if cs.rec(targLhs, targRhs, false, cctx, shadows) {
+			if cs.rec(targLhs, targRhs, false, shadows) {
 				return true
 			}
-			if cs.rec(targRhs, targLhs, false, cctx, shadows) {
+			if cs.rec(targRhs, targLhs, false, shadows) {
 				return true
 			}
 		}
@@ -942,7 +884,7 @@ func (cs *constraintSolver) constrainClassRecord(
 		}
 
 		// constrain upper bounds: memberTy.ub <: fldTy.ub
-		if cs.rec(memberTy.ub, fldTy.upperBound, false, cctx, shadows) {
+		if cs.rec(memberTy.ub, fldTy.upperBound, false, shadows) {
 			return true
 		}
 
@@ -952,7 +894,7 @@ func (cs *constraintSolver) constrainClassRecord(
 				// Trying to assign to a non-mutable field
 				return cs.reportError(fmt.Sprintf("field %s is not mutable", fldName.Name))
 			}
-			if cs.rec(fldTy.lowerBound, memberTy.lb, false, cctx, shadows) {
+			if cs.rec(fldTy.lowerBound, memberTy.lb, false, shadows) {
 				return true
 			}
 		}
@@ -964,22 +906,18 @@ func (cs *constraintSolver) constrainClassRecord(
 
 // goToWork handles complex constraints using DNF/CNF normalization.
 // This is a major piece requiring its own implementation based on NormalForms.scala.
-func (cs *constraintSolver) goToWork(
-	lhs, rhs SimpleType,
-	cctx constraintContext,
-	shadows *shadowsState,
-) bool {
+func (cs *constraintSolver) goToWork(lhs, rhs SimpleType, shadows *shadowsState) bool {
 	opsDnf := &opsDNF{
 		ctx:    cs.ctx,
 		Logger: cs.Logger.With("section", "inference.constraintSolver"),
 	}
-	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), cctx, shadows)
+	cs.constrainDNF(opsDnf, opsDnf.mkDeep(lhs, true), opsDnf.mkDeep(rhs, false), shadows)
 	return false
 }
 
 // constrainDNF handles constraining when types have been converted to DNF.
 // This corresponds to the logic within goToWork inside constraining in the scala reference.
-func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, cctx constraintContext, shadows *shadowsState) {
+func (cs *constraintSolver) constrainDNF(ops *opsDNF, lhs, rhs dnf, shadows *shadowsState) {
 	ops.Debug("constrain: for DNF", "lhs", lhs, "rhs", rhs)
 	cs.annoyingCalls++
 
@@ -999,7 +937,7 @@ eachConj:
 				conj.nvars,
 			)
 			newRhs := unionOf(rhs.toType(), negateType(newC.toType(), emptyProv), unionOpts{})
-			cs.rec(first, newRhs, true, cctx, shadows)
+			cs.rec(first, newRhs, true, shadows)
 			break eachConj
 		}
 		// Case 2: The conjunct C has no positive variables (L & ~R & ~N <: RHS)
@@ -1052,13 +990,13 @@ eachConj:
 		for _, rConj := range possibleConjuncts {
 			possibleAsTypes = append(possibleAsTypes, rConj.toType())
 		}
-		cs.annoying(cctx, nil, lnf, possibleAsTypes, &rhsBot{})
+		cs.annoying(nil, lnf, possibleAsTypes, &rhsBot{})
 	}
 }
 
 // annoyingHandleEmptyTypes handles the case where both leftTypes and rightTypes are empty.
 // This is extracted to a separate function to make the annoying() function more left-aligned.
-func (cs *constraintSolver) annoyingHandleEmptyTypes(cctx constraintContext, doneLeft lhsNF, doneRight rhsNF) {
+func (cs *constraintSolver) annoyingHandleEmptyTypes(doneLeft lhsNF, doneRight rhsNF) {
 	if doneLeft.isLeftNfTop() {
 		cs.reportError("Type constraint cannot be satisfied")
 		return
@@ -1088,7 +1026,7 @@ func (cs *constraintSolver) annoyingHandleEmptyTypes(cctx constraintContext, don
 		if lhsRefined.fn != nil {
 			if rhsRest, ok := rhsBases.rest.(funcType); ok {
 				// Constrain function types
-				cs.rec(lhsRefined.fn, &rhsRest, true, cctx, nil)
+				cs.rec(lhsRefined.fn, &rhsRest, true, nil)
 				return
 			}
 		}
@@ -1114,8 +1052,8 @@ func (cs *constraintSolver) annoyingHandleEmptyTypes(cctx constraintContext, don
 			for _, field := range lhsRefined.reft.fields {
 				if field.name.Name == rhsField.name.Name {
 					// Constrain field types
-					cs.rec(field.type_.lowerBound, rhsField.ty.lowerBound, false, cctx, nil)
-					cs.rec(field.type_.upperBound, rhsField.ty.upperBound, false, cctx, nil)
+					cs.rec(field.type_.lowerBound, rhsField.ty.lowerBound, false, nil)
+					cs.rec(field.type_.upperBound, rhsField.ty.upperBound, false, nil)
 					return
 				}
 			}
@@ -1136,13 +1074,13 @@ func (cs *constraintSolver) annoyingHandleEmptyTypes(cctx constraintContext, don
 // which are those that involve either unions and intersections at the wrong polarities or negations.
 // This works by constructing all pairs of "conjunct <: disjunct" implied by the conceptual
 // "DNF <: CNF" form of the constraint.
-func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
+func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
 	cs.Warn("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
 	cs.annoyingCalls++
 
 	// Handle the case where both leftTypes and rightTypes are empty at the start
 	if len(leftTypes) == 0 && len(rightTypes) == 0 {
-		cs.annoyingHandleEmptyTypes(cctx, doneLeft, doneRight)
+		cs.annoyingHandleEmptyTypes(doneLeft, doneRight)
 		return
 	}
 
@@ -1191,7 +1129,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 			}
 
 			// Add constraint: tv <: rhs
-			cs.rec(tv, rhs, allTop, cctx, nil)
+			cs.rec(tv, rhs, allTop, nil)
 			return
 		}
 	}
@@ -1241,7 +1179,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 			}
 
 			// Add constraint: lhs <: tv
-			cs.rec(lhs, tv, isBot, cctx, nil)
+			cs.rec(lhs, tv, isBot, nil)
 			return
 		}
 	}
@@ -1251,7 +1189,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if tr, ok := leftTypes[0].(typeRange); ok {
 			// For type ranges on the left, use the upper bound
 			newLeftTypes := append([]SimpleType{tr.upperBound}, leftTypes[1:]...)
-			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			cs.annoying(newLeftTypes, doneLeft, rightTypes, doneRight)
 			return
 		}
 	}
@@ -1260,7 +1198,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if tr, ok := rightTypes[0].(typeRange); ok {
 			// For type ranges on the right, use the lower bound
 			newRightTypes := append([]SimpleType{tr.lowerBound}, rightTypes[1:]...)
-			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			cs.annoying(leftTypes, doneLeft, newRightTypes, doneRight)
 			return
 		}
 	}
@@ -1270,10 +1208,10 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if ut, ok := leftTypes[0].(unionType); ok {
 			// For unions on the left, split into two separate constraints
 			newLeftTypes1 := append([]SimpleType{ut.lhs}, leftTypes[1:]...)
-			cs.annoying(cctx, newLeftTypes1, doneLeft, rightTypes, doneRight)
+			cs.annoying(newLeftTypes1, doneLeft, rightTypes, doneRight)
 
 			newLeftTypes2 := append([]SimpleType{ut.rhs}, leftTypes[1:]...)
-			cs.annoying(cctx, newLeftTypes2, doneLeft, rightTypes, doneRight)
+			cs.annoying(newLeftTypes2, doneLeft, rightTypes, doneRight)
 			return
 		}
 	}
@@ -1283,10 +1221,10 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if it, ok := rightTypes[0].(intersectionType); ok {
 			// For intersections on the right, split into two separate constraints
 			newRightTypes1 := append([]SimpleType{it.lhs}, rightTypes[1:]...)
-			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes1, doneRight)
+			cs.annoying(leftTypes, doneLeft, newRightTypes1, doneRight)
 
 			newRightTypes2 := append([]SimpleType{it.rhs}, rightTypes[1:]...)
-			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes2, doneRight)
+			cs.annoying(leftTypes, doneLeft, newRightTypes2, doneRight)
 			return
 		}
 	}
@@ -1296,7 +1234,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if it, ok := leftTypes[0].(intersectionType); ok {
 			// For intersections on the left, combine both parts
 			newLeftTypes := append([]SimpleType{it.lhs, it.rhs}, leftTypes[1:]...)
-			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			cs.annoying(newLeftTypes, doneLeft, rightTypes, doneRight)
 			return
 		}
 	}
@@ -1306,7 +1244,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if ut, ok := rightTypes[0].(unionType); ok {
 			// For unions on the right, combine both parts
 			newRightTypes := append([]SimpleType{ut.lhs, ut.rhs}, rightTypes[1:]...)
-			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			cs.annoying(leftTypes, doneLeft, newRightTypes, doneRight)
 			return
 		}
 	}
@@ -1317,7 +1255,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 			// For negations on the left, move the negated type to the right
 			newLeftTypes := leftTypes[1:]
 			newRightTypes := append([]SimpleType{nt.negated}, rightTypes...)
-			cs.annoying(cctx, newLeftTypes, doneLeft, newRightTypes, doneRight)
+			cs.annoying(newLeftTypes, doneLeft, newRightTypes, doneRight)
 			return
 		}
 	}
@@ -1328,7 +1266,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 			// For negations on the right, move the negated type to the left
 			newRightTypes := rightTypes[1:]
 			newLeftTypes := append([]SimpleType{nt.negated}, leftTypes...)
-			cs.annoying(cctx, newLeftTypes, doneLeft, newRightTypes, doneRight)
+			cs.annoying(newLeftTypes, doneLeft, newRightTypes, doneRight)
 			return
 		}
 	}
@@ -1345,13 +1283,13 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 
 	// Handle top type on the left (can be skipped)
 	if len(leftTypes) > 0 && isTop(leftTypes[0]) {
-		cs.annoying(cctx, leftTypes[1:], doneLeft, rightTypes, doneRight)
+		cs.annoying(leftTypes[1:], doneLeft, rightTypes, doneRight)
 		return
 	}
 
 	// Handle bottom type on the right (can be skipped)
 	if len(rightTypes) > 0 && isBottom(rightTypes[0]) {
-		cs.annoying(cctx, leftTypes, doneLeft, rightTypes[1:], doneRight)
+		cs.annoying(leftTypes, doneLeft, rightTypes[1:], doneRight)
 		return
 	}
 
@@ -1360,7 +1298,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if pt, ok := leftTypes[0].(wrappingProvType); ok {
 			// For proxy types on the left, use the underlying type
 			newLeftTypes := append([]SimpleType{pt.underlying()}, leftTypes[1:]...)
-			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			cs.annoying(newLeftTypes, doneLeft, rightTypes, doneRight)
 			return
 		}
 	}
@@ -1369,7 +1307,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		if pt, ok := rightTypes[0].(wrappingProvType); ok {
 			// For proxy types on the right, use the underlying type
 			newRightTypes := append([]SimpleType{pt.underlying()}, rightTypes[1:]...)
-			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			cs.annoying(leftTypes, doneLeft, newRightTypes, doneRight)
 			return
 		}
 	}
@@ -1416,7 +1354,7 @@ func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleT
 		// Try to add the converted lhsNF to doneLeft
 		newDoneLeft, ok := doneLeft.and(lnf, cs.ctx)
 		if ok {
-			cs.annoying(cctx, leftTypes[1:], newDoneLeft, rightTypes, doneRight)
+			cs.annoying(leftTypes[1:], newDoneLeft, rightTypes, doneRight)
 			return
 		} else {
 			// If we can't add it to doneLeft, the constraint is unsatisfiable
