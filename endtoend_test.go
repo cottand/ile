@@ -95,10 +95,11 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		defer func() {
-			//if v := recover(); v != nil {
-			//t.Errorf("test panicked: %v", v)
-			//}
+			if v := recover(); v != nil {
+				t.Errorf("test panicked: %v", v)
+			}
 		}()
+
 		content, err := testSet.ReadFile(path.Join("test", name))
 		assert.NoError(t, err)
 

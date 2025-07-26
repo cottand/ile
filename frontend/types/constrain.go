@@ -346,11 +346,17 @@ func makeProxy(ty SimpleType, prov typeProvenance) SimpleType {
 func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx constraintContext) bool {
 	cs.Debug("constrain: adding upper bound", "bound", rhs, "var", tv)
 	// the reference implementation uses foldLeft so we concatenate and iterate in reverse
-	chains := util.ConcatIter(slices.Values(cctx.rhsChain), util.Reverse(cctx.lhsChain))
 	newBound := rhs
-	for bound := range chains {
-		if bound.prov() != emptyProv {
-			newBound = makeProxy(newBound, bound.prov())
+	for _, pair := range cs.stack {
+		c := pair.rhs
+		if c.prov() != emptyProv {
+			newBound = makeProxy(newBound, c.prov())
+		}
+	}
+	for _, pair := range slices.Backward(cs.stack) {
+		c := pair.lhs
+		if c.prov() != emptyProv {
+			newBound = makeProxy(newBound, c.prov())
 		}
 	}
 
@@ -369,7 +375,14 @@ func (cs *constraintSolver) addUpperBound(tv *typeVariable, rhs SimpleType, cctx
 func (cs *constraintSolver) addLowerBound(tv *typeVariable, lhs SimpleType, cctx constraintContext) bool {
 	cs.Debug("constrain: adding lower bound", "bound", lhs, "tv", tv)
 	newBound := lhs
-	for c := range util.ConcatIter(slices.Values(cctx.lhsChain), util.Reverse(cctx.rhsChain)) {
+	for _, pair := range cs.stack {
+		c := pair.lhs
+		if c.prov() != emptyProv {
+			newBound = makeProxy(newBound, c.prov())
+		}
+	}
+	for _, pair := range slices.Backward(cs.stack) {
+		c := pair.rhs
 		if c.prov() != emptyProv {
 			newBound = makeProxy(newBound, c.prov())
 		}
@@ -1043,11 +1056,374 @@ eachConj:
 	}
 }
 
+// annoyingHandleEmptyTypes handles the case where both leftTypes and rightTypes are empty.
+// This is extracted to a separate function to make the annoying() function more left-aligned.
+func (cs *constraintSolver) annoyingHandleEmptyTypes(cctx constraintContext, doneLeft lhsNF, doneRight rhsNF) {
+	if doneLeft.isLeftNfTop() {
+		cs.reportError("Type constraint cannot be satisfied")
+		return
+	}
+
+	if doneRight.isRhsBot() {
+		cs.reportError("Type constraint cannot be satisfied")
+		return
+	}
+
+	// Check for trait tag conflicts
+	lhsRefined, okLhs := doneLeft.(*lhsRefined)
+	rhsBases, okRhs := doneRight.(*rhsBases)
+
+	if okLhs && okRhs {
+		// Check if there are trait tag conflicts
+		if lhsRefined.traitTags != nil {
+			for tag := range lhsRefined.traitTags.Items() {
+				if rhsBases.hasTag(tag) {
+					cs.Debug("annoying: trait tag conflict", "tag", tag)
+					return // Trait tag conflict, constraint is unsatisfiable
+				}
+			}
+		}
+
+		// Handle function types
+		if lhsRefined.fn != nil {
+			if rhsRest, ok := rhsBases.rest.(funcType); ok {
+				// Constrain function types
+				cs.rec(lhsRefined.fn, &rhsRest, true, cctx, nil)
+				return
+			}
+		}
+
+		// Handle class tags
+		if lhsRefined.base != nil {
+			for _, tag := range rhsBases.tags {
+				if ct, ok := tag.(classTag); ok {
+					// Check if lhsRefined.base is a subtype of ct
+					if lhsRefined.base.containsParentST(ct.id) || Equal(*lhsRefined.base, ct) {
+						cs.Debug("annoying: class tag conflict", "lhsBase", lhsRefined.base, "rhsTag", ct)
+						return // Class tag conflict, constraint is unsatisfiable
+					}
+				}
+			}
+		}
+	}
+
+	// Handle record fields
+	if okLhs {
+		if rhsField, ok := doneRight.(*rhsField); ok {
+			// Find matching field in lhsRefined
+			for _, field := range lhsRefined.reft.fields {
+				if field.name.Name == rhsField.name.Name {
+					// Constrain field types
+					cs.rec(field.type_.lowerBound, rhsField.ty.lowerBound, false, cctx, nil)
+					cs.rec(field.type_.upperBound, rhsField.ty.upperBound, false, cctx, nil)
+					return
+				}
+			}
+			// Field not found in lhsRefined
+			cs.reportError(fmt.Sprintf("Field '%s' not found", rhsField.name.Name))
+			return
+		}
+	}
+
+	// If we've reached here, we need to check if the constraint is satisfiable
+	if !checkTagCompatibility(doneLeft, doneRight) {
+		cs.reportError("Type constraint cannot be satisfied due to tag incompatibility")
+		return
+	}
+}
+
+// Solve annoying constraints,
+// which are those that involve either unions and intersections at the wrong polarities or negations.
+// This works by constructing all pairs of "conjunct <: disjunct" implied by the conceptual
+// "DNF <: CNF" form of the constraint.
 func (cs *constraintSolver) annoying(cctx constraintContext, leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
-	cs.Debug("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
+	cs.Warn("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
 	cs.annoyingCalls++
 
-	cs.ctx.addFailure("annoying not implemented", emptyProv)
+	// Handle the case where both leftTypes and rightTypes are empty at the start
+	if len(leftTypes) == 0 && len(rightTypes) == 0 {
+		cs.annoyingHandleEmptyTypes(cctx, doneLeft, doneRight)
+		return
+	}
+
+	// Handle type variables on the left side
+	if len(leftTypes) > 0 {
+		if tv, ok := leftTypes[0].(*typeVariable); ok {
+			// Create a type that represents the right-hand side of the constraint
+			var rhs SimpleType
+
+			// Start with the negation of the remaining left types
+			remainingLeftTypes := leftTypes[1:]
+
+			// Collect all types for the right-hand side
+			var types []SimpleType
+
+			// Add negated left types
+			for _, lt := range remainingLeftTypes {
+				types = append(types, negateType(lt, emptyProv))
+			}
+
+			// Add right types
+			types = append(types, rightTypes...)
+
+			// Add doneRight types
+			if !doneRight.isRhsBot() {
+				types = append(types, doneRight.toType())
+			}
+
+			// Combine all types with union
+			if len(types) == 0 {
+				rhs = bottomType
+			} else {
+				rhs = types[0]
+				for i := 1; i < len(types); i++ {
+					rhs = unionOf(rhs, types[i], unionOpts{})
+				}
+			}
+
+			// Check if all remaining left types are top
+			allTop := doneLeft.isLeftNfTop()
+			for _, lt := range remainingLeftTypes {
+				if !isTop(lt) {
+					allTop = false
+					break
+				}
+			}
+
+			// Add constraint: tv <: rhs
+			cs.rec(tv, rhs, allTop, cctx, nil)
+			return
+		}
+	}
+
+	// Handle type variables on the right side
+	if len(rightTypes) > 0 {
+		if tv, ok := rightTypes[0].(*typeVariable); ok {
+			// Create a type that represents the left-hand side of the constraint
+			var lhs SimpleType
+
+			// Start with the left types
+			remainingRightTypes := rightTypes[1:]
+
+			// Collect all types for the left-hand side
+			var types []SimpleType
+
+			// Add left types
+			types = append(types, leftTypes...)
+
+			// Add doneLeft types
+			if !doneLeft.isLeftNfTop() {
+				types = append(types, doneLeft.toType())
+			}
+
+			// Add negated right types
+			for _, rt := range remainingRightTypes {
+				types = append(types, negateType(rt, emptyProv))
+			}
+
+			// Combine all types with intersection
+			if len(types) == 0 {
+				lhs = topType
+			} else {
+				lhs = types[0]
+				for i := 1; i < len(types); i++ {
+					lhs = intersectionOf(lhs, types[i], unionOpts{})
+				}
+			}
+
+			// Check if all remaining right types are bottom
+			isBot := doneRight.isRhsBot()
+			for _, rt := range remainingRightTypes {
+				if !isBottom(rt) {
+					isBot = false
+					break
+				}
+			}
+
+			// Add constraint: lhs <: tv
+			cs.rec(lhs, tv, isBot, cctx, nil)
+			return
+		}
+	}
+
+	// Handle type ranges
+	if len(leftTypes) > 0 {
+		if tr, ok := leftTypes[0].(typeRange); ok {
+			// For type ranges on the left, use the upper bound
+			newLeftTypes := append([]SimpleType{tr.upperBound}, leftTypes[1:]...)
+			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			return
+		}
+	}
+
+	if len(rightTypes) > 0 {
+		if tr, ok := rightTypes[0].(typeRange); ok {
+			// For type ranges on the right, use the lower bound
+			newRightTypes := append([]SimpleType{tr.lowerBound}, rightTypes[1:]...)
+			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle union types on the left
+	if len(leftTypes) > 0 {
+		if ut, ok := leftTypes[0].(unionType); ok {
+			// For unions on the left, split into two separate constraints
+			newLeftTypes1 := append([]SimpleType{ut.lhs}, leftTypes[1:]...)
+			cs.annoying(cctx, newLeftTypes1, doneLeft, rightTypes, doneRight)
+
+			newLeftTypes2 := append([]SimpleType{ut.rhs}, leftTypes[1:]...)
+			cs.annoying(cctx, newLeftTypes2, doneLeft, rightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle intersection types on the right
+	if len(rightTypes) > 0 {
+		if it, ok := rightTypes[0].(intersectionType); ok {
+			// For intersections on the right, split into two separate constraints
+			newRightTypes1 := append([]SimpleType{it.lhs}, rightTypes[1:]...)
+			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes1, doneRight)
+
+			newRightTypes2 := append([]SimpleType{it.rhs}, rightTypes[1:]...)
+			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes2, doneRight)
+			return
+		}
+	}
+
+	// Handle intersection types on the left
+	if len(leftTypes) > 0 {
+		if it, ok := leftTypes[0].(intersectionType); ok {
+			// For intersections on the left, combine both parts
+			newLeftTypes := append([]SimpleType{it.lhs, it.rhs}, leftTypes[1:]...)
+			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle union types on the right
+	if len(rightTypes) > 0 {
+		if ut, ok := rightTypes[0].(unionType); ok {
+			// For unions on the right, combine both parts
+			newRightTypes := append([]SimpleType{ut.lhs, ut.rhs}, rightTypes[1:]...)
+			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle negation types on the left
+	if len(leftTypes) > 0 {
+		if nt, ok := leftTypes[0].(negType); ok {
+			// For negations on the left, move the negated type to the right
+			newLeftTypes := leftTypes[1:]
+			newRightTypes := append([]SimpleType{nt.negated}, rightTypes...)
+			cs.annoying(cctx, newLeftTypes, doneLeft, newRightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle negation types on the right
+	if len(rightTypes) > 0 {
+		if nt, ok := rightTypes[0].(negType); ok {
+			// For negations on the right, move the negated type to the left
+			newRightTypes := rightTypes[1:]
+			newLeftTypes := append([]SimpleType{nt.negated}, leftTypes...)
+			cs.annoying(cctx, newLeftTypes, doneLeft, newRightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle bottom type on the left (makes constraint trivial)
+	if len(leftTypes) > 0 && isBottom(leftTypes[0]) {
+		return // Constraint is trivially satisfied
+	}
+
+	// Handle top type on the right (makes constraint trivial)
+	if len(rightTypes) > 0 && isTop(rightTypes[0]) {
+		return // Constraint is trivially satisfied
+	}
+
+	// Handle top type on the left (can be skipped)
+	if len(leftTypes) > 0 && isTop(leftTypes[0]) {
+		cs.annoying(cctx, leftTypes[1:], doneLeft, rightTypes, doneRight)
+		return
+	}
+
+	// Handle bottom type on the right (can be skipped)
+	if len(rightTypes) > 0 && isBottom(rightTypes[0]) {
+		cs.annoying(cctx, leftTypes, doneLeft, rightTypes[1:], doneRight)
+		return
+	}
+
+	// Handle proxy types
+	if len(leftTypes) > 0 {
+		if pt, ok := leftTypes[0].(wrappingProvType); ok {
+			// For proxy types on the left, use the underlying type
+			newLeftTypes := append([]SimpleType{pt.underlying()}, leftTypes[1:]...)
+			cs.annoying(cctx, newLeftTypes, doneLeft, rightTypes, doneRight)
+			return
+		}
+	}
+
+	if len(rightTypes) > 0 {
+		if pt, ok := rightTypes[0].(wrappingProvType); ok {
+			// For proxy types on the right, use the underlying type
+			newRightTypes := append([]SimpleType{pt.underlying()}, rightTypes[1:]...)
+			cs.annoying(cctx, leftTypes, doneLeft, newRightTypes, doneRight)
+			return
+		}
+	}
+
+	// Handle type references and basic types on the left
+	if len(leftTypes) > 0 {
+		// Convert SimpleType to lhsNF
+		var lnf lhsNF
+
+		// Unwrap provenance
+		ty := leftTypes[0]
+		ty = unwrapProvenance(ty)
+
+		// Convert based on type
+		switch t := ty.(type) {
+		case funcType:
+			lnf = &lhsRefined{fn: &t, reft: emptyRecord, traitTags: set.NewTreeSet(compareTraitTags)}
+		case arrayBase: // Covers tupleType, arrayType, namedTupleType
+			lnf = &lhsRefined{arr: t, reft: emptyRecord, traitTags: set.NewTreeSet(compareTraitTags)}
+		case classTag:
+			lnf = &lhsRefined{base: &t, reft: emptyRecord, traitTags: set.NewTreeSet(compareTraitTags)}
+		case traitTag:
+			traitSet := set.NewTreeSet(compareTraitTags)
+			traitSet.Insert(t)
+			lnf = &lhsRefined{reft: emptyRecord, traitTags: traitSet}
+		case recordType:
+			lnf = &lhsRefined{reft: t, traitTags: set.NewTreeSet(compareTraitTags)}
+		case extremeType:
+			if !t.polarity { // Top
+				lnf = lhsTop{}
+			} else { // Bottom
+				// Bottom on the left makes the constraint trivial
+				return
+			}
+		case typeRef:
+			refs := []typeRef{t}
+			lnf = &lhsRefined{typeRefs: refs, reft: emptyRecord, traitTags: set.NewTreeSet(compareTraitTags)}
+		default:
+			// For other types, we can't easily convert to lhsNF
+			cs.Debug("annoying: unsupported left type", "type", leftTypes[0])
+			return
+		}
+
+		// Try to add the converted lhsNF to doneLeft
+		newDoneLeft, ok := doneLeft.and(lnf, cs.ctx)
+		if ok {
+			cs.annoying(cctx, leftTypes[1:], newDoneLeft, rightTypes, doneRight)
+			return
+		} else {
+			// If we can't add it to doneLeft, the constraint is unsatisfiable
+			cs.Debug("annoying: incompatible left type", "type", leftTypes[0], "doneLeft", doneLeft)
+			return
+		}
+	}
 
 }
 

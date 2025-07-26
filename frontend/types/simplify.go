@@ -106,7 +106,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	cur := st
 	// TODO PICKUP current hypothesis for isEven func is that we are missing upper bounds on fn arguments :'(
 	//  rn we only have lower bounds and they get removed here
-	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
+	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
 
 	// Corresponds to the first simplifyType call in Scala
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
