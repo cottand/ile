@@ -9,6 +9,7 @@ import (
 
 func main() {
 	js.Global().Set("CheckAndShowTypes", js.FuncOf(ile.CheckAndShowTypes))
+	js.Global().Set("CompileAndShowGoOutput", js.FuncOf(ile.CompileAndShowGoOutput))
 
 	// wait indefinitely so that Go does not terminate execution
 	// and the function remains available

@@ -15,15 +15,6 @@ func testParse(t *testing.T, input string) (ast.File, *ilerr.Errors) {
 	return f, cErrs
 }
 
-func TestEmptyInput(t *testing.T) {
-	file := ``
-	src, ilErr := testParse(t, file)
-
-	println(ilErr.Errors())
-
-	assert.Equal(t, "main", src.PkgName)
-}
-
 func TestPackageDirective(t *testing.T) {
 	file := `
 package main

@@ -14,17 +14,20 @@ func ParseToAST(data string) (ast.File, *ilerr.Errors, error) {
 	iStream := antlr.NewInputStream(data)
 	lexer := NewIleLexer(iStream)
 	errListener := errorListener{}
+	lexer.RemoveErrorListeners()
 	lexer.AddErrorListener(&errListener)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-	p := NewIleParser(tStream)
+	antlrParser := NewIleParser(tStream)
+	antlrParser.RemoveErrorListeners()
+	antlrParser.AddErrorListener(&errListener)
 
 	walker := antlr.NewIterativeParseTreeWalker()
-	sourceFile := p.SourceFile()
 
 	l := &listener{
 		Logger: slog.With("section", "frontend").With("section", "parser2"),
 	}
 
+	sourceFile := antlrParser.SourceFile()
 	if len(errListener.Errors) != 0 {
 		var err ilerr.Errors
 		return ast.File{}, err.With(errListener.Errors...), nil

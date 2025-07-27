@@ -125,13 +125,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	astFile, compileErrors, err := parser.ParseToAST(fileAsString)
 	pkg.errors = pkg.errors.Merge(compileErrors)
 	if err != nil {
-		return nil, fmt.Errorf("parse to AST: %w", err)
-	}
-	// if at this stage we already found ilerr errors, it is unlikely
-	// we will be able to progress to inference because we won't have a proper astFile yet
-	// so we bail early
-	if pkg.errors.HasError() {
-		return pkg, nil
+		return pkg, fmt.Errorf("parse to AST: %w", err)
 	}
 	// set package name while we are at it
 	pkg.name = astFile.PkgName
@@ -256,7 +250,7 @@ func NewPackageFromBytes(data []byte, fileName string) (*Package, *ilerr.Errors,
 		},
 	}
 	pkg, err := LoadPackage(filesystem, PkgLoadSettings{MetadataRootDir: path.Dir(fileName)})
-	if err != nil || pkg == nil {
+	if pkg == nil {
 		return nil, nil, err
 	}
 	pkg.name = "test"
