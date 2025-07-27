@@ -127,6 +127,12 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse to AST: %w", err)
 	}
+	// if at this stage we already found ilerr errors, it is unlikely
+	// we will be able to progress to inference because we won't have a proper astFile yet
+	// so we bail early
+	if pkg.errors.HasError() {
+		return pkg, nil
+	}
 	// set package name while we are at it
 	pkg.name = astFile.PkgName
 
@@ -378,7 +384,6 @@ func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (stri
    | %s
 `, startPosition.String(), line, indent+highlight), nil
 }
-
 
 // DisplayTypes outputs a string which shows each declaration name and its inferred or assigned type
 // in the same lines as the original source

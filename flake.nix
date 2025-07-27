@@ -49,6 +49,7 @@
         # we would need a WASM host to run WASM-compiled tests, so let's not
         doCheck = false;
         postInstall = ''
+
         '';
       });
 

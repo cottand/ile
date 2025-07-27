@@ -644,7 +644,7 @@ func (l *listener) ExitType_(ctx *Type_Context) {
 //
 
 func (l *listener) VisitErrorNode(node antlr.ErrorNode) {
-	l.errors = append(l.errors, ilerr.NewParse{
+	l.errors = append(l.errors, ilerr.NewSyntax{
 		ParserMessage: "error at: " + node.GetText(),
 		Positioner:    getTokenPos(node.GetSymbol()),
 	})

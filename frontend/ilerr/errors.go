@@ -17,7 +17,7 @@ type ErrCode int
 
 const (
 	None ErrCode = iota
-	Parse
+	Syntax
 	MissingDiscardInWhen
 	UndefinedVariable
 	ManyPackageNamesInPackage
@@ -169,19 +169,19 @@ func (e Unclassified) withStack(stack []byte) IleError {
 	return e
 }
 
-type NewParse struct {
+type NewSyntax struct {
 	ir.Positioner
 	ParserMessage string
 	Hint          string
 	stack         []byte
 }
 
-func (e NewParse) Error() string {
+func (e NewSyntax) Error() string {
 	return e.ParserMessage
 }
-func (e NewParse) Code() ErrCode    { return Parse }
-func (e NewParse) getStack() []byte { return e.stack }
-func (e NewParse) withStack(stack []byte) IleError {
+func (e NewSyntax) Code() ErrCode    { return Syntax }
+func (e NewSyntax) getStack() []byte { return e.stack }
+func (e NewSyntax) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }
