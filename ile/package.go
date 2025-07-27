@@ -45,8 +45,9 @@ type Package struct {
 	fSet         *token.FileSet
 	errors       *ilerr.Errors
 	TypeCtx      *types.TypeCtx
-	// originalSource is an index of filename to the character array with the original text source of each file.
-	// It is used to reconstruct error messages with source text
+	// originalSource is an index of the full filename to the character array with the original text source of each file.
+	// It is used to reconstruct error messages with source text, especially when the original source is
+	// not available anymore
 	originalSource map[string][]rune
 
 	//typeInfo     *infer.TypeEnv
@@ -292,31 +293,35 @@ type SourceFinder interface {
 	Position(token.Pos) token.Position
 }
 
-func findSnippet(fSet *token.FileSet, positioner ir.Positioner) (string, error) {
+func (p *Package) findSnippet(fSet *token.FileSet, positioner ir.Positioner) (string, error) {
 	startPosition := fSet.Position(positioner.Pos())
 	endPosition := fSet.Position(positioner.End())
 	if startPosition.Filename != endPosition.Filename {
 		return "", fmt.Errorf("start and end positions are in different files")
 	}
-	snippetFileBytes, err := os.ReadFile(startPosition.Filename)
-	if err != nil {
-		return "", fmt.Errorf("could not read file %s: %w", startPosition.Filename, err)
+
+	snippetFile, ok := p.originalSource[startPosition.Filename]
+	if !ok {
+		snippetFileBytes, err := os.ReadFile(startPosition.Filename)
+		if err != nil {
+			return "", fmt.Errorf("could not read file %s: %w", startPosition.Filename, err)
+		}
+		if startPosition.Line != endPosition.Line {
+			return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
+		}
+		// go package filesets measure offsets in bytes, not runes
+		if path.Ext(startPosition.Filename) == ".go" {
+			snippetLine := snippetFileBytes[startPosition.Offset:(endPosition.Offset + 1)]
+			return string(snippetLine), nil
+		}
+		snippetFile = []rune(string(snippetFileBytes))
 	}
-	if startPosition.Line != endPosition.Line {
-		return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
-	}
-	// go package filesets measure offsets in bytes, not runes
-	if path.Ext(startPosition.Filename) == ".go" {
-		snippetLine := snippetFileBytes[startPosition.Offset:(endPosition.Offset + 1)]
-		return string(snippetLine), nil
-	}
-	snippetFile := []rune(string(snippetFileBytes))
 	snippetLine := snippetFile[startPosition.Offset:(endPosition.Offset + 1)]
 	return string(snippetLine), nil
 }
 
 // findLineInFileset returns the line in the original source fset for the given token.Pos
-func findLineInFileset(pos token.Pos, fset *token.FileSet) (string, error) {
+func (p *Package) findLineInFileset(pos token.Pos, fset *token.FileSet) (string, error) {
 	file := fset.File(pos)
 	if file == nil {
 		return "", fmt.Errorf("could not find file for position %d", pos)
@@ -334,7 +339,7 @@ func findLineInFileset(pos token.Pos, fset *token.FileSet) (string, error) {
 		lineEnd = file.LineStart(line+1) - 1
 	}
 
-	snippet, err := findSnippet(fset, ir.Range{PosStart: file.LineStart(line), PosEnd: lineEnd})
+	snippet, err := p.findSnippet(fset, ir.Range{PosStart: file.LineStart(line), PosEnd: lineEnd})
 	if err != nil {
 		return "", fmt.Errorf("could not find snippet for line %d in file %s: %w", line, file.Name(), err)
 	}
@@ -363,7 +368,7 @@ func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (stri
 		fSet = goImport.Fset
 	}
 
-	line, err := findLineInFileset(pos.Pos(), fSet)
+	line, err := p.findLineInFileset(pos.Pos(), fSet)
 	if err != nil {
 		return "", err
 	}
