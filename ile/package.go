@@ -48,7 +48,7 @@ type Package struct {
 	// originalSource is an index of the full filename to the character array with the original text source of each file.
 	// It is used to reconstruct error messages with source text, especially when the original source is
 	// not available anymore
-	originalSource map[string][]rune
+	originalSource map[string][]byte
 
 	//typeInfo     *infer.TypeEnv
 }
@@ -101,7 +101,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 		goImports:      make(map[string]*gopackages.Package),
 		declarations:   make(map[string]ir.Type),
 		TypeCtx:        types.NewEmptyTypeCtx(),
-		originalSource: make(map[string][]rune),
+		originalSource: make(map[string][]byte),
 		fSet:           token.NewFileSet(),
 	}
 
@@ -120,7 +120,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 			tokenFile.AddLine(i)
 		}
 	}
-	pkg.originalSource[fileName] = fileAsRunes
+	pkg.originalSource[fileName] = fileOpen
 
 	// parse phase
 	astFile, compileErrors, err := parser.ParseToAST(fileAsString)
@@ -300,22 +300,23 @@ func (p *Package) findSnippet(fSet *token.FileSet, positioner ir.Positioner) (st
 		return "", fmt.Errorf("start and end positions are in different files")
 	}
 
-	snippetFile, ok := p.originalSource[startPosition.Filename]
+	snippetFileBytes, ok := p.originalSource[startPosition.Filename]
 	if !ok {
-		snippetFileBytes, err := os.ReadFile(startPosition.Filename)
+		var err error
+		snippetFileBytes, err = os.ReadFile(startPosition.Filename)
 		if err != nil {
 			return "", fmt.Errorf("could not read file %s: %w", startPosition.Filename, err)
 		}
-		if startPosition.Line != endPosition.Line {
-			return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
-		}
-		// go package filesets measure offsets in bytes, not runes
-		if path.Ext(startPosition.Filename) == ".go" {
-			snippetLine := snippetFileBytes[startPosition.Offset:(endPosition.Offset + 1)]
-			return string(snippetLine), nil
-		}
-		snippetFile = []rune(string(snippetFileBytes))
 	}
+	if startPosition.Line != endPosition.Line {
+		return "", fmt.Errorf("start and end positions are in different lines not implemented yet")
+	}
+	// go package filesets measure offsets in bytes, not runes
+	if path.Ext(startPosition.Filename) == ".go" {
+		snippetLine := snippetFileBytes[startPosition.Offset:(endPosition.Offset + 1)]
+		return string(snippetLine), nil
+	}
+	snippetFile := []rune(string(snippetFileBytes))
 	snippetLine := snippetFile[startPosition.Offset:(endPosition.Offset + 1)]
 	return string(snippetLine), nil
 }

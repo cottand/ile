@@ -13,10 +13,18 @@ type errorListener struct {
 }
 
 func (e *errorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
+	var start, end int
+	if ex == nil {
+		start = 0
+		end = 0
+	} else {
+		start = ex.GetOffendingToken().GetStart()
+		end = ex.GetOffendingToken().GetStop()
+	}
 	e.Errors = append(e.Errors, ilerr.New(ilerr.NewSyntax{
 		Positioner: ast.Range{
-			PosStart: token.Pos(ex.GetOffendingToken().GetStart()),
-			PosEnd:   token.Pos(ex.GetOffendingToken().GetStop()),
+			PosStart: token.Pos(start),
+			PosEnd:   token.Pos(end),
 		},
 		ParserMessage: msg,
 	}))

@@ -15,6 +15,31 @@ func testParse(t *testing.T, input string) (ast.File, *ilerr.Errors) {
 	return f, cErrs
 }
 
+func TestNoPanics(t *testing.T) {
+	files := map[string]string{
+		"empty program": ``,
+		"program with val": `
+package main
+val
+`,
+		"program with v": `
+package main
+v
+`,
+		"program with v, no newline": `
+package main
+v`,
+	}
+
+	for name, file := range files {
+		t.Run(name, func(t *testing.T) {
+			assert.NotPanics(t, func() {
+				_, _, _ = parser.ParseToAST(file)
+			})
+		})
+	}
+}
+
 func TestPackageDirective(t *testing.T) {
 	file := `
 package main
