@@ -113,53 +113,53 @@ func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
 			}
 		}
 
-		// Add flow hint if available
-		//if mismatch.FlowHint != "" {
-		//	additionalText.WriteString(fmt.Sprintf(" %s", mismatch.FlowHint))
-		//	if mismatch.FlowHintPos != nil {
-		//		flowPos, err := highlighter.Highlight(mismatch.FlowHintPos, highlightOpts)
-		//		if err == nil {
-		//			additionalText.WriteString(fmt.Sprintf(":%s\n", flowPos))
-		//		}
-		//	}
-		//}
+		//Add flow hint if available
+		if mismatch.FlowHint != "" {
+			additionalText.WriteString(fmt.Sprintf(" %s", mismatch.FlowHint))
+			if mismatch.FlowHintPos != nil {
+				flowPos, err := highlighter.Highlight(mismatch.FlowHintPos, highlightOpts)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf(":%s\n", flowPos))
+				}
+			}
+		}
 
 		//Add type stack hints if available
-		//for _, hint := range mismatch.ExpectedStackHints {
-		//	if hint.Type == "" {
-		//		additionalText.WriteString(fmt.Sprintf("%s\n", hint.Description))
-		//	} else {
-		//		additionalText.WriteString(fmt.Sprintf("%s: %s\n", hint.Description, hint.Type))
-		//	}
-		//
-		//	if hint.Positioner != nil {
-		//		hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
-		//		if err == nil {
-		//			additionalText.WriteString(fmt.Sprintf("%s\n", hintPos))
-		//		}
-		//	}
-		//}
+		for _, hint := range mismatch.ExpectedStackHints {
+			if hint.Type == "" {
+				additionalText.WriteString(fmt.Sprintf("%s\n", hint.Description))
+			} else {
+				additionalText.WriteString(fmt.Sprintf("%s: %s\n", hint.Description, hint.Type))
+			}
 
-		//for i, hint := range mismatch.ActualStackHints {
-		//	if i == 0 {
-		//		additionalText.WriteString("actual type comes from ")
-		//	}
-		//	if hint.Description == "" {
-		//		continue
-		//	}
-		//	if hint.Type == "" {
-		//		additionalText.WriteString(hint.Description)
-		//	} else {
-		//		additionalText.WriteString(fmt.Sprintf("%s: %s", hint.Description, hint.Type))
-		//	}
-		//
-		//	if hint.Positioner != nil {
-		//		hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
-		//		if err == nil {
-		//			additionalText.WriteString(fmt.Sprintf("\ndeclared at: %s", hintPos))
-		//		}
-		//	}
-		//}
+			if hint.Positioner != nil {
+				hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf("%s\n", hintPos))
+				}
+			}
+		}
+
+		for i, hint := range mismatch.ActualStackHints {
+			if i == 0 {
+				additionalText.WriteString("actual type comes from ")
+			}
+			if hint.Description == "" {
+				continue
+			}
+			if hint.Type == "" {
+				additionalText.WriteString(hint.Description)
+			} else {
+				additionalText.WriteString(fmt.Sprintf("%s: %s", hint.Description, hint.Type))
+			}
+
+			if hint.Positioner != nil {
+				hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
+				if err == nil {
+					additionalText.WriteString(fmt.Sprintf("\ndeclared at: %s", hintPos))
+				}
+			}
+		}
 	}
 
 	highlight = fmt.Sprintf("%s\n(E%03d) %s", highlight, e.Code(), e.Error())

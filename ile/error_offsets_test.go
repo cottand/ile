@@ -47,15 +47,19 @@ fn main() {
 	testError(t, prog, "test.ile:9:1:")
 }
 
-func TestTODONAME(t *testing.T) {
+func TestMultilineHighlights(t *testing.T) {
 	prog := `package main
 
 // a long comment
-fn other(a) { a + 2 }
+fn other(a) {
+  a + 2
+}
 
-fn aa(x: String) { other(x) }`
+fn aa(x: String) {
+  other(x)
+}`
 
-	testError(t, prog, "no panics")
+	testError(t, prog, "test.ile:9:3:")
 }
 
 func TestErrorOffsetLongFile(t *testing.T) {

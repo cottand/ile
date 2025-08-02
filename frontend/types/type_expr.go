@@ -159,7 +159,7 @@ func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret Si
 			withProvenance: withProvenance{newOriginProv(expr, expr.Describe(), "")},
 		}
 	case *ir.Ascribe:
-		// empty Ascribe is meaningless in the AST, and the compiler should ideally never generate it,
+		// empty Ascribe is meaningless in the IR, and the compiler should ideally never generate it,
 		// but we can guard against it here easily because it is a no-op
 		if expr.Type_ == nil {
 			return ctx.TypeExpr(expr.Expr, vars)

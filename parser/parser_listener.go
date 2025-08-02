@@ -455,7 +455,11 @@ func (l *listener) findCommentsPreceding(stream antlr.TokenStream, t antlr.Token
 }
 
 func (l *listener) ExitFunctionDecl(ctx *FunctionDeclContext) {
-	pos := intervalTo2Pos(ctx.GetSourceInterval())
+	//pos := intervalTo2Pos(ctx.GetSourceInterval())
+	pos := ast.Range{
+		PosStart: token.Pos(ctx.FN().GetSymbol().GetStart()),
+		PosEnd:   token.Pos(ctx.Block().GetStop().GetStart()),
+	}
 
 	params := l.paramDeclStack.PopAll()
 	parsedParams := ctx.Signature().Parameters().AllParameterDecl()
@@ -465,9 +469,10 @@ func (l *listener) ExitFunctionDecl(ctx *FunctionDeclContext) {
 	}
 
 	var parameters []ast.Parameter
-	for _, param := range params {
+	for i, param := range params {
+		parsedParam := parsedParams[i]
 		parameters = append(parameters, ast.Parameter{
-			Range:   pos, // We don't have precise position for each parameter
+			Range:   getPos(parsedParam),
 			Name:    param.str,
 			TypeAnn: param.typ,
 		})
