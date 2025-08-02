@@ -10,7 +10,7 @@ import (
 )
 
 func testParse(t *testing.T, input string) (ast.File, *ilerr.Errors) {
-	f, cErrs, errs := parser.ParseToAST(input)
+	f, cErrs, errs := parser.ParseToAST(input, nil)
 	assert.NoError(t, errs)
 	return f, cErrs
 }
@@ -34,7 +34,7 @@ v`,
 	for name, file := range files {
 		t.Run(name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
-				_, _, _ = parser.ParseToAST(file)
+				_, _, _ = parser.ParseToAST(file, nil)
 			})
 		})
 	}

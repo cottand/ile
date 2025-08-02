@@ -57,17 +57,37 @@ type SourceFinder interface {
 	Position(token.Pos) token.Position
 }
 
+type HighlightOpts = struct {
+	// The character placed under the relevant text area
+	// default is '^'
+	HighlightRune rune
+	// Whether not to also print the location as {filename}:{Line}:{Column}
+	// next to the highlighted snippet
+	HideNameLineColumn bool
+	// Whether Line numbers left of the snippet are not printed
+	HideLineNumbers bool
+	// How many lines, in addition to the highlighted one, are shown before and after
+	// the snippet
+	// Default is 0
+	LineBuffer int
+
+	// Indentation of the whole returned string
+	//LeftIndent int
+}
 type SourceHighlighter interface {
-	Highlight(rune, ir.ExternalPositioner) (string, error)
+	Filename(pos token.Pos) (string, error)
+	Highlight(ir.ExternalPositioner, HighlightOpts) (string, error)
 }
 
 // FormatWithCodeAndSource formats an error with an inline highlight of the code snippet(s) that produced it.
 // This is useful for displaying errors in the CLI.
 func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
-	highlight, err := highlighter.Highlight('^', ir.ExternalRange{Range: ir.RangeOf(e)})
+	highlightOpts := HighlightOpts{LineBuffer: 1}
+	highlight, err := highlighter.Highlight(ir.ExternalRange{Range: ir.RangeOf(e)}, highlightOpts)
 	if err != nil {
-		return fmt.Sprintf("(E%03d) %s \n    (failed to show source: %s)", e.Code(), e.Error(), err)
+		highlight = fmt.Sprintf("| (failed to show source: %s)", err)
 	}
+
 	stack := ""
 	if enableDebugErrorPrinting && e.getStack() != nil {
 		stack = string(e.getStack())
@@ -86,7 +106,7 @@ func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
 		if mismatch.ProvenanceHint != "" {
 			additionalText.WriteString(fmt.Sprintf("hint: %s", mismatch.ProvenanceHint))
 			if mismatch.ProvenanceHintPos != nil {
-				hintPos, err := highlighter.Highlight('^', mismatch.ProvenanceHintPos)
+				hintPos, err := highlighter.Highlight(mismatch.ProvenanceHintPos, highlightOpts)
 				if err == nil {
 					additionalText.WriteString(fmt.Sprintf(":%s\n", hintPos))
 				}
@@ -94,57 +114,55 @@ func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
 		}
 
 		// Add flow hint if available
-		if mismatch.FlowHint != "" {
-			additionalText.WriteString(fmt.Sprintf(" %s", mismatch.FlowHint))
-			if mismatch.FlowHintPos != nil {
-				flowPos, err := highlighter.Highlight('^', mismatch.FlowHintPos)
-				if err == nil {
-					additionalText.WriteString(fmt.Sprintf(":%s\n", flowPos))
-				}
-			}
-		}
+		//if mismatch.FlowHint != "" {
+		//	additionalText.WriteString(fmt.Sprintf(" %s", mismatch.FlowHint))
+		//	if mismatch.FlowHintPos != nil {
+		//		flowPos, err := highlighter.Highlight(mismatch.FlowHintPos, highlightOpts)
+		//		if err == nil {
+		//			additionalText.WriteString(fmt.Sprintf(":%s\n", flowPos))
+		//		}
+		//	}
+		//}
 
 		//Add type stack hints if available
-		for _, hint := range mismatch.ExpectedStackHints {
-			if hint.Type == "" {
-				additionalText.WriteString(fmt.Sprintf("%s\n", hint.Description))
-			} else {
-				additionalText.WriteString(fmt.Sprintf("%s: %s\n", hint.Description, hint.Type))
-			}
+		//for _, hint := range mismatch.ExpectedStackHints {
+		//	if hint.Type == "" {
+		//		additionalText.WriteString(fmt.Sprintf("%s\n", hint.Description))
+		//	} else {
+		//		additionalText.WriteString(fmt.Sprintf("%s: %s\n", hint.Description, hint.Type))
+		//	}
+		//
+		//	if hint.Positioner != nil {
+		//		hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
+		//		if err == nil {
+		//			additionalText.WriteString(fmt.Sprintf("%s\n", hintPos))
+		//		}
+		//	}
+		//}
 
-			if hint.Positioner != nil {
-				hintPos, err := highlighter.Highlight('^', hint.Positioner)
-				if err == nil {
-					additionalText.WriteString(fmt.Sprintf("%s\n", hintPos))
-				}
-			}
-		}
-
-		for i, hint := range mismatch.ActualStackHints {
-			if i == 0 {
-				additionalText.WriteString("actual type comes from ")
-			}
-			if hint.Description == "" {
-				continue
-			}
-			if hint.Type == "" {
-				additionalText.WriteString(hint.Description)
-			} else {
-				additionalText.WriteString(fmt.Sprintf("%s: %s", hint.Description, hint.Type))
-			}
-
-			if hint.Positioner != nil {
-				hintPos, err := highlighter.Highlight('^', hint.Positioner)
-				if err == nil {
-					additionalText.WriteString(fmt.Sprintf("\ndeclared at: %s", hintPos))
-				}
-			}
-		}
+		//for i, hint := range mismatch.ActualStackHints {
+		//	if i == 0 {
+		//		additionalText.WriteString("actual type comes from ")
+		//	}
+		//	if hint.Description == "" {
+		//		continue
+		//	}
+		//	if hint.Type == "" {
+		//		additionalText.WriteString(hint.Description)
+		//	} else {
+		//		additionalText.WriteString(fmt.Sprintf("%s: %s", hint.Description, hint.Type))
+		//	}
+		//
+		//	if hint.Positioner != nil {
+		//		hintPos, err := highlighter.Highlight(hint.Positioner, highlightOpts)
+		//		if err == nil {
+		//			additionalText.WriteString(fmt.Sprintf("\ndeclared at: %s", hintPos))
+		//		}
+		//	}
+		//}
 	}
 
-	highlight = fmt.Sprintf(`In the following snippet:
-%s
-(E%03d) %s`, highlight, e.Code(), e.Error())
+	highlight = fmt.Sprintf("%s\n(E%03d) %s", highlight, e.Code(), e.Error())
 
 	return highlight + stack + "\n" + additionalText.String()
 }
@@ -173,7 +191,12 @@ type NewSyntax struct {
 	ir.Positioner
 	ParserMessage string
 	Hint          string
-	stack         []byte
+	// Antlr sometimes does not successfully return the exact Positioner.
+	// In this edge case only, we can use Line, Column
+	Line, Column int
+	stack        []byte
+	// Whether to use the Line, Column fields rather than ir.Positioner
+	UseLineColumn bool
 }
 
 func (e NewSyntax) Error() string {

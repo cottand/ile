@@ -8,7 +8,6 @@ import (
 	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"log/slog"
-	"math"
 	"reflect"
 	"slices"
 )
@@ -445,7 +444,6 @@ func isErrorType(ty SimpleType) bool {
 // recImpl contains the core subtyping logic based on type structure.
 // Returns true if constraint solving should terminate early.
 func (cs *constraintSolver) recImpl(lhs, rhs SimpleType, shadows *shadowsState) bool {
-	math.IsInf(math.Inf(1), 1)
 	cs.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)

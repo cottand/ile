@@ -5,15 +5,20 @@ import (
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
+	"go/token"
 	"log/slog"
 )
 
 // ParseToAST parses the given source code and returns an AST representation.
 // Unlike the original ParseToAST function, this one returns an ast.File instead of an ir.File.
-func ParseToAST(data string) (ast.File, *ilerr.Errors, error) {
+//
+// fset is needed to access file information, but it is not mutated
+func ParseToAST(data string, fset *token.File) (ast.File, *ilerr.Errors, error) {
 	iStream := antlr.NewInputStream(data)
 	lexer := NewIleLexer(iStream)
-	errListener := errorListener{}
+	errListener := errorListener{
+		fset: fset,
+	}
 	lexer.RemoveErrorListeners()
 	lexer.AddErrorListener(&errListener)
 	tStream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)

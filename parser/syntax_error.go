@@ -10,22 +10,28 @@ import (
 type errorListener struct {
 	*antlr.DefaultErrorListener // Embed default which ensures we fit the interface
 	Errors                      []ilerr.IleError
+	fset                        *token.File
 }
 
 func (e *errorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
-	var start, end int
-	if ex == nil {
-		start = 0
-		end = 0
+	var start, end token.Pos
+	if ex == nil || ex.GetOffendingToken() == nil {
+		if e.fset.LineCount() > line {
+			line = e.fset.LineCount() - 1
+		}
+		start = e.fset.LineStart(line) + token.Pos(column)
+		end = start
 	} else {
-		start = ex.GetOffendingToken().GetStart()
-		end = ex.GetOffendingToken().GetStop()
+		start = token.Pos(ex.GetOffendingToken().GetStart())
+		end = start
 	}
 	e.Errors = append(e.Errors, ilerr.New(ilerr.NewSyntax{
 		Positioner: ast.Range{
-			PosStart: token.Pos(start),
-			PosEnd:   token.Pos(end),
+			PosStart: start,
+			PosEnd:   end,
 		},
+		Line:          line,
+		Column:        column,
 		ParserMessage: msg,
 	}))
 }

@@ -1,0 +1,5 @@
+//ile:compilerTest test.StringReply(int64(10)) | string("it's even")
+
+package test
+
+

@@ -13,8 +13,10 @@ import (
 	gopackages "golang.org/x/tools/go/packages"
 	"io/fs"
 	"log/slog"
+	"math"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"testing/fstest"
 )
@@ -123,7 +125,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	pkg.originalSource[fileName] = fileOpen
 
 	// parse phase
-	astFile, compileErrors, err := parser.ParseToAST(fileAsString)
+	astFile, compileErrors, err := parser.ParseToAST(fileAsString, pkg.fSet.File(1))
 	pkg.errors = pkg.errors.Merge(compileErrors)
 	if err != nil {
 		return pkg, fmt.Errorf("parse to AST: %w", err)
@@ -321,6 +323,49 @@ func (p *Package) findSnippet(fSet *token.FileSet, positioner ir.Positioner) (st
 	return string(snippetLine), nil
 }
 
+func lineOf(pos token.Pos, fset *token.FileSet) (int, error) {
+	file := fset.File(pos)
+	if file == nil {
+		return 0, fmt.Errorf("could not find file for position %d", pos)
+	}
+	lines := file.Lines()
+	line := file.Line(pos)
+	if len(lines) < line {
+		return 0, fmt.Errorf("could not find line %d in file %s (which has %d lines)", line, file.Name(), len(lines))
+	}
+	return line, nil
+}
+
+// findLineInFileset returns the line in the original source fset for the given file of the given fileOf token.Pos
+func (p *Package) findLineInFileset2(fileOf token.Pos, fset *token.FileSet, line int) (string, error) {
+	file := fset.File(fileOf)
+	if file == nil {
+		return "", fmt.Errorf("could not find file for position %d", fileOf)
+	}
+	lines := file.Lines()
+	if len(lines) < line {
+		return "", fmt.Errorf("could not find line %d in file %s (which has %d lines)", line, file.Name(), len(lines))
+	}
+	var lastLine bool
+	var lineEnd token.Pos
+	// if this was the last line
+	if line+1 > file.LineCount() {
+		lineEnd = file.Pos(math.MaxInt) - 1
+		lastLine = true
+	} else {
+		lineEnd = file.LineStart(line+1) - 1
+	}
+	snippet, err := p.findSnippet(fset, ir.Range{PosStart: file.LineStart(line), PosEnd: lineEnd})
+	if err != nil {
+		return "", fmt.Errorf("could not find snippet for line %d in file %s: %w", line, file.Name(), err)
+	}
+	snippet = strings.Trim(snippet, "\n")
+	if lastLine {
+		snippet += "<end-of-file>"
+	}
+	return snippet, nil
+}
+
 // findLineInFileset returns the line in the original source fset for the given token.Pos
 func (p *Package) findLineInFileset(pos token.Pos, fset *token.FileSet) (string, error) {
 	file := fset.File(pos)
@@ -332,10 +377,12 @@ func (p *Package) findLineInFileset(pos token.Pos, fset *token.FileSet) (string,
 	if len(lines) < line {
 		return "", fmt.Errorf("could not find line %d in file %s (which has %d lines)", line, file.Name(), len(lines))
 	}
+	var lastLine bool
 	var lineEnd token.Pos
 	// if this was the last line
 	if line+1 > file.LineCount() {
-		lineEnd = token.Pos(int(file.Pos(-1)) + file.Size())
+		lineEnd = file.Pos(math.MaxInt) - 1
+		lastLine = true
 	} else {
 		lineEnd = file.LineStart(line+1) - 1
 	}
@@ -345,6 +392,9 @@ func (p *Package) findLineInFileset(pos token.Pos, fset *token.FileSet) (string,
 		return "", fmt.Errorf("could not find snippet for line %d in file %s: %w", line, file.Name(), err)
 	}
 	snippet = strings.Trim(snippet, "\n")
+	if lastLine {
+		snippet += "<end-of-file>"
+	}
 	return snippet, nil
 }
 
@@ -352,15 +402,44 @@ func (p *Package) Position(t token.Pos) token.Position {
 	return p.fSet.Position(t)
 }
 
+type HighlightOpts = struct {
+	// The character placed under the relevant text area
+	// default is '^'
+	HighlightRune rune
+	// Whether not to also print the location as {filename}:{line}:{column}
+	// next to the highlighted snippet
+	HideNameLineColumn bool
+	// Whether line numbers left of the snippet are not printed
+	HideLineNumbers bool
+	// How many lines, in addition to the highlighted one, are shown before and after
+	// the snippet
+	// Default is 0
+	LineBuffer int
+
+	// Indentation of the whole returned string
+	//LeftIndent int
+}
+
+func (p *Package) Filename(pos token.Pos) (string, error) {
+	file := p.fSet.File(pos)
+	if file == nil {
+		return "", fmt.Errorf("could not find file for position %d", pos)
+	}
+	return file.Name(), nil
+}
+
 // Highlight prints a snippet with the source surrounding the given ir.Positioner
 // highlighting the specific text corresponding to the ir.Positioner
 // with the given highlightChar
-func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (string, error) {
+func (p *Package) Highlight(pos ir.ExternalPositioner, opts HighlightOpts) (string, error) {
+	if opts.HighlightRune == 0 {
+		opts.HighlightRune = '^'
+	}
 	fSet := p.fSet
 	if externalPath := pos.PackagePath(); externalPath != "" && externalPath != p.path {
 		import_, ok := p.imports[externalPath]
 		if ok {
-			return import_.Highlight(highlightChar, pos)
+			return import_.Highlight(pos, opts)
 		}
 		goImport, ok := p.goImports[externalPath]
 		if !ok {
@@ -369,20 +448,69 @@ func (p *Package) Highlight(highlightChar rune, pos ir.ExternalPositioner) (stri
 		fSet = goImport.Fset
 	}
 
-	line, err := p.findLineInFileset(pos.Pos(), fSet)
-	if err != nil {
-		return "", err
+	file := fSet.File(pos.Pos())
+	if file == nil {
+		return "", fmt.Errorf("could not find file for position %d", pos)
 	}
 	startPosition := fSet.Position(pos.Pos())
 	columnStart := startPosition.Column
+	mainLineNumber := file.Line(pos.Pos())
+	multilineHighlight := mainLineNumber != file.Line(pos.End())
 	columnEnd := fSet.Position(pos.End()).Column + 1
-	indent := strings.Repeat(" ", columnStart-1)
-	highlight := strings.Repeat(string(highlightChar), columnEnd-columnStart)
-	return fmt.Sprintf(`
-%s:
-   | %s
-   | %s
-`, startPosition.String(), line, indent+highlight), nil
+	if multilineHighlight {
+		// if we have a highlight that spans many lines, highlight this line until the end
+		columnEnd = file.Position(file.LineStart(mainLineNumber+1) - 1).Column
+	}
+	highlightIndent := strings.Repeat(" ", columnStart-1)
+	highlight := strings.Repeat(string(opts.HighlightRune), columnEnd-columnStart)
+
+	sb := strings.Builder{}
+	if !opts.HideNameLineColumn {
+		sb.WriteString(startPosition.String())
+		sb.WriteString(":\n")
+	}
+
+	linesStart := max(1, mainLineNumber-opts.LineBuffer)
+	linesEnd := min(mainLineNumber+opts.LineBuffer, file.LineCount())
+
+	if !opts.HideLineNumbers {
+		maxLineNumberWidth := linesEnd
+		lineFormatPattern := "%" + strconv.Itoa(len(strconv.Itoa(maxLineNumberWidth))) + "d | "
+
+		for thisLineNumber := linesStart; thisLineNumber <= linesEnd; thisLineNumber++ {
+			line, err := p.findLineInFileset2(pos.Pos(), fSet, thisLineNumber)
+			if err != nil {
+				return "", err
+			}
+			preText := fmt.Sprintf(lineFormatPattern, thisLineNumber)
+			sb.WriteString(preText)
+			sb.WriteString(line)
+			if thisLineNumber == mainLineNumber {
+				sb.WriteRune('\n')
+				sb.WriteString(strings.Repeat(" ", len(preText)))
+				sb.WriteString(highlightIndent)
+				sb.WriteString(highlight)
+			}
+			if thisLineNumber != linesEnd {
+				sb.WriteRune('\n')
+			}
+		}
+	} else {
+		line, err := p.findLineInFileset(pos.Pos(), fSet)
+		if err != nil {
+			return "", err
+		}
+		preText := "| "
+		sb.WriteString(preText)
+		sb.WriteString(line)
+		sb.WriteRune('\n')
+		sb.WriteString(strings.Repeat(" ", len(preText)))
+		sb.WriteString(highlightIndent)
+		sb.WriteString(highlight)
+	}
+
+	return sb.String(), nil
+
 }
 
 // DisplayTypes outputs a string which shows each declaration name and its inferred or assigned type
