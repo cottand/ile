@@ -10,7 +10,7 @@ import (
 )
 
 func testParse(t *testing.T, input string) (ast.File, *ilerr.Errors) {
-	f, cErrs, errs := parser.ParseToAST(input, nil)
+	f, cErrs, errs := parser.ParseToAST(input, &token.File{})
 	assert.NoError(t, errs)
 	return f, cErrs
 }

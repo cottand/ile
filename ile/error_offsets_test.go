@@ -88,3 +88,18 @@ val b = 2
 `
 	testError(t, prog, "test.ile:22:1")
 }
+
+func TestFibValidation(t *testing.T) {
+	testError(t, `package main
+
+fn fib(x) {
+  when(x) {
+    1 -> 1
+    0 -> 2
+  }
+}
+
+fn main() {
+  fib(3)
+}`, "mismatch")
+}

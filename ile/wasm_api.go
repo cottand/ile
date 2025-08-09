@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
+	"go/build"
 	"go/format"
 	"go/token"
 	"strings"
@@ -109,3 +112,69 @@ func CompileAndShowGoOutput(_ js.Value, args []js.Value) (ret any) {
 	}
 	return okResultObj(typesStr, sourceBuf.String())
 }
+
+// interpretGo takes a Go program as a string and returns the stdout, if any
+func interpretGo(_ js.Value, args []js.Value) (ret any, err error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("expected 1 argument, got %d", len(args))
+	}
+	goSource := args[0].String()
+	stdout := bytes.NewBuffer(nil)
+
+	i := interp.New(interp.Options{GoPath: build.Default.GOPATH, Stdout: stdout, Stderr: stdout})
+	err = i.Use(stdlib.Symbols)
+	if err != nil {
+		return nil, fmt.Errorf("error loading Go interpreter: %w", err)
+	}
+
+	prog, err := i.Compile(goSource)
+	if err != nil {
+		return nil, fmt.Errorf("error during evaluation: %w", err)
+	}
+	_, err = i.Execute(prog)
+	if err != nil {
+		return nil, fmt.Errorf("error during execution: %w", err)
+	}
+	return stdout.String(), nil
+}
+
+// asPromise implemented based on
+// https://stackoverflow.com/questions/67437284/how-to-throw-js-error-from-go-web-assembly
+//
+// It takes a normal JS-API function that also returns an error, and returns function
+// that returns a promise which
+// completes when the function completes, and can be used to catch errors, if any
+func asPromise(function func(js.Value, []js.Value) (any, error)) any {
+	return js.FuncOf(func(this js.Value, args []js.Value) any {
+		handler := js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
+			resolve := promiseArgs[0]
+			reject := promiseArgs[1]
+
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						errorConstructor := js.Global().Get("Error")
+						errorObject := errorConstructor.New(fmt.Sprintf("%s", r))
+						reject.Invoke(errorObject)
+					}
+				}()
+
+				data, err := function(this, args)
+				if err != nil {
+					// err should be an instance of `error`, eg `errors.New("some error")`
+					errorConstructor := js.Global().Get("Error")
+					errorObject := errorConstructor.New(err.Error())
+					reject.Invoke(errorObject)
+				} else {
+					resolve.Invoke(js.ValueOf(data))
+				}
+			}()
+
+			return nil
+		})
+		promiseConstructor := js.Global().Get("Promise")
+		return promiseConstructor.New(handler)
+	})
+}
+
+var InterpretGo = asPromise(interpretGo)

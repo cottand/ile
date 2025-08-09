@@ -1,0 +1,12 @@
+//ile:compilerTest test.getAgain() | string("hello world!")
+
+package test
+
+fn getMessage() {
+    "hello world!"
+}
+
+fn getAgain() {
+  val msg = getMessage()
+  msg
+}

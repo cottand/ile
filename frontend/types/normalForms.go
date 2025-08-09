@@ -12,8 +12,6 @@ import (
 	"strings"
 )
 
-var nfLogger = logger.With("section", "normalForms")
-
 // junction corresponds to conjunction or disjunction in the scala reference
 type conjunct struct {
 	lhs lhsNF

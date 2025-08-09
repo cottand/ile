@@ -618,9 +618,7 @@ func (cs *constraintSolver) recImpl(lhs, rhs SimpleType, shadows *shadowsState) 
 	// TODO
 	//         err <: record
 	//      record <: err
-	//     typeRef <: typeRef
-	//     typeRef <: _
-	//           _ <: typeRef
+	//     typeRef <: typeRef where array
 
 	lhsTypeRef, okLhsTypeRef := lhs.(typeRef)
 	rhsTypeRef, okRhsTypeRef := rhs.(typeRef)
@@ -1079,6 +1077,15 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 	// Handle the case where both leftTypes and rightTypes are empty at the start
 	if len(leftTypes) == 0 && len(rightTypes) == 0 {
 		cs.annoyingHandleEmptyTypes(doneLeft, doneRight)
+
+		// Check for type references in doneLeft or doneRight that need special handling
+		if lr, ok := doneLeft.(*lhsRefined); ok && len(lr.typeRefs) > 0 {
+			cs.ctx.addFailure("annoying: handling of type references in doneLeft not fully implemented", emptyProv)
+		}
+		if rb, ok := doneRight.(*rhsBases); ok && len(rb.typeRefs) > 0 {
+			cs.ctx.addFailure("annoying: handling of type references in doneRight not fully implemented", emptyProv)
+		}
+
 		return
 	}
 
@@ -1086,7 +1093,6 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 	if len(leftTypes) > 0 {
 		if tv, ok := leftTypes[0].(*typeVariable); ok {
 			// Create a type that represents the right-hand side of the constraint
-			var rhs SimpleType
 
 			// Start with the negation of the remaining left types
 			remainingLeftTypes := leftTypes[1:]
@@ -1107,14 +1113,9 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 				types = append(types, doneRight.toType())
 			}
 
-			// Combine all types with union
-			if len(types) == 0 {
-				rhs = bottomType
-			} else {
-				rhs = types[0]
-				for i := 1; i < len(types); i++ {
-					rhs = unionOf(rhs, types[i], unionOpts{})
-				}
+			var rhs SimpleType = bottomType
+			for _, type_ := range types {
+				rhs = unionOf(rhs, type_, unionOpts{})
 			}
 
 			// Check if all remaining left types are top
@@ -1361,9 +1362,31 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 		}
 	}
 
+	// Handle type references and basic types on the right
+	if len(rightTypes) > 0 {
+		// Unwrap provenance
+		ty := rightTypes[0]
+		ty = unwrapProvenance(ty)
+
+		// Check for specific right-side types that need implementation
+		switch ty.(type) {
+		case recordType:
+			cs.ctx.addFailure("annoying: handling of record types on the right side not implemented", ty.prov())
+			return
+		case typeRef:
+			cs.ctx.addFailure("annoying: handling of type references on the right side not implemented", ty.prov())
+			return
+		case basicType:
+			cs.ctx.addFailure("annoying: handling of basic types on the right side not implemented", ty.prov())
+			return
+		default:
+			cs.ctx.addFailure(fmt.Sprintf("annoying: unhandled right-side type %T", ty), ty.prov())
+			return
+		}
+	}
 }
 
-// checkTagCompatibility performs tag compatibility checks similar to the Scala filter.
+// checkTagCompatibility performs tag compatibility checks
 func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
 	lhsRefined, okLhs := lnf.(*lhsRefined)
 	if !okLhs {
@@ -1407,8 +1430,6 @@ func checkTagCompatibility(lnf lhsNF, rnf rhsNF) bool {
 
 	return true // No conflicts found
 }
-
-// ... (rest of the file, including extrude, helpers, etc.) ...
 
 // extrude copies a type up to its type variables of wrong level (and their extruded bounds).
 // It returns the extruded type, or nil if an error occurred during extrusion.

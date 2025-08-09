@@ -256,7 +256,7 @@ func NewPackageFromBytes(data []byte, fileName string) (*Package, *ilerr.Errors,
 	if pkg == nil {
 		return nil, nil, err
 	}
-	pkg.name = "test"
+	pkg.name = "main"
 	return pkg, pkg.errors, err
 }
 

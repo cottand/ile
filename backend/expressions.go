@@ -189,7 +189,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVa
 			return nil, fmt.Errorf("failed to transpile when expression: %v", err)
 		}
 		remainder, err := tp.transpileExpressionToStatements(e.Body, finalLocalVarName)
-		t, err := tp.transpileType(tp.types.TypeOf(e))
+		t, err := tp.transpileType(tp.types.TypeOf(e.Value))
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile type: %v", err)
 		}

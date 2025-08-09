@@ -75,6 +75,7 @@ var (
 	_ Type = (*FnType)(nil)
 	_ Type = (*ListLiteralType)(nil)
 	_ Type = (*ListType)(nil)
+	_ Type = (*NegType)(nil)
 
 	_ NullaryType = (*TypeVar)(nil)
 	_ NullaryType = (*Literal)(nil)
@@ -519,6 +520,22 @@ func (t *ListLiteralType) Hash() uint64 {
 	for _, elemType := range t.ElementTypes {
 		arr = binary.LittleEndian.AppendUint64(arr, elemType.Hash())
 	}
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
+type NegType struct {
+	Underlying Type
+	Positioner
+}
+func (t *NegType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
+	return "!" + t.Underlying.ShowIn(ctx, 10)
+}
+func (t *NegType) Hash() uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("NegType"))
+	arr := make([]byte, 0)
+	arr = binary.LittleEndian.AppendUint64(arr, t.Underlying.Hash())
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }

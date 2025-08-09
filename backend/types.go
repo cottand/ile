@@ -17,6 +17,8 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 	switch t.Hash() {
 	case ir.BoolType.Hash(), ir.BoolTypeUnaliased.Hash():
 		return goast.NewIdent("bool"), nil
+		//case (&ir.NothingType{}).Hash():
+		//	return nil, nil
 	}
 	switch e := t.(type) {
 	case *ir.FnType:
