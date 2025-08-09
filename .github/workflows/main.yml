@@ -1,0 +1,31 @@
+name: Main
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+
+  build-cli:
+    strategy:
+      matrix:
+        host:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v19
+      - run: nix build .
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v19
+      - run: nix build .#ile-wasm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ile.wasm
+          path: result/bin/js_wasm/ile
+
