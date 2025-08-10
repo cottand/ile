@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  
+
   build-wasm:
     runs-on: ubuntu-latest
     steps:
