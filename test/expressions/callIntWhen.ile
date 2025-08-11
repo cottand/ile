@@ -9,4 +9,4 @@ fn F(n) {
 }
 
 
-val other = F(3)
+//nval other = F(3)

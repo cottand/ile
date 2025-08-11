@@ -170,6 +170,11 @@ func (tp *Transpiler) transpileListLiteral(expr ir.Expr) (goast.Expr, error) {
 //
 //   - Empty string "": the result is not placed in any variables (useful for discarding results)
 func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVarName string) ([]goast.Stmt, error) {
+	oldExpr := tp.currentExpr
+	tp.currentExpr = expr
+	defer func() {
+		tp.currentExpr = oldExpr
+	}()
 	var statements []goast.Stmt
 	var finalExpr goast.Expr
 	switch e := expr.(type) {

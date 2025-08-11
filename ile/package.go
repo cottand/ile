@@ -116,7 +116,7 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 	fileAsString := string(fileOpen)
 	fileAsRunes := []rune(fileAsString)
 	tokenFile := pkg.fSet.AddFile(fileName, -1, len(fileAsRunes))
-	tokenFile.AddLine(0)
+	//tokenFile.AddLine(0)
 	for i, c := range fileAsRunes {
 		if c == '\n' {
 			tokenFile.AddLine(i)
@@ -256,7 +256,9 @@ func NewPackageFromBytes(data []byte, fileName string) (*Package, *ilerr.Errors,
 	if pkg == nil {
 		return nil, nil, err
 	}
-	pkg.name = "main"
+	if len(pkg.syntax) != 0 {
+		pkg.name = pkg.syntax[0].PkgName
+	}
 	return pkg, pkg.errors, err
 }
 

@@ -16,7 +16,7 @@ type errorListener struct {
 func (e *errorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
 	var start, end token.Pos
 	if ex == nil || ex.GetOffendingToken() == nil {
-		if e.fset.LineCount() > line {
+		if line > e.fset.LineCount() {
 			line = e.fset.LineCount() - 1
 		}
 		start = e.fset.LineStart(line) + token.Pos(column)

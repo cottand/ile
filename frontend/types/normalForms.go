@@ -538,25 +538,28 @@ func (l *lhsRefined) isLeftNf() {}
 // toType reconstructs the SimpleType representation of the intersection.
 // Corresponds to the `underlying` lazy val in Scala.
 func (l *lhsRefined) toType() SimpleType {
-	// Start with the record type, which is assumed to be the base non-optional part.
-	// In Scala, LhsRefined always has a RecordType, even if empty.
-	current := SimpleType(l.reft)
+	base := newRecordType(l.reft.sorted())
+	if l.base != nil {
+		baseAppearsInTypeRefs := slices.ContainsFunc(l.typeRefs, func(ref typeRef) bool {
+			return ref.defName == l.base.id.CanonicalSyntax()
+		})
+		if !baseAppearsInTypeRefs {
+			base = intersectionOf(base, *(l.base), unionOpts{})
+		}
+	}
 
 	// we always want to store SimpleType the same way so we follow the pointer
 	// before putting it in the intersection here
-	if l.base != nil {
-		current = intersectionOf(current, *(l.base), unionOpts{})
-	}
 	if l.fn != nil {
-		current = intersectionOf(current, *(l.fn), unionOpts{})
+		base = intersectionOf(base, *(l.fn), unionOpts{})
 	}
 	if l.arr != nil {
-		current = intersectionOf(current, l.arr, unionOpts{})
+		base = intersectionOf(base, l.arr, unionOpts{})
 	}
 
 	if l.traitTags != nil {
 		for id := range l.traitTags.Items() {
-			current = intersectionOf(current, id, unionOpts{})
+			base = intersectionOf(base, id, unionOpts{})
 		}
 	}
 
@@ -564,21 +567,18 @@ func (l *lhsRefined) toType() SimpleType {
 	// Assuming typeRef implements Comparable or has a consistent sort order
 	sortedTrefs := slices.Clone(l.typeRefs) // Avoid modifying original slice
 	slices.SortFunc(sortedTrefs, func(a, b typeRef) int {
-		// Define a consistent comparison for typeRef, e.g., by name then args
-		if a.defName != b.defName {
-			if a.defName < b.defName {
-				return -1
-			}
-			return 1
+		byNames := cmp.Compare(a.defName, b.defName)
+		if byNames != 0 {
+			return byNames
 		}
 		// TODO: Add comparison for typeArgs if needed for strict canonical form
 		return 0
 	})
 	for _, tr := range sortedTrefs {
-		current = intersectionOf(current, tr, unionOpts{})
+		base = intersectionOf(base, tr, unionOpts{})
 	}
 
-	return current
+	return base
 }
 
 // level calculates the maximum polymorphism level among all components.

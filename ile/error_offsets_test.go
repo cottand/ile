@@ -2,6 +2,7 @@ package ile
 
 import (
 	"github.com/cottand/ile/frontend/ilerr"
+	_ "github.com/cottand/ile/internal/log"
 	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
@@ -10,6 +11,12 @@ import (
 func testError(t *testing.T, prog string, shouldContain ...string) {
 	pkg, ilerrs, err := NewPackageFromBytes([]byte(prog), "test.ile")
 	assert.NoError(t, err)
+
+	if !ilerrs.HasError() {
+		ts, _ := pkg.DisplayTypes()
+		t.Log("\n" + ts)
+		t.Fatal("expected an error")
+	}
 
 	sb := strings.Builder{}
 	for _, err := range ilerrs.Errors() {
@@ -86,7 +93,7 @@ val a = 1 + 2 +
 val b = 2
 // other comment
 `
-	testError(t, prog, "test.ile:22:1")
+	testError(t, prog, "test.ile:21:1")
 }
 
 func TestFibValidation(t *testing.T) {
@@ -94,12 +101,13 @@ func TestFibValidation(t *testing.T) {
 
 fn fib(x) {
   when(x) {
-    1 -> 1
-    0 -> 2
+    1 -> 2
+    0 -> 3
   }
 }
 
 fn main() {
   fib(3)
+  println("aa")
 }`, "mismatch")
 }

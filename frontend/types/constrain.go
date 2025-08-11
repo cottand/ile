@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 // constraintPair holds a pair of types being constrained.
@@ -444,7 +445,7 @@ func isErrorType(ty SimpleType) bool {
 // recImpl contains the core subtyping logic based on type structure.
 // Returns true if constraint solving should terminate early.
 func (cs *constraintSolver) recImpl(lhs, rhs SimpleType, shadows *shadowsState) bool {
-	cs.Debug(fmt.Sprintf("constrain %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
+	cs.Debug(fmt.Sprintf("constraining %s <: %s", lhs, rhs), "level", cs.level, "lhs", lhs, "rhs", rhs, "bounds", strings.Join([]string{boundsString(lhs), boundsString(rhs)}, ", "), "lhsType", reflect.TypeOf(lhs), "rhsType", reflect.TypeOf(rhs), "fuel", cs.fuel)
 
 	// 1. Basic Equality Check (more robust check needed for recursive types)
 	if cs.ctx.TypesEquivalent(lhs, rhs) {
@@ -1446,16 +1447,18 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return cs.extrude(t.lowerBound, targetLvl, false) // Negative polarity
 
 	case funcType:
-		extrudedLhs := cs.extrude(t.args[0], targetLvl, !pol) // Contravariant
-		if extrudedLhs == nil {
-			return nil
-		}
-		extrudedRhs := cs.extrude(t.ret, targetLvl, pol) // Covariant
-		if extrudedRhs == nil {
-			return nil
-		}
-		// Assuming single argument function for now, like Scala's FunctionType(l, r)
-		return funcType{args: []SimpleType{extrudedLhs}, ret: extrudedRhs, withProvenance: t.withProvenance}
+		cs.ctx.addFailure("extrude not implemented for func types", ty.prov())
+		//extrudedLhs := cs.extrude(t.args[0], targetLvl, !pol) // Contravariant
+		//if extrudedLhs == nil {
+		//	return nil
+		//}
+		//extrudedRhs := cs.extrude(t.ret, targetLvl, pol) // Covariant
+		//if extrudedRhs == nil {
+		//	return nil
+		//}
+		//// Assuming single argument function for now, like Scala's FunctionType(l, r)
+		//return funcType{args: []SimpleType{extrudedLhs}, ret: extrudedRhs, withProvenance: t.withProvenance}
+		return ty
 
 	case unionType: // ComposedType(true, ...)
 		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
@@ -1601,12 +1604,12 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 			// Scala seems to return the original typeRef here. Let's do that.
 			// This might be incorrect if the typeRef *contains* higher-level variables.
 			// A safer approach might be to report an error.
-			cs.Warn("extrude: unknown type definition, cannot extrude TypeRef arguments", "typeRef", t)
-			return t // Or return nil and report error?
+			cs.ctx.addFailure("extrude not implemented for type refs", t.provenance)
+			return t
 		}
 		if len(variances) != len(t.typeArgs) {
-			cs.Warn("extrude: variance/type argument mismatch", "typeRef", t)
-			return t // Or return nil and report error?
+			cs.ctx.addFailure("unexpected variance arity mismatch", t.provenance)
+			return t
 		}
 
 		newTargs := make([]SimpleType, len(t.typeArgs))
@@ -1637,7 +1640,8 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return typeRef{defName: t.defName, typeArgs: newTargs, withProvenance: t.withProvenance}
 
 	default:
-		panic(fmt.Sprintf("extrude: unhandled type %T", ty))
+		cs.ctx.addFailure(fmt.Sprintf("unexpected unhandled type %T", ty), ty.prov())
+		return ty
 	}
 }
 

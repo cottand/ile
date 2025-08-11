@@ -55,7 +55,12 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 			goType, err := nearestGoType(e)
 			return goast.NewIdent(goType), err
 		}
-		// if we are not in a function signature, we can just use the literal value without a type signature
+		if _, ok := tp.currentExpr.(*ir.Assign); ok {
+			goType, err := nearestGoType(e)
+			return goast.NewIdent(goType), err
+		}
+		// if we are not in a function signature nor an expression body, we must be on a top level declaration.
+		// so we can just use the literal value without a type signature
 		// to rely on Go inference to make literals be const (i.e., untyped types according to Go spec)
 		return nil, nil
 

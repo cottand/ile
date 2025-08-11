@@ -33,8 +33,16 @@ v`,
 
 	for name, file := range files {
 		t.Run(name, func(t *testing.T) {
+			fset := token.FileSet{}
+			f := fset.AddFile("test.ile", -1, len([]rune(file)))
+			for i, r := range []rune(file) {
+				if r == '\n' {
+					f.AddLine(i)
+				}
+			}
+
 			assert.NotPanics(t, func() {
-				_, _, _ = parser.ParseToAST(file, nil)
+				_, _, _ = parser.ParseToAST(file, f)
 			})
 		})
 	}

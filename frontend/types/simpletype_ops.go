@@ -49,11 +49,14 @@ func unionOf(this, that SimpleType, opts unionOpts) SimpleType {
 
 // intersectionOf corresponds to the `&` operation in the scala reference
 func intersectionOf(this, that SimpleType, opts unionOpts) SimpleType {
-	if Equal(this, bottomType) {
+	if isBottom(this) {
 		return bottomType
 	}
-	if Equal(this, topType) {
+	if isTop(this) {
 		return that
+	}
+	if isTop(that) {
+		return this
 	}
 	if Equal(this, that) {
 		return this
@@ -99,4 +102,3 @@ func recordUnionOf(left, right []recordField) []recordField {
 	}
 	return res
 }
-

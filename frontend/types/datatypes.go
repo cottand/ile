@@ -252,7 +252,7 @@ func (t unionType) String() string {
 }
 func (t unionType) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) {
-		if !yield(t.lhs) {
+		if yield(t.lhs) {
 			yield(t.rhs)
 		}
 	}
@@ -283,7 +283,7 @@ func (t intersectionType) String() string {
 }
 func (t intersectionType) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) {
-		if !yield(t.lhs) {
+		if yield(t.lhs) {
 			yield(t.rhs)
 		}
 	}
@@ -425,7 +425,7 @@ func newRecordType(r recordType) SimpleType {
 		}
 	}
 
-	return r
+	return r.sorted()
 }
 
 type substContext struct {
@@ -663,7 +663,7 @@ func (t typeRange) level() level                           { return 0 }
 
 func (t typeRange) children(bool) iter.Seq[SimpleType] {
 	return func(yield func(SimpleType) bool) {
-		if !yield(t.lowerBound) {
+		if yield(t.lowerBound) {
 			yield(t.upperBound)
 		}
 	}
@@ -929,6 +929,16 @@ func (t recordType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	}
 	return recordType{
 		fields:         mappedFields,
+		withProvenance: t.withProvenance,
+	}
+}
+
+func (t recordType) sorted() recordType  {
+	newFields := slices.SortedFunc(slices.Values(t.fields), func(f1, f2 recordField) int {
+		return cmp.Compare(f1.name.Name, f2.name.Name)
+	})
+	return recordType{
+		fields:         newFields,
 		withProvenance: t.withProvenance,
 	}
 }

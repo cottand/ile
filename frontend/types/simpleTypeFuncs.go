@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"github.com/cottand/ile/util"
 	"maps"
 	"slices"
@@ -19,7 +20,7 @@ func (ctx *TypeCtx) typeIsAliasOf(t SimpleType) bool {
 }
 
 func getVariables(t SimpleType) []*typeVariable {
-	//found := set.New[*typeVariable](1)
+	t = unwrapProvenance(t)
 	found := make(map[TypeVarID]*typeVariable)
 	remaining := []SimpleType{t}
 	for {
@@ -41,7 +42,10 @@ func getVariables(t SimpleType) []*typeVariable {
 		}
 		remaining = append(slices.Collect(first.children(true)), rest...)
 	}
-	return slices.Collect(maps.Values(found))
+	collected := slices.SortedFunc(maps.Values(found), func(a, b *typeVariable) int {
+		return cmp.Compare(a.id, b.id)
+	})
+	return collected
 }
 
 func boundsString(t SimpleType) string {
@@ -49,6 +53,9 @@ func boundsString(t SimpleType) string {
 		return "<nil>"
 	}
 	vars := getVariables(t)
+	slices.SortFunc(vars, func(a, b *typeVariable) int {
+		return cmp.Compare(a.id, b.id)
+	})
 	sb := strings.Builder{}
 	for i, variable := range vars {
 		if len(variable.lowerBounds) == 0 && len(variable.upperBounds) == 0 {

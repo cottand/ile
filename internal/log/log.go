@@ -25,10 +25,10 @@ var enabledSections = []string{
 	//"frontend",
 	//"desugar",
 	//"package",
-	//"inference",
-	"inference.simplify",
+	"inference",
+	//"inference.simplify",
 	//"inference.normalise",
-	//"inference.constrain",
+	"inference.constrain",
 	"inference.DNF",
 }
 

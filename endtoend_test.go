@@ -147,7 +147,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		resActual, err := i.Eval(eval)
-		assert.NoError(t, err)
+		if !assert.NoError(t, err) {
+			t.Fatal()
+		}
 
 		iClean := interp.New(interp.Options{})
 		resExpected, err := iClean.Eval(expected)

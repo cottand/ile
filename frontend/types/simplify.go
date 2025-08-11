@@ -108,19 +108,24 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	//  rn we only have lower bounds and they get removed here
 	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
 
+	// TODO unskid
+
 	// Corresponds to the first simplifyType call in Scala
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	cur = ctx.normaliseType(cur, positive)
 
-	// TODO: Implement and insert cleanup steps (removeIrrelevantBounds, unskidTypes_!) here.
-	// logger.Debug("⬤ Cleaned up:", "type", cur, "bounds", boundsString(cur))
-	// logger.Debug("⬤ Unskid:", "type", cur, "bounds", boundsString(cur))
+	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+
+	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: true})
+	// this is not in the reference
+	cur = ctx.normaliseType(cur, positive)
+
+	// TODO unskid
 
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
-	// TODO: Implement and insert final factoring step (factorRecursiveTypes_!) here.
-	// logger.Debug("⬤ Factored:", "type", cur, "bounds", boundsString(cur))
+	// TODO factorise
 
 	return cur
 }

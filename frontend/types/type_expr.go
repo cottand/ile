@@ -10,19 +10,13 @@ import (
 
 var logger = slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference")
 
-func (ctx *TypeCtx) TypeLetRecBody(name string, body ir.Expr) PolymorphicType {
-	panic("TODO implement me")
+type exprTyper struct {
+	*TypeCtx
+	*slog.Logger
 }
 
-// TypeExpr infers the type of a ast.Expr
-//
-// it is called typeTerm in the reference scala implementation
-func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
-	oldLogger := ctx.logger
-	defer func() {
-		ctx.logger = oldLogger
-	}()
-	ctx.logger = logger.With("expr.name", expr.ExprName(), "expr", expr)
+func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
+	ctx.Logger = ctx.TypeCtx.logger.With("expr.name", expr.ExprName(), "expr", expr)
 
 	if cached, ok := ctx.cache.getCached(expr); ok && cached.at == ctx.level {
 		// also check for the range so different expressions at the same level don't collide
@@ -33,10 +27,10 @@ func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret Si
 		return cached.t
 	}
 
-	ctx.logger.Debug("typeExpr: typing expression")
+	ctx.Debug("typeExpr: typing expression")
 	defer func() {
 		// for types not implemented, note ret might be nil at this stage
-		ctx.logger.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
+		ctx.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
 
 		ctx.putCache(expr, ret)
 	}()
@@ -225,6 +219,21 @@ func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret Si
 	}
 }
 
+func (ctx *TypeCtx) TypeLetRecBody(name string, body ir.Expr) PolymorphicType {
+	panic("TODO implement me")
+}
+
+// TypeExpr infers the type of a ast.Expr
+//
+// it is called typeTerm in the reference scala implementation
+func (ctx *TypeCtx) TypeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret SimpleType) {
+	typer := exprTyper{
+		TypeCtx: ctx,
+		Logger:  slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
+	}
+	return typer.typeExpr(expr, vars)
+}
+
 func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvenance) SimpleType {
 	errCount := 0
 	ctx.constrain(lhs, rhs, prov, func(err ilerr.IleError) (terminateEarly bool) {
@@ -245,8 +254,8 @@ func (ctx *TypeCtx) typeExprConstrain(lhs, rhs, res SimpleType, prov typeProvena
 	return res
 }
 
-func (ctx *TypeCtx) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]SimpleType) (ret SimpleType) {
-	subjectType := ctx.TypeExpr(expr.Value, vars)
+func (ctx *exprTyper) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]SimpleType) (ret SimpleType) {
+	subjectType := ctx.typeExpr(expr.Value, vars)
 	if len(expr.Cases) == 0 {
 		ctx.addError(ilerr.New(ilerr.NewEmptyWhen{Positioner: expr}))
 		return errorType()
@@ -255,17 +264,27 @@ func (ctx *TypeCtx) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]SimpleTy
 	if asVar, ok := expr.Value.(*ir.Var); ok {
 		subjectVarName = asVar.Name
 	}
+	// used in union so we fold from bottom
 	var finalType SimpleType = bottomType
-	var reqType SimpleType = bottomType
+	// used in intersection, so we fold from top
+	var requestedMatchedOnType SimpleType = topType
 	for _, branch := range expr.Cases {
 		branchT, resultT, tVar := ctx.typeWhenMatchBranch(subjectVarName, branch, vars)
 		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ir.RangeOf(branch.Value), desc: "when match branch"}})
-		reqType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(reqType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})
+		requestedMatchedOnType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(requestedMatchedOnType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})
 	}
-	return ctx.typeExprConstrain(subjectType, reqType, finalType, typeProvenance{Range: ir.RangeOf(expr), desc: "when match subject type"})
+	return ctx.typeExprConstrain(subjectType, requestedMatchedOnType, finalType, typeProvenance{Range: ir.RangeOf(expr), desc: "when match subject type"})
 }
 
-func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ir.WhenCase, vars map[typeName]SimpleType) (branchT SimpleType, resultT SimpleType, tVar SimpleType) {
+// typeWhenMatchBranch performs a step in typing a branch of a when pattern. The parameter `subject` should be set
+// when the `when` is performed on an expression that is a variable, so that we can flow-type it inside the branches
+//
+// it returns:
+//
+// - branchT: the type of the pattern matched
+// - resultT: the type of the branch value
+// - tVar: a type variable with bounds corresponding to the `when` subject variable, if any
+func (ctx *TypeCtx) typeWhenMatchBranch(subjectName string, branch ir.WhenCase, vars map[typeName]SimpleType) (branchT SimpleType, resultT SimpleType, tVar SimpleType) {
 	tVar = topType
 	pattern, ok := branch.Pattern.(*ir.MatchTypePattern)
 	if !ok {
@@ -286,11 +305,11 @@ func (ctx *TypeCtx) typeWhenMatchBranch(subject string, branch ir.WhenCase, vars
 	}
 	branchT = makeProxy(branchT, typeProvenance{desc: "pattern", Range: ir.RangeOf(branch.Pattern)})
 	newCtx := ctx.nest()
-	// if there is a subject, do 'smart casting' by creating a new type variable for it, and constraining the branch type to it
+	// if there is a subjectName, do flow typing by creating a new type variable for it, and constraining the branch type to it
 	// so that it is present on the branch scope with the refined type of the pattern
-	if subject != "" {
-		tVar = newCtx.newTypeVariable(typeProvenance{Range: ir.RangeOf(branch.Pattern), desc: "refined pattern match subject"}, subject, nil, nil)
-		newCtx.env[subject] = tVar
+	if subjectName != "" {
+		tVar = newCtx.newTypeVariable(typeProvenance{Range: ir.RangeOf(branch.Pattern), desc: "refined pattern match subjectName"}, subjectName, nil, nil)
+		newCtx.env[subjectName] = tVar
 	}
 	resultT = newCtx.TypeExpr(branch.Value, vars)
 	return branchT, resultT, tVar
