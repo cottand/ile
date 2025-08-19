@@ -141,6 +141,7 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 	case *ir.Func:
 		nested := ctx.nest()
 		argTypes := make([]SimpleType, 0, len(expr.ArgNames))
+
 		for _, arg := range expr.ArgNames {
 			argType := ctx.newTypeVariable(newOriginProv(expr, "function parameter", ""), "", nil, nil)
 			nested.env[arg] = argType

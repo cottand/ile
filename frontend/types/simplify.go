@@ -118,12 +118,13 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: true})
+
 	// this is not in the reference
-	cur = ctx.normaliseType(cur, positive)
+	//cur = ctx.normaliseType(cur, positive)
 
 	// TODO unskid
 
-	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	//cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// TODO factorise
 

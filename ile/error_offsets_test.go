@@ -105,9 +105,5 @@ fn fib(x) {
     0 -> 3
   }
 }
-
-fn main() {
-  fib(3)
-  println("aa")
-}`, "mismatch")
+`, "mismatch")
 }
