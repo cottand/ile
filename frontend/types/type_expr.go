@@ -267,11 +267,14 @@ func (ctx *exprTyper) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]Simple
 	}
 	// used in union so we fold from bottom
 	var finalType SimpleType = bottomType
-	// used in intersection, so we fold from top
-	var requestedMatchedOnType SimpleType = topType
+
+	var requestedMatchedOnType SimpleType = bottomType
 	for _, branch := range expr.Cases {
 		branchT, resultT, tVar := ctx.typeWhenMatchBranch(subjectVarName, branch, vars)
 		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ir.RangeOf(branch.Value), desc: "when match branch"}})
+		// FIXME: divergence from scala reference: MLStruct uses foldRight (right-to-left) processing
+		// but Ile processes left-to-right. This may affect pattern negation accumulation order.
+		// MLStruct formula: (a_ty & tv) | (req & a_ty.neg())
 		requestedMatchedOnType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(requestedMatchedOnType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})
 	}
 	return ctx.typeExprConstrain(subjectType, requestedMatchedOnType, finalType, typeProvenance{Range: ir.RangeOf(expr), desc: "when match subject type"})

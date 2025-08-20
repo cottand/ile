@@ -21,6 +21,8 @@ func (ctx *TypeCtx) cleanBounds(typ SimpleType, opts cleanBoundsOpts) SimpleType
 	}
 
 	// Collect polarities for all type variables in the type
+	// FIXME: divergence from scala reference: MLStruct's getVarsPol checks forall(_ === polarity)
+	// but Ile's getVarsPolFor assigns single polarity per variable. This may miss mixed-polarity cases.
 	for tv, pol := range ctx.getVarsPolFor(typ, positive) {
 		cbCtx.pols[tv.id] = pol
 	}
@@ -78,8 +80,9 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 		renewed = cbc.renew(t)
 
 		// Process lower bounds if all polarities for this variable are positive
+		// AND there are non-trivial lower bounds
 		pol, exists := cbc.pols[t.id]
-		if exists && pol == positive {
+		if exists && pol == positive && len(t.lowerBounds) > 0 {
 			var processed SimpleType = bottomType
 			for _, lb := range t.lowerBounds {
 				processedLB := cbc.process(lb, &boolTypeVar{b: true, tv: t})
@@ -88,11 +91,16 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 			if !isBottom(processed) {
 				renewed.lowerBounds = []SimpleType{processed}
 			}
+		} else if len(t.lowerBounds) > 0 {
+			// FIXME: divergence from scala reference: MLStruct sets bounds to Nil for invariant variables,
+			// but Ile preserves original bounds. This may be too conservative compared to MLStruct's approach.
+			renewed.lowerBounds = make([]SimpleType, len(t.lowerBounds))
+			copy(renewed.lowerBounds, t.lowerBounds)
 		}
 
 		// Process upper bounds if all polarities for this variable are negative
-		pol, exists = cbc.pols[t.id]
-		if exists && pol == negative {
+		// AND there are non-trivial upper bounds
+		if exists && pol == negative && len(t.upperBounds) > 0 {
 			var processed SimpleType = topType
 			for _, ub := range t.upperBounds {
 				processedUB := cbc.process(ub, &boolTypeVar{b: false, tv: t})
@@ -101,6 +109,11 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 			if !isTop(processed) {
 				renewed.upperBounds = []SimpleType{processed}
 			}
+		} else if len(t.upperBounds) > 0 {
+			// FIXME: divergence from scala reference: MLStruct sets bounds to Nil for invariant variables,
+			// but Ile preserves original bounds. This may be too conservative compared to MLStruct's approach.
+			renewed.upperBounds = make([]SimpleType, len(t.upperBounds))
+			copy(renewed.upperBounds, t.upperBounds)
 		}
 
 		return renewed

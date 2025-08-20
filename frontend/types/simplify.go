@@ -104,9 +104,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	}()
 
 	cur := st
-	// TODO PICKUP current hypothesis for isEven func is that we are missing upper bounds on fn arguments :'(
-	//  rn we only have lower bounds and they get removed here
-	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
+	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
 
 	// TODO unskid
 
@@ -117,14 +115,14 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
-	//cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: true})
+	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: true})
 
 	// this is not in the reference
 	//cur = ctx.normaliseType(cur, positive)
 
 	// TODO unskid
 
-	//cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// TODO factorise
 

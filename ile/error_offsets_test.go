@@ -99,11 +99,15 @@ val b = 2
 func TestFibValidation(t *testing.T) {
 	testError(t, `package main
 
-fn fib(x) {
+fn thing(x) {
   when(x) {
     1 -> 2
     0 -> 3
   }
+}
+
+fn main() {
+  thing(3)
 }
 `, "mismatch")
 }
