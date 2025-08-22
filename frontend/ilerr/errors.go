@@ -82,7 +82,7 @@ type SourceHighlighter interface {
 // FormatWithCodeAndSource formats an error with an inline highlight of the code snippet(s) that produced it.
 // This is useful for displaying errors in the CLI.
 func FormatWithCodeAndSource(e IleError, highlighter SourceHighlighter) string {
-	highlightOpts := HighlightOpts{LineBuffer: 1}
+	highlightOpts := HighlightOpts{LineBuffer: 2}
 	highlight, err := highlighter.Highlight(ir.ExternalRange{Range: ir.RangeOf(e)}, highlightOpts)
 	if err != nil {
 		highlight = fmt.Sprintf("| (failed to show source: %s)", err)

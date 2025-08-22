@@ -794,6 +794,22 @@ func (o *opsCNF) disjunctOrDisjunct(left, right disjunct) *disjunct {
 	}
 }
 
+// rhsOrBasicType is simply `|` in the scala reference
+func (o *opsCNF) rhsOrBasicType(nf rhsNF, ty basicType) (ret rhsNF, ok bool) {
+	switch nf.(type) {
+	case *rhsBot:
+		if asObj, ok := ty.(objectTag); ok {
+			ret = &rhsBases{
+				tags: []objectTag{asObj},
+			}
+			return ret, true
+		}
+
+	}
+	o.ctx.addFailure(fmt.Sprintf("unhandled case for rhsOrBasicType: %s (%T) | %s (%T)", nf, nf, ty, ty), nil)
+	return nil, false
+}
+
 // rhsOrRhs computes the union of two RhsNf components.
 // Returns nil if the result is Top.
 func (o *opsCNF) rhsOrRhs(left, right rhsNF) (res rhsNF, ok bool) {

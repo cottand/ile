@@ -413,7 +413,7 @@ type HighlightOpts = struct {
 	HideNameLineColumn bool
 	// Whether line numbers left of the snippet are not printed
 	HideLineNumbers bool
-	// How many lines, in addition to the highlighted one, are shown before and after
+	// How many lines, in addition to the highlighted one, are shown before
 	// the snippet
 	// Default is 0
 	LineBuffer int
@@ -473,7 +473,7 @@ func (p *Package) Highlight(pos ir.ExternalPositioner, opts HighlightOpts) (stri
 	}
 
 	linesStart := max(1, mainLineNumber-opts.LineBuffer)
-	linesEnd := min(mainLineNumber+opts.LineBuffer, file.LineCount())
+	linesEnd := min(mainLineNumber, file.LineCount())
 
 	if !opts.HideLineNumbers {
 		maxLineNumberWidth := linesEnd

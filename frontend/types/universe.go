@@ -101,6 +101,7 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 		"==":         comparisonBinOp(),
 		"!=":         comparisonBinOp(),
 		"println":    funcType{args: []SimpleType{anyClassTag}, ret: nilType},
+		"print":      funcType{args: []SimpleType{anyClassTag}, ret: nilType},
 		"panic":      funcType{args: []SimpleType{anyClassTag}, ret: bottomType},
 		// until we can overload `+`
 		"++": funcType{args: []SimpleType{stringType, stringType}, ret: stringType},

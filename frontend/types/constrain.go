@@ -189,6 +189,9 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 		rhsProvDesc = " (" + rhsProvDesc + ")"
 	}
 
+	seenPositions := make(map[ir.Range]bool, 1)
+	seenPositions[ir.RangeOf(provenanceHintPos)] = true
+
 	// Find the tightest relevant failure in the LHS chain (similar to Scala's tighestRelevantFailure)
 	var flowHint string
 	var flowHintPos ir.ExternalPositioner
@@ -200,19 +203,19 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 		}
 
 		// Check if this provenance is relevant (has a location that's different from the main error)
-		if l.prov().Pos() != token.NoPos && l.prov().Pos() != lhsProv.Pos() {
+		if l.prov().Pos() != token.NoPos && l.prov().Pos() != lhsProv.Pos() && !seenPositions[l.prov().Range] {
 			flowHint = fmt.Sprintf("but it flows into %s with expected type %s",
 				l.prov().desc,
-				ir.TypeString(cs.ctx.expandSimpleType(rhs, true)))
+				cs.expandForErrorReporting(rhs, negative),
+			)
 			flowHintPos = l.prov()
+			seenPositions[l.prov().Range] = true
 			break
 		}
 	}
 
-	seenPositions := make(map[ir.Range]bool, 1)
-
-	lhsStr := ir.TypeString(cs.ctx.expandSimpleType(lhs, true))
-	rhsStr := ir.TypeString(cs.ctx.expandSimpleType(rhs, true))
+	lhsStr := cs.expandForErrorReporting(lhs, positive)
+	rhsStr := cs.expandForErrorReporting(rhs, negative)
 	mismatchErr := ilerr.NewTypeMismatch{
 		Positioner:        pos,
 		Actual:            fmt.Sprintf("%s%s", lhsStr, lhsProvDesc),
@@ -228,7 +231,7 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 	if lhs.prov() != emptyProv && lhs.prov().Range != (ir.Range{}) {
 		mismatchErr.ActualStackHints = append(mismatchErr.ActualStackHints, ilerr.TypeStackHint{
 			Description: lhs.prov().desc,
-			Type:        ir.TypeString(cs.ctx.expandSimpleType(lhs, true)),
+			Type:        cs.expandForErrorReporting(lhs, positive),
 			Positioner:  lhs.prov(),
 		})
 		seenPositions[lhs.prov().Range] = true
@@ -237,7 +240,7 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 	// Always add the expected type, even if it doesn't have a position
 	mismatchErr.ExpectedStackHints = append(mismatchErr.ExpectedStackHints, ilerr.TypeStackHint{
 		Description: rhsProvDesc,
-		Type:        ir.TypeString(cs.ctx.expandSimpleType(rhs, true)),
+		Type:        cs.expandForErrorReporting(rhs, negative),
 		Positioner:  rhs.prov(),
 	})
 	if rhs.prov() != emptyProv && rhs.prov().Pos() != token.NoPos {
@@ -259,7 +262,7 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 
 		mismatchErr.ExpectedStackHints = append(mismatchErr.ExpectedStackHints, ilerr.TypeStackHint{
 			Description: r.prov().desc,
-			Type:        ir.TypeString(cs.ctx.expandSimpleType(r, true)),
+			Type:        cs.expandForErrorReporting(r, negative),
 			Positioner:  r.prov(),
 		})
 	}
@@ -278,7 +281,7 @@ func (cs *constraintSolver) reportError(failureMsg string) (terminateEarly bool)
 
 		mismatchErr.ActualStackHints = append(mismatchErr.ActualStackHints, ilerr.TypeStackHint{
 			Description: l.prov().desc,
-			Type:        ir.TypeString(cs.ctx.expandSimpleType(l, true)),
+			Type:        cs.expandForErrorReporting(l, positive),
 			Positioner:  l.prov(),
 		})
 
@@ -301,6 +304,15 @@ func (cs *constraintSolver) pop() {
 		cs.stack = cs.stack[:len(cs.stack)-1]
 		cs.depth--
 	}
+}
+
+func (cs *constraintSolver) expandForErrorReporting(ty SimpleType, pol polarity) string {
+	substCtx := &substContext{ctx: cs.ctx, substituteInMap: false, cache: make(map[TypeVarID]SimpleType), substitutions: make(map[uint64]SimpleType)}
+	ty = substCtx.substitute(ty)
+	ty = cs.ctx.normaliseType(ty, pol)
+	// reference divergence: we inline bounds during this simplification, reference doesn't
+	ty = cs.ctx.simplifyType(ty, pol, false, true)
+	return ir.TypeString(cs.ctx.expandSimpleType(ty, true))
 }
 
 // withSubLevel creates a new solver context for a nested polymorphism level.
@@ -1072,7 +1084,6 @@ func (cs *constraintSolver) annoyingHandleEmptyTypes(doneLeft lhsNF, doneRight r
 // This works by constructing all pairs of "conjunct <: disjunct" implied by the conceptual
 // "DNF <: CNF" form of the constraint.
 func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rightTypes []SimpleType, doneRight rhsNF) {
-	cs.Warn("constrain: annoying", "leftTypes", leftTypes, "doneLeft", doneLeft, "rightTypes", rightTypes, "doneRight", doneRight)
 	cs.annoyingCalls++
 
 	// Handle the case where both leftTypes and rightTypes are empty at the start
@@ -1370,7 +1381,7 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 		ty = unwrapProvenance(ty)
 
 		// Check for specific right-side types that need implementation
-		switch ty.(type) {
+		switch ty := ty.(type) {
 		case recordType:
 			cs.ctx.addFailure("annoying: handling of record types on the right side not implemented", ty.prov())
 			return
@@ -1378,8 +1389,12 @@ func (cs *constraintSolver) annoying(leftTypes []SimpleType, doneLeft lhsNF, rig
 			cs.ctx.addFailure("annoying: handling of type references on the right side not implemented", ty.prov())
 			return
 		case basicType:
-			cs.ctx.addFailure("annoying: handling of basic types on the right side not implemented", ty.prov())
-			return
+			CNF := newOpsCNF(cs.ctx, false)
+			merged, ok := CNF.rhsOrBasicType(doneRight, ty)
+			if !ok {
+				return
+			}
+			cs.annoying(leftTypes, doneLeft, rightTypes[1:], merged)
 		default:
 			cs.ctx.addFailure(fmt.Sprintf("annoying: unhandled right-side type %T", ty), ty.prov())
 			return

@@ -96,7 +96,7 @@ val b = 2
 	testError(t, prog, "test.ile:21:1")
 }
 
-func TestFibValidation(t *testing.T) {
+func TestUnionTypeValidation(t *testing.T) {
 	testError(t, `package main
 
 fn thing(x) {
@@ -109,5 +109,5 @@ fn thing(x) {
 fn main() {
   thing(3)
 }
-`, "mismatch")
+`, "mismatch", " actual type:     3", "1 | 0")
 }

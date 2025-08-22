@@ -108,6 +108,15 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 
 	switch ty := t.(type) {
 	case *typeVariable:
+		tv := &ir.TypeVar{
+			Identifier: ty.String(), // Use the string representation as identifier? Or just UID?
+			NameHint:   ty.nameHint, // Use hint if available
+			// UID:   ty.id, // Assuming ast.TypeVar has UID
+			Range: rng,
+		}
+		if st.stopAtTyVars {
+			return tv
+		}
 		// Check if we already created the AST node for this var
 		if existingTv, found := st.createdVars[ty.id]; found {
 			// If we've seen it but haven't processed bounds yet (recursive case), return existing node
@@ -119,18 +128,7 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 			return existingTv
 		}
 
-		// Create the AST node
-		tv := &ir.TypeVar{
-			Identifier: ty.String(), // Use the string representation as identifier? Or just UID?
-			NameHint:   ty.nameHint, // Use hint if available
-			// UID:   ty.id, // Assuming ast.TypeVar has UID
-			Range: rng,
-		}
 		st.createdVars[ty.id] = tv // Store it
-
-		if st.stopAtTyVars {
-			return tv
-		}
 
 		// Check for recursion before processing bounds
 		if st.seenVars.Contains(ty.id) {
