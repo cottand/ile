@@ -92,8 +92,12 @@ type IntersectionType struct {
 }
 
 func (t *IntersectionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
-	var thisPrecedence uint16 = 25
-	return t.Left.ShowIn(ctx, thisPrecedence) + " & " + t.Right.ShowIn(ctx, thisPrecedence)
+	const thisPrecedence uint16 = 25
+	pattern := "%s & %s"
+	if outerPrecedence > thisPrecedence {
+		pattern = "(%s & %s)"
+	}
+	return fmt.Sprintf(pattern, t.Left.ShowIn(ctx, thisPrecedence), t.Right.ShowIn(ctx, thisPrecedence))
 }
 
 func (t *IntersectionType) Hash() uint64 {
@@ -113,7 +117,11 @@ type UnionType struct {
 
 func (t *UnionType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	const thisPrecedence uint16 = 20
-	return t.Left.ShowIn(ctx, thisPrecedence) + " | " + t.Right.ShowIn(ctx, thisPrecedence)
+	pattern := "%s | %s"
+	if outerPrecedence > thisPrecedence {
+		pattern = "(%s | %s)"
+	}
+	return fmt.Sprintf(pattern, t.Left.ShowIn(ctx, thisPrecedence), t.Right.ShowIn(ctx, thisPrecedence))
 }
 
 func (t *UnionType) Hash() uint64 {
@@ -528,6 +536,7 @@ type NegType struct {
 	Underlying Type
 	Positioner
 }
+
 func (t *NegType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	return "!" + t.Underlying.ShowIn(ctx, 10)
 }
