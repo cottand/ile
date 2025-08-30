@@ -4,33 +4,30 @@ package ile
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	"github.com/cottand/ile/backend"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/traefik/yaegi/interp"
-	"github.com/traefik/yaegi/stdlib"
 	"go/build"
 	"go/format"
 	"go/token"
 	"strings"
 	"syscall/js"
+
+	"github.com/cottand/ile/backend"
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
 )
 
 // CheckAndShowTypes does a frontend pass of program
 // and prints the inferred types of the program's top-level
 // declarations, or alternatively displays errors messages if the
 // program does not compile, type-check, or parse
-func CheckAndShowTypes(_ js.Value, args []js.Value) (ret any) {
-	defer func() {
-		if r := recover(); r != nil {
-			ret = "compiler panicked: " + fmt.Sprint(r)
-		}
-	}()
-
+var CheckAndShowTypes = asPromise(checkAndShowTypes)
+func checkAndShowTypes(_ js.Value, args []js.Value) (ret any, err error) {
 	program := args[0].String()
 	pkg, errs, err := NewPackageFromBytes([]byte(program), "program.ile")
 	if err != nil {
-		return fmt.Sprintf("the compiler encountered a failure:\n\n%s", err)
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
 	if errs.HasError() {
 		sb := strings.Builder{}
@@ -40,14 +37,14 @@ func CheckAndShowTypes(_ js.Value, args []js.Value) (ret any) {
 			sb.WriteString(formatted)
 			sb.WriteByte('\n')
 		}
-		return sb.String()
+		return nil, errors.New(sb.String())
 	}
 
 	typesStr, err := pkg.DisplayTypes()
 	if err != nil {
-		return fmt.Sprintf("the compiler encountered a failure:\n%w", err)
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
-	return typesStr
+	return typesStr, nil
 }
 
 // CompileAndShowGoOutput does a full pass of program
@@ -56,25 +53,15 @@ func CheckAndShowTypes(_ js.Value, args []js.Value) (ret any) {
 // program does not compile, type-check, or parse.
 // It also returns the resulting code-generated go output.
 //
-// output: { error: string } | { types: string, goOutput: string }
-func CompileAndShowGoOutput(_ js.Value, args []js.Value) (ret any) {
-	errorObj := func(err string) any {
-		return js.ValueOf(map[string]any{
-			"error": err,
-		})
-	}
-
+// output: { types: string, goOutput: string }
+var CompileAndShowGoOutput = asPromise(compileAndShowGoOutput)
+func compileAndShowGoOutput(_ js.Value, args []js.Value) (ret any, err error) {
 	okResultObj := func(types string, goOutput string) any {
 		return js.ValueOf(map[string]any{
 			"types":    types,
 			"goOutput": goOutput,
 		})
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			ret = errorObj("compiler panicked: " + fmt.Sprint(r))
-		}
-	}()
 
 	program := args[0].String()
 	pkg, errs, err := NewPackageFromBytes([]byte(program), "program.ile")
@@ -86,21 +73,21 @@ func CompileAndShowGoOutput(_ js.Value, args []js.Value) (ret any) {
 			sb.WriteString(formatted)
 			sb.WriteByte('\n')
 		}
-		return errorObj(sb.String())
+		return nil, fmt.Errorf(sb.String())
 	}
 	if err != nil {
-		return errorObj(fmt.Sprintf("the compiler encountered a failure:\n\n%s", err))
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
 
 	typesStr, err := pkg.DisplayTypes()
 	if err != nil {
-		return errorObj(fmt.Sprintf("the compiler encountered a failure:\n%s", err))
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
 
 	tp := backend.NewTranspiler(pkg.TypeCtx)
 	goAstFiles, err := tp.TranspilePackage(pkg.Name(), pkg.Syntax())
 	if err != nil {
-		return errorObj(fmt.Sprintf("the compiler encountered a failure:\n%s", err))
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
 
 	first := goAstFiles[0]
@@ -108,12 +95,14 @@ func CompileAndShowGoOutput(_ js.Value, args []js.Value) (ret any) {
 	sourceBuf := bytes.NewBuffer(nil)
 	err = format.Node(sourceBuf, &token.FileSet{}, &first)
 	if err != nil {
-		return errorObj(fmt.Sprintf("the interpreter encountered a failure:\n%s", err))
+		return nil, fmt.Errorf("the compiler encountered a failure:\n%w", err)
 	}
-	return okResultObj(typesStr, sourceBuf.String())
+	return okResultObj(typesStr, sourceBuf.String()), nil
 }
 
-// interpretGo takes a Go program as a string and returns the stdout, if any
+// InterpretGo takes a Go program as a string and returns the stdout, if any
+var InterpretGo = asPromise(interpretGo)
+
 func interpretGo(_ js.Value, args []js.Value) (ret any, err error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("expected 1 argument, got %d", len(args))
@@ -144,6 +133,10 @@ func interpretGo(_ js.Value, args []js.Value) (ret any, err error) {
 // It takes a normal JS-API function that also returns an error, and returns function
 // that returns a promise which
 // completes when the function completes, and can be used to catch errors, if any
+//
+//   Ie, it transforms a (js.Value, []js.Value) -> (err, any)
+//                into a (js.Value, []js.Value) -> Promise<any>
+//
 func asPromise(function func(js.Value, []js.Value) (any, error)) any {
 	return js.FuncOf(func(this js.Value, args []js.Value) any {
 		handler := js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
@@ -176,5 +169,3 @@ func asPromise(function func(js.Value, []js.Value) (any, error)) any {
 		return promiseConstructor.New(handler)
 	})
 }
-
-var InterpretGo = asPromise(interpretGo)

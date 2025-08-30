@@ -2,8 +2,8 @@
 
 declare global {
     export interface Window {
-        CheckAndShowTypes: (program: string) => string
-        CompileAndShowGoOutput: (program: string) => ({ error: string } | { types: string, goOutput: string })
+        CheckAndShowTypes: (program: string) => Promise<string>
+        CompileAndShowGoOutput: (program: string) => Promise<{ types: string, goOutput: string }>
         InterpretGo: (program: string) => Promise<string>
     }
 }
