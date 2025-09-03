@@ -3,10 +3,11 @@ package backend
 import (
 	"errors"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
 	goast "go/ast"
 	"go/token"
 	"strconv"
+
+	"github.com/cottand/ile/frontend/ir"
 )
 
 func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
@@ -118,6 +119,9 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 			return goast.NewIdent(str), err
 		}
 		return tp.transpileType(common)
+
+	case *ir.NothingType:
+		return nil, nil
 
 	default:
 		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", ir.TypeString(e), e)

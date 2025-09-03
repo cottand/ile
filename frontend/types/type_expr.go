@@ -2,10 +2,11 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/frontend/ir"
 	"log/slog"
 	"reflect"
+
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
 )
 
 var logger = slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference")

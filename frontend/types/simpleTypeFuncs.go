@@ -2,10 +2,11 @@ package types
 
 import (
 	"cmp"
-	"github.com/cottand/ile/util"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/cottand/ile/util"
 )
 
 func unwrapProvenance(t SimpleType) SimpleType {
@@ -30,7 +31,7 @@ func getVariables(t SimpleType) []*typeVariable {
 		first := remaining[0]
 		rest := remaining[1:]
 
-		typeVar, ok := first.(*typeVariable)
+		typeVar, ok := unwrapProvenance(first).(*typeVariable)
 		if ok {
 			if _, ok := found[typeVar.id]; ok {
 				remaining = rest

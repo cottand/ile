@@ -1,0 +1,12 @@
+//ile:compilerTest test.A()| string("hello world!")
+
+package test
+
+
+fn fib(x) {
+  fib(x)
+}
+
+fn A() {
+   "hello world!"
+}
