@@ -3,14 +3,14 @@ package main
 import (
 	"bytes"
 	"embed"
+	"os"
+
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
 	"github.com/traefik/yaegi/stdlib"
-	"os"
 
-	"github.com/traefik/yaegi/interp"
 	"go/build"
 	"go/format"
 	"go/token"
@@ -18,6 +18,8 @@ import (
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/traefik/yaegi/interp"
 )
 
 const logGoAST = true
@@ -95,9 +97,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		defer func() {
-			if v := recover(); v != nil {
-				t.Errorf("test panicked: %v", v)
-			}
+			//if v := recover(); v != nil {
+			//	t.Errorf("test panicked: %v", v)
+			//}
 		}()
 
 		content, err := testSet.ReadFile(path.Join("test", name))

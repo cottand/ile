@@ -3,10 +3,11 @@ package backend
 import (
 	"errors"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/frontend/types"
 	goast "go/ast"
 	"go/token"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/frontend/types"
 )
 
 // transpileDeclarations works at the top level of the file
@@ -63,6 +64,11 @@ func (tp *Transpiler) transpileDeclarations(vars []ir.Declaration) ([]goast.GenD
 	}, joined
 }
 
+func isUnitType(t ir.Type) bool  {
+	return types.Equal(t, ir.NilType) || types.Equal(t, &ir.NothingType{})
+
+}
+
 func (tp *Transpiler) transpileFunctionDecls(fs []ir.Declaration) ([]goast.Decl, error) {
 	var goDecls []goast.Decl
 	var errs []error
@@ -79,7 +85,7 @@ func (tp *Transpiler) transpileFunctionDecls(fs []ir.Declaration) ([]goast.Decl,
 			if !ok {
 				errs = append(errs, errors.New("expected a function type"))
 			}
-			isUnitFunc := types.Equal(t.Return, ir.NilType)
+			isUnitFunc := isUnitType(t.Return)
 
 			var body []goast.Stmt
 			if isUnitFunc {

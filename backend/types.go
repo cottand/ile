@@ -33,6 +33,11 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 			errs = errors.Join(errs, err)
 			params[i] = &goast.Field{Type: tParam}
 		}
+		if isUnitType(e.Return) {
+			return &goast.FuncType{
+				Params: &goast.FieldList{List: params},
+			}, errs
+		}
 		retType, err := tp.transpileType(e.Return)
 		errs = errors.Join(errs, err)
 		if err != nil {
