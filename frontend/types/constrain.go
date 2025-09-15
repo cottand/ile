@@ -2,15 +2,16 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"log/slog"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	set "github.com/hashicorp/go-set/v3"
 )
 
 // constraintPair holds a pair of types being constrained.
@@ -1627,7 +1628,7 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 			return t
 		}
 
-		newTargs := make([]SimpleType, len(t.typeArgs))
+		newTargs := make([]SimpleType, 0, len(t.typeArgs))
 		for i, targ := range t.typeArgs {
 			argPol := combinePolarity(polarityFromBool(pol), variances[i])
 			var extrudedArg SimpleType
@@ -1650,7 +1651,7 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 					return nil
 				}
 			}
-			newTargs[i] = extrudedArg
+			newTargs = append(newTargs, extrudedArg)
 		}
 		return typeRef{defName: t.defName, typeArgs: newTargs, withProvenance: t.withProvenance}
 

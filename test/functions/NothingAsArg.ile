@@ -1,0 +1,18 @@
+//ile:compilerTest test.A()| string("hello world!")
+
+package test
+
+
+fn inf(x) {
+  inf(x)
+}
+
+fn plusOne(x) { x + 1 }
+
+fn wouldNotReturn() {
+  plusOne(inf(1))
+}
+
+fn A() {
+   "hello world!"
+}

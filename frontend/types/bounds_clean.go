@@ -6,6 +6,8 @@ import (
 )
 
 type cleanBoundsOpts struct {
+	// using true avoids instantiating fresh variables when replacing bounds
+	// it is unclear why the scala reference sometimes opts in to this
 	inPlace bool // default false
 }
 
@@ -91,7 +93,9 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 			if !isBottom(processed) {
 				renewed.lowerBounds = []SimpleType{processed}
 			}
-		} else if len(t.lowerBounds) > 0 {
+			// avoid propagating bounds when computing bounds in-place, as that
+			// might overwrite the bounds of the freshened variable (which could just be the same one)
+		} else if len(t.lowerBounds) > 0 && !cbc.inPlace {
 			// FIXME: divergence from scala reference: MLStruct sets bounds to Nil for invariant variables,
 			// but Ile preserves original bounds. This may be too conservative compared to MLStruct's approach.
 			renewed.lowerBounds = make([]SimpleType, len(t.lowerBounds))
@@ -109,7 +113,9 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 			if !isTop(processed) {
 				renewed.upperBounds = []SimpleType{processed}
 			}
-		} else if len(t.upperBounds) > 0 {
+			// avoid propagating bounds when computing bounds in-place, as that
+			// might overwrite the bounds of the freshened variable (which could just be the same one)
+		} else if len(t.upperBounds) > 0 && !cbc.inPlace {
 			// FIXME: divergence from scala reference: MLStruct sets bounds to Nil for invariant variables,
 			// but Ile preserves original bounds. This may be too conservative compared to MLStruct's approach.
 			renewed.upperBounds = make([]SimpleType, len(t.upperBounds))

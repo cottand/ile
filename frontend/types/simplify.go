@@ -3,13 +3,14 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set/v3" // Using v3 as v2 is deprecated
 	"iter"
 	"log/slog"
 	"slices"
 	"strings"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3" // Using v3 as v2 is deprecated
 )
 
 // --- Analysis Data Structures ---
@@ -115,7 +116,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
-	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: true})
+	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
 
 	// this is not in the reference
 	//cur = ctx.normaliseType(cur, positive)
@@ -812,7 +813,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		// Set bounds on the renewed variable *after* creating it to handle recursion
 		// Pass the *renewedVar* as the parent for bound transformation
 		// Use temporary slices to avoid modifying renewedVar while iterating
-		var newLowerBounds, newUpperBounds []SimpleType
+		var newLowerBounds = make([]SimpleType, 0, len(ty.lowerBounds))
+		var newUpperBounds = make([]SimpleType, 0, len(ty.upperBounds))
 		for _, lb := range ty.lowerBounds {
 			newLowerBounds = append(newLowerBounds, ts.transform(lb, positive, ty))
 		}

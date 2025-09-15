@@ -3,13 +3,14 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set/v3"
 	"hash/fnv"
 	"iter"
 	"slices"
 	"strings"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 // junction corresponds to conjunction or disjunction in the scala reference
@@ -285,9 +286,9 @@ func (o *opsDNF) leftNFAndType(left lhsNF, b basicType) (res lhsNF, ok bool) {
 					}
 
 					// Create a new tuple with intersected element types
-					fields := make([]SimpleType, len(at.fields))
-					for i := 0; i < len(at.fields); i++ {
-						fields[i] = intersectionOf(at.fields[i], bt.fields[i], unionOpts{})
+					fields := make([]SimpleType, 0, len(at.fields))
+					for i, aField := range at.fields {
+						fields = append(fields, intersectionOf(aField, bt.fields[i], unionOpts{}))
 					}
 
 					result = tupleType{

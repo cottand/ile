@@ -1,0 +1,15 @@
+//ile:compilerTest test.A()| string("hello world!")
+
+package test
+
+fn inf(x) {
+  when x {
+    1 -> 1
+    2 -> 2
+    10 -> inf(x)
+  }
+}
+
+fn A() {
+   "hello world!"
+}

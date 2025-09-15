@@ -175,12 +175,14 @@ type extremeType struct {
 
 var bottomType = extremeType{polarity: true}
 var topType = extremeType{polarity: false}
-var emptySeqSimpleType iter.Seq[SimpleType] = func(_ func(SimpleType) bool) { return }
 
+func newEmptySeqSimpleType() iter.Seq[SimpleType] {
+	return func(_ func(SimpleType) bool) { return }
+}
 func (extremeType) level() level                                           { return 0 }
 func (t extremeType) uninstantiatedBody() SimpleType                       { return t }
 func (t extremeType) instantiate(fresher *Fresher, level level) SimpleType { return t }
-func (t extremeType) children(bool) iter.Seq[SimpleType]                   { return emptySeqSimpleType }
+func (t extremeType) children(bool) iter.Seq[SimpleType]                   { return newEmptySeqSimpleType() }
 func (t extremeType) isTop() bool {
 	return !t.polarity
 }
@@ -481,9 +483,9 @@ func (t typeRef) children(bool) iter.Seq[SimpleType] {
 
 // doMap for typeRef applies the function to its type arguments and creates a new typeRef
 func (t typeRef) doMap(f func(SimpleType) SimpleType) SimpleType {
-	mappedArgs := make([]SimpleType, len(t.typeArgs))
-	for i, arg := range t.typeArgs {
-		mappedArgs[i] = f(arg)
+	mappedArgs := make([]SimpleType, 0, len(t.typeArgs))
+	for _, arg := range t.typeArgs {
+		mappedArgs = append(mappedArgs, f(arg))
 	}
 	return typeRef{
 		defName:        t.defName,
@@ -543,7 +545,7 @@ func (t *typeVariable) level() level {
 
 func (t *typeVariable) children(includeBounds bool) iter.Seq[SimpleType] {
 	if !includeBounds {
-		return emptySeqSimpleType
+		return newEmptySeqSimpleType()
 	}
 	return util.ConcatIter[SimpleType](slices.Values(t.lowerBounds), slices.Values(t.upperBounds))
 }
@@ -577,7 +579,9 @@ func (t classTag) String() string {
 func (t classTag) Compare(other objectTag) int {
 	return cmp.Compare(t.Hash(), other.Hash())
 }
-func (t classTag) children(bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
+func (t classTag) children(bool) iter.Seq[SimpleType] {
+	return newEmptySeqSimpleType()
+}
 
 // containsParentST returns true if (not only if) other is a parent of this classTag (meaning t <: other)
 func (t classTag) containsParentST(other ir.AtomicExpr) bool {
@@ -605,7 +609,7 @@ func (t traitTag) Compare(other objectTag) int {
 	panic("implement me")
 }
 
-func (t traitTag) children(includeBounds bool) iter.Seq[SimpleType] { return emptySeqSimpleType }
+func (t traitTag) children(includeBounds bool) iter.Seq[SimpleType] { return newEmptySeqSimpleType() }
 
 // doMap for traitTag returns itself since it has no children
 func (t traitTag) doMap(f func(SimpleType) SimpleType) SimpleType {
@@ -934,7 +938,7 @@ func (t recordType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	}
 }
 
-func (t recordType) sorted() recordType  {
+func (t recordType) sorted() recordType {
 	newFields := slices.SortedFunc(slices.Values(t.fields), func(f1, f2 recordField) int {
 		return cmp.Compare(f1.name.Name, f2.name.Name)
 	})

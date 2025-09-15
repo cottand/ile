@@ -2,6 +2,7 @@ package types
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -22,7 +23,7 @@ func (ctx *TypeCtx) typeIsAliasOf(t SimpleType) bool {
 
 func getVariables(t SimpleType) []*typeVariable {
 	t = unwrapProvenance(t)
-	found := make(map[TypeVarID]*typeVariable)
+	found := make(map[TypeVarID]*typeVariable, 1)
 	remaining := []SimpleType{t}
 	for {
 		if len(remaining) == 0 {
@@ -41,7 +42,28 @@ func getVariables(t SimpleType) []*typeVariable {
 			remaining = append(slices.Collect(typeVar.children(true)), rest...)
 			continue
 		}
-		remaining = append(slices.Collect(first.children(true)), rest...)
+		if first == nil {
+			println("oh no")
+		}
+		children := slices.Collect(first.children(true))
+		if children == nil {
+			println(fmt.Sprintf("child of %s returned nil", first))
+		}
+		if len(children) == 0 {
+			remaining = rest
+		} else {
+			remaining = append(children, rest...)
+		}
+		for _, child := range children {
+			if child == nil {
+				println(fmt.Sprintf("remaining %s (child of %s) has nil", remaining, first))
+			}
+		}
+		//if len(rest) == 0 {
+		//	remaining = slices.AppendSeq(make([]SimpleType, 0), first.children(true))
+		//} else {
+		//	remaining = slices.AppendSeq(rest, first.children(true))
+		//}
 	}
 	collected := slices.SortedFunc(maps.Values(found), func(a, b *typeVariable) int {
 		return cmp.Compare(a.id, b.id)

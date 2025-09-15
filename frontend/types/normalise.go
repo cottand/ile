@@ -3,12 +3,13 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set/v3"
 	"log/slog"
 	"slices"
 	"strconv"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 // normaliseType corresponds to normalizeTypes_! in the scala reference
@@ -174,7 +175,7 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 				}
 
 				// Create new tuple components by combining the original tuple types with the corresponding component fields
-				newFields := make([]SimpleType, len(arr.fields))
+				newFields := make([]SimpleType, 0, len(arr.fields))
 				for i, field := range arr.fields {
 					index := i + 1 // 1-based indexing
 					if componentField, ok := componentFields[index]; ok {
@@ -183,9 +184,9 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 						// Also process lowerBound even though we don't use it directly
 						_ = n.processType(componentField.lowerBound, pol.inverse())
 						// Combine with the original field
-						newFields[i] = intersectionOf(field, upperBound, unionOpts{})
+						newFields = append(newFields, intersectionOf(field, upperBound, unionOpts{}))
 					} else {
-						newFields[i] = n.processType(field, pol)
+						newFields = append(newFields, n.processType(field, pol))
 					}
 				}
 
