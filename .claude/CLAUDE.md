@@ -4,7 +4,10 @@
 - MLStruct is its own separate type-system with a reference implementation in Scala, which can be found under the
   `./mlstruct` (symlinked)
   symlink for reference.
-- The MLStruct reference paper that guided the implementaiton can be found in markdown under ./docs/mlstruct
+- The MLStruct reference paper that guided the implementation can be found in
+  markdown [here](../docs/mlstruct/index.md).
+    - Expect differences between the formal paper and the implementation. The paper should guide your intuition, but the
+      reference implementation has more features and should be a closer match to the Ile language implementation.
 - While Ile is based on MLStruct, it deviates in some parts for a couple reasons:
     - The implementation language is different and therfore algorithms and data structures are adapted differently
     - These are different languages with different syntaxes and design decisions. For example, Ile compiles to Go and
