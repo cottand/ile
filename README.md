@@ -1,5 +1,7 @@
 # Ile
 
+>  This repo is public only for my convenience, and I do not recommend using it in any way.
+
 Ile is a work-in-progress compiled, statically typed functional language
 that uses the Go runtime.
 

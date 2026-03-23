@@ -2,8 +2,9 @@
 
 - This repo is the implementation for a compiler for Ile, a programming language. Ile's type system is based on MLStruct
 - MLStruct is its own separate type-system with a reference implementation in Scala, which can be found under the
-  `./mlstruct`
+  `./mlstruct` (symlinked)
   symlink for reference.
+- The MLStruct reference paper that guided the implementaiton can be found in markdown under ./docs/mlstruct
 - While Ile is based on MLStruct, it deviates in some parts for a couple reasons:
     - The implementation language is different and therfore algorithms and data structures are adapted differently
     - These are different languages with different syntaxes and design decisions. For example, Ile compiles to Go and

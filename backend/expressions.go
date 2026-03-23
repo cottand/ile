@@ -3,12 +3,41 @@ package backend
 import (
 	"errors"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
 	goast "go/ast"
 	"go/token"
 	"reflect"
 	"strconv"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/frontend/types"
 )
+
+// if we're trying to evaluate an expression of type nothing, use its zero value instead
+// (by now the compiler has asserted such a value would never be used anyway)
+//
+// We could just do this for every expression, but there are plenty of them we don't need to query the type
+// system for (like record select, literals, etc). So instead we call this in scenarios we need to guard against
+// this only
+func (tp *Transpiler) injectPotentialNothingType(expr ir.Expr) (goast.Expr, error) {
+	exprType := tp.types.TypeOf(expr)
+	transpiled, err := tp.transpileExpr(expr)
+
+	if !types.Equal(exprType, ir.NothingTypePtr) {
+		return transpiled, err
+	}
+
+	return &goast.CallExpr{
+		Fun: &goast.FuncLit{Type: &goast.FuncType{Results: &goast.FieldList{
+			List: []*goast.Field{{Type: goast.NewIdent("any")}},
+		}},
+			Body: &goast.BlockStmt{List: []goast.Stmt{
+				// evaluate the desired expression, then return any
+				&goast.ExprStmt{X: transpiled},
+				&goast.ReturnStmt{Results: []goast.Expr{goast.NewIdent("nil")}},
+			}}},
+	}, nil
+
+}
 
 func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	originalExpr := expr
@@ -85,7 +114,7 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 		args := make([]goast.Expr, len(e.Args))
 		for i, arg := range e.Args {
 			var err error
-			args[i], err = tp.transpileExpr(arg)
+			args[i], err = tp.injectPotentialNothingType(arg)
 			if err != nil {
 				return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
 			}

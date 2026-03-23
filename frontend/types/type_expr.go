@@ -273,7 +273,8 @@ func (ctx *exprTyper) typeWhenMatch(expr *ir.WhenMatch, vars map[typeName]Simple
 	for _, branch := range expr.Cases {
 		branchT, resultT, tVar := ctx.typeWhenMatchBranch(subjectVarName, branch, vars)
 		finalType = unionOf(finalType, resultT, unionOpts{prov: typeProvenance{Range: ir.RangeOf(branch.Value), desc: "when match branch"}})
-		// FIXME: divergence from scala reference: MLStruct uses foldRight (right-to-left) processing
+		// FIXME: divergence from scala reference
+		// MLStruct uses foldRight (right-to-left) processing - TyperDatatypes.scala
 		// but Ile processes left-to-right. This may affect pattern negation accumulation order.
 		// MLStruct formula: (a_ty & tv) | (req & a_ty.neg())
 		requestedMatchedOnType = unionOf(intersectionOf(branchT, tVar, unionOpts{}), intersectionOf(requestedMatchedOnType, negateType(branchT, emptyProv), unionOpts{}), unionOpts{})

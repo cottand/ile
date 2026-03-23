@@ -12,6 +12,10 @@ import (
 	"github.com/hashicorp/go-set/v3"
 )
 
+// FIXME: divergence from scala reference
+// normaliseType corresponds to normalizeTypes_! but has different implementation
+// TypeSimplifier.scala:92-312 vs this file - different DNF handling and factorization
+//
 // normaliseType corresponds to normalizeTypes_! in the scala reference
 func (ctx *TypeCtx) normaliseType(st SimpleType, p polarity) (res SimpleType) {
 	normaliser := typeNormaliser{

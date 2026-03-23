@@ -26,4 +26,6 @@ var (
 	TrueType  = &TypeName{Name: TrueName}
 	FalseType = &TypeName{Name: FalseName}
 	NilType = &TypeName{Name: NilTypeName}
+	NothingTypePtr = &NothingType{}
+	AnyTypePtr    = &AnyType{}
 )

@@ -105,26 +105,34 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	}()
 
 	cur := st
-	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
+	cur = ctx.cleanBounds(cur, cleanBoundsOpts{preserveInvariantVars: true, inPlace: false})
 
+	// FIXME: divergence from scala reference
+	// Missing unskidTypes_! phase - TypeSimplifier.scala:818
 	// TODO unskid
 
 	// Corresponds to the first simplifyType call in Scala
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
+	// FIXME: divergence from scala reference
+	// Scala calls normalizeTypes_! here but Go calls normaliseType - different implementations
+	// TypeSimplifier.scala:831 vs this line
 	cur = ctx.normaliseType(cur, positive)
 
+	// FIXME: divergence from scala reference
+	// Scala has additional simplifyType pass after normalization - TypeSimplifier.scala:846
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
-	cur = ctx.cleanBounds(cur, cleanBoundsOpts{inPlace: false})
+	cur = ctx.cleanBounds(cur, cleanBoundsOpts{preserveInvariantVars: true, inPlace: true})
 
-	// this is not in the reference
-	//cur = ctx.normaliseType(cur, positive)
-
+	// FIXME: divergence from scala reference
+	// Missing unskidTypes_! phase - TypeSimplifier.scala:839
 	// TODO unskid
 
 	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
 
+	// FIXME: divergence from scala reference
+	// Missing factorRecursiveTypes_! phase - TypeSimplifier.scala:851
 	// TODO factorise
 
 	return cur
@@ -261,6 +269,8 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 			}
 		}
 
+		// FIXME: divergence from scala reference
+		// Domination checking logic simplified compared to TypeSimplifier.scala:484-512
 		for dominator := range intersection.Items() {
 			if _, exists := varSubst[tv.id]; exists {
 				break // Stop if already marked
@@ -287,6 +297,9 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 	}
 
 	// 4. Unify equivalent variables based on co-occurrence
+	// FIXME: divergence from scala reference
+	// Scala iterates through polarities in different order and has different unification logic
+	// TypeSimplifier.scala:515-559 vs this implementation
 	// Iterate multiple times? Scala does this implicitly via iteration order? Let's try one pass.
 	for _, tv := range allVars {
 		if _, exists := varSubst[tv.id]; exists {
@@ -312,6 +325,8 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 				if _, wExists := varSubst[w.id]; wExists {
 					continue // Skip if w is already substituted
 				}
+				// FIXME: divergence from scala reference
+				// Different name hint preservation logic - TypeSimplifier.scala:525
 				// In Scala: Don't merge if name hint would be lost (v.nameHint.nonEmpty || w.nameHint.isEmpty)
 				// We'll merge w into tv if tv has a hint or w doesn't.
 				if !(tv.nameHint != "" || w.nameHint == "") {
@@ -321,6 +336,8 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 				// Check if tv is in w's co-occurrences for the same polarity
 				wCoOccs, hasWCoOccs := analyzer2.coOccurrences[polarVariableKey{pol: pol, tv: w.id}]
 				if hasWCoOccs && wCoOccs.Contains(tv) {
+					// FIXME: divergence from scala reference
+					// Unification logic differs from TypeSimplifier.scala:529-553
 					// Potential unification: w into tv
 					logger.Debug("simplifyType: [sub] Rule 4 (Unify Candidate)", "from", w, "to", tv)
 					varSubst[w.id] = tv // Mark w to be replaced by tv
@@ -446,6 +463,8 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 		a1.analyze1(ty.lowerBound, invariant)
 		a1.analyze1(ty.upperBound, invariant)
 	case recordType:
+		// FIXME: divergence from scala reference
+		// Record type analysis not implemented - TypeSimplifier.scala:376 handles RecordType
 		a1.simplifier.addFailure("analyze1: Record Type case not implemented, see Analyze and InvaraintFields traverser", ty.provenance.Range)
 		return
 	case tupleType:
@@ -457,6 +476,8 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 			a1.analyze1(field.Snd, pol)
 		}
 	case arrayType:
+		// FIXME: divergence from scala reference
+		// Array variance treatment differs - TypeSimplifier.scala:378 treats arrays covariantly
 		// Array elements are often treated as invariant if mutable, covariant if not.
 		// Let's assume invariant for safety, like Scala's Traverser.InvariantFields might.
 		a1.analyze1(ty.innerT, invariant)
@@ -604,6 +625,8 @@ func (a2 *analysis2State) analyzeImpl(st SimpleType, pol polarity) {
 			a2.analyzeImpl(field.Snd, pol)
 		}
 	case arrayType:
+		// FIXME: divergence from scala reference
+		// Array co-occurrence analysis differs - TypeSimplifier.scala:378
 		// Treat inner type covariantly for analysis? Or invariant? Let's try covariant.
 		a2.analyzeImpl(ty.innerT, pol)
 	case typeRef:
@@ -864,6 +887,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			return newLb // Negative: becomes lower bound
 		}
 	case recordType:
+		// FIXME: divergence from scala reference
+		// Record type transformation not implemented - TypeSimplifier.scala:587 handles RecordType
 		panic("record type not implemented")
 	//	newFields := make([]util.Pair[ast.Var, fieldType], len(ty.fields))
 	//	for i, field := range ty.fields {
@@ -888,6 +913,8 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 		}
 		return namedTupleType{fields: newFields, withProvenance: ty.withProvenance}
 	case arrayType:
+		// FIXME: divergence from scala reference
+		// Array transformation differs - TypeSimplifier.scala:589 uses polarity, not invariant
 		// Assuming invariant for transformation for safety
 		newInner := ts.transform(ty.innerT, invariant, parent)
 		return arrayType{innerT: newInner, withProvenance: ty.withProvenance}

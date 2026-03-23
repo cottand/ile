@@ -737,7 +737,7 @@ func (t funcType) children(bool) iter.Seq[SimpleType] {
 func (t funcType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	mappedArgs := make([]SimpleType, len(t.args))
 	for i, arg := range t.args {
-		mappedArgs[i] = f(arg)
+	mappedArgs[i] = f(arg)
 	}
 	mappedRet := f(t.ret)
 	return funcType{
