@@ -2,13 +2,14 @@ package types
 
 import (
 	"fmt"
+	"iter"
+	"reflect"
+	"slices"
+
 	"github.com/benbjohnson/immutable"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
 	"github.com/hashicorp/go-set/v3"
-	"iter"
-	"reflect"
-	"slices"
 )
 
 type TypeDefinition struct {
@@ -23,13 +24,13 @@ type TypeDefinition struct {
 	from             ir.Positioner
 }
 
-func (d *TypeDefinition) allBaseClasses(ctx TypeCtx) set.Collection[typeName] {
+func (d *TypeDefinition) allBaseClasses(ctx *TypeCtx) set.Collection[typeName] {
 	builder := set.New[typeName](1)
 	d.allBaseClassesHelper(ctx, builder)
 	return builder
 }
 
-func (d *TypeDefinition) allBaseClassesHelper(ctx TypeCtx, traversed set.Collection[typeName]) {
+func (d *TypeDefinition) allBaseClassesHelper(ctx *TypeCtx, traversed set.Collection[typeName]) {
 	if traversed.Contains(d.name) {
 		return
 	}

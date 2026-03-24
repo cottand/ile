@@ -65,3 +65,23 @@ TypeCtx.expandSimpleType().
 - When making changes to the type system, ensure compatibility with the MLStruct reference implementation
 - When adding new language features, make sure to add corresponding tests
 - Do not add comments for self-explanatory code (like `// Add type variable to set`)
+
+# Tasks
+
+## Debugging a test
+
+Debugging a test usually means debugging why an end-to-end test case fails, and making a change to the type inference
+to fix it. This is a situation in which regressions can be caused.
+
+When debugging a test, you are welcome to write more end-to-end test files to test for regressions and to make minimal examples.
+You can also make non-end-to-end test files when testing a specific section of the compiler (eg, the simplifier).
+
+You are welcome to examine the scala reference implementation to seek a similar test case, and to compare the
+approach taken. You can also add debug printing in the style of the existing code.
+
+When debugging a test:
+- Run the test to ensure you understand the failure
+- Formulate at least 2 hypotheses about why the test fails
+- Make confirming either hypothesis a part of your plan.
+- (if possible) try to find a minimal example that reproduces the failure. 
+- After making a change, run all tests to ensure that the change does not break anything else.

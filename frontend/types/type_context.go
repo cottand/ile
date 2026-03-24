@@ -2,16 +2,17 @@ package types
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set/v3"
 	"iter"
 	"log/slog"
 	"maps"
 	"runtime/debug"
 	"slices"
 	"strings"
+
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 type typeError struct {
@@ -614,6 +615,17 @@ func (ctx *TypeCtx) baseClassesOf(names ...string) iter.Seq[string] {
 	}
 }
 
+// allBaseClassesOf uses a cache in the scala implementation
+// TODO implement said cache
+func (ctx *TypeCtx) allBaseClassesOf(name string) set.Collection[typeName] {
+	def, ok := ctx.typeDefs[name]
+	if !ok {
+		return set.New[typeName](0)
+	}
+	return def.allBaseClasses(ctx)
+}
+
+// classTagFrom corresponds to clsNameToNomTag in the Scala reference
 func (ctx *TypeCtx) classTagFrom(name typeRef) (c classTag, ok bool) {
 	def, ok := ctx.typeDefs[name.defName]
 	if !ok || def.defKind != ir.KindClass {
@@ -621,6 +633,6 @@ func (ctx *TypeCtx) classTagFrom(name typeRef) (c classTag, ok bool) {
 	}
 	return classTag{
 		id:      &ir.Var{Name: name.defName},
-		parents: util.SetFromSeq(ctx.baseClassesOf(name.defName), 2),
+		parents: ctx.allBaseClassesOf(name.defName),
 	}, true
 }

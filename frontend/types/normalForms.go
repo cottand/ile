@@ -82,7 +82,7 @@ func (o *opsDNF) simplifyConjunct(c conjunct) (res conjunct, ok bool) {
 		typeRefClasses := util.MapIter(slices.Values(leftRefined.typeRefs), func(tr typeRef) string { return tr.String() })
 		var typeRefBases iter.Seq[string] = func(yield func(string) bool) {
 			for _, ref := range leftRefined.typeRefs {
-				for baseClass := range o.ctx.baseClassesOf(ref.defName) {
+				for baseClass := range o.ctx.allBaseClassesOf(ref.defName).Items() {
 					if !yield(baseClass) {
 						return
 					}

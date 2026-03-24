@@ -3,12 +3,13 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/util"
-	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"log/slog"
 	"slices"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 // opsDNF corresponds to the DNF companion object in the scala reference
@@ -64,7 +65,9 @@ func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
 }
 
 func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
-	if o.ctx.isSubtype(left.toType(), right.toType(), nil) {
+	logger.Debug("conjunctAndConjunct: entry", "left", left, "right", right, "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
+	if o.ctx.isSubtype(left.lhs.toType(), right.rhs.toType(), nil) {
+		logger.Debug("conjunctAndConjunct: contradiction", "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
 		return conjunct{}, false
 	}
 
@@ -86,7 +89,9 @@ func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 	}
 
 	// Create the merged conjunct
-	return o.simplifyConjunct(newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars))
+	result, ok := o.simplifyConjunct(newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars))
+	logger.Debug("conjunctAndConjunct: result", "result", result, "ok", ok, "resultType", result.toType())
+	return result, ok
 }
 
 // orConjunct computes the union of a DNF and a single Conjunct (this | c).
