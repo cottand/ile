@@ -132,6 +132,10 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType, pol polarity) (ret SimpleTyp
 	cur = ctx.simplifyType(cur, pol, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// FIXME: divergence from scala reference
+	//   we normalise a 2nd time to clean up things like `(True & ~False) | False `
+	cur = ctx.normaliseType(cur, pol)
+
+	// FIXME: divergence from scala reference
 	// Missing factorRecursiveTypes_! phase - TypeSimplifier.scala:851
 	// TODO factorise
 

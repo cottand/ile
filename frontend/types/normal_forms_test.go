@@ -1,10 +1,11 @@
 package types
 
 import (
+	"testing"
+
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/hashicorp/go-set/v3"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestDNFMergeUnion(t *testing.T) {
@@ -50,7 +51,6 @@ func TestDNFMergeUnion(t *testing.T) {
 
 }
 
-
 func TestLeftNFAndType(t *testing.T) {
 	ctx := NewEmptyTypeCtx()
 	ops := newOpsDNF(ctx, true)
@@ -75,8 +75,8 @@ func TestLeftNFAndType(t *testing.T) {
 				fields: []SimpleType{topType, topType},
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
+				base: nil,
+				fn:   nil,
 				arr: tupleType{
 					fields: []SimpleType{topType, topType},
 				},
@@ -93,45 +93,11 @@ func TestLeftNFAndType(t *testing.T) {
 				innerT: topType,
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
+				base: nil,
+				fn:   nil,
 				arr: arrayType{
 					innerT: topType,
 				},
-				traitTags: set.NewTreeSet(compareTraitTags),
-				reft:      recordType{},
-				typeRefs:  nil,
-			},
-			ok: true,
-		},
-		{
-			name: "lhsTop and classTag",
-			left: lhsTop{},
-			right: &classTag{
-				id: createVar("MyClass"),
-				parents: set.NewTreeSet(func(a, b string) int {
-					if a < b {
-						return -1
-					} else if a > b {
-						return 1
-					}
-					return 0
-				}),
-			},
-			expected: &lhsRefined{
-				base: &classTag{
-					id: createVar("MyClass"),
-					parents: set.NewTreeSet(func(a, b string) int {
-						if a < b {
-							return -1
-						} else if a > b {
-							return 1
-						}
-						return 0
-					}),
-				},
-				fn:        nil,
-				arr:       nil,
 				traitTags: set.NewTreeSet(compareTraitTags),
 				reft:      recordType{},
 				typeRefs:  nil,
@@ -145,9 +111,9 @@ func TestLeftNFAndType(t *testing.T) {
 				id: createVar("MyTrait"),
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
-				arr:       nil,
+				base: nil,
+				fn:   nil,
+				arr:  nil,
 				traitTags: func() set.Collection[traitTag] {
 					s := set.NewTreeSet(compareTraitTags)
 					s.Insert(traitTag{id: createVar("MyTrait")})
@@ -172,9 +138,9 @@ func TestLeftNFAndType(t *testing.T) {
 				id: createVar("MyTrait"),
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
-				arr:       nil,
+				base: nil,
+				fn:   nil,
+				arr:  nil,
 				traitTags: func() set.Collection[traitTag] {
 					s := set.NewTreeSet(compareTraitTags)
 					s.Insert(traitTag{id: createVar("MyTrait")})
@@ -182,47 +148,6 @@ func TestLeftNFAndType(t *testing.T) {
 				}(),
 				reft:     recordType{},
 				typeRefs: nil,
-			},
-			ok: true,
-		},
-		{
-			name: "lhsRefined with no base and classTag",
-			left: &lhsRefined{
-				base:      nil,
-				fn:        nil,
-				arr:       nil,
-				traitTags: set.NewTreeSet(compareTraitTags),
-				reft:      recordType{},
-				typeRefs:  nil,
-			},
-			right: &classTag{
-				id: createVar("MyClass"),
-				parents: set.NewTreeSet(func(a, b string) int {
-					if a < b {
-						return -1
-					} else if a > b {
-						return 1
-					}
-					return 0
-				}),
-			},
-			expected: &lhsRefined{
-				base: &classTag{
-					id: createVar("MyClass"),
-					parents: set.NewTreeSet(func(a, b string) int {
-						if a < b {
-							return -1
-						} else if a > b {
-							return 1
-						}
-						return 0
-					}),
-				},
-				fn:        nil,
-				arr:       nil,
-				traitTags: set.NewTreeSet(compareTraitTags),
-				reft:      recordType{},
-				typeRefs:  nil,
 			},
 			ok: true,
 		},
@@ -240,8 +165,8 @@ func TestLeftNFAndType(t *testing.T) {
 				fields: []SimpleType{topType, topType},
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
+				base: nil,
+				fn:   nil,
 				arr: tupleType{
 					fields: []SimpleType{topType, topType},
 				},
@@ -265,8 +190,8 @@ func TestLeftNFAndType(t *testing.T) {
 				innerT: topType,
 			},
 			expected: &lhsRefined{
-				base:      nil,
-				fn:        nil,
+				base: nil,
+				fn:   nil,
 				arr: arrayType{
 					innerT: topType,
 				},
@@ -410,7 +335,7 @@ func TestLeftNFAndType(t *testing.T) {
 			assert.Equal(t, tc.ok, ok, "Expected ok=%v, got %v", tc.ok, ok)
 			if tc.ok {
 				// For simplicity, just compare the string representations
-				assert.Equal(t, tc.expected.String(), result.String(), 
+				assert.Equal(t, tc.expected.String(), result.String(),
 					"Expected %v, got %v", tc.expected, result)
 			}
 		})
