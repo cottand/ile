@@ -44,6 +44,8 @@ type TypeCtx struct {
 
 	//typeDefs  map[types.Type]typeDef
 
+	paramNames map[string]bool
+
 	// here to avoid passing a position on every function call.
 	// not present in scala implementation
 	currentPos ir.Positioner
@@ -58,6 +60,11 @@ type nodesToSimpletypeCache map[exprCacheEntry]nodeCacheEntry
 type nodeCacheEntry struct {
 	t  SimpleType
 	at level
+	// pol records the polarity at which t should be simplified. Function parameter
+	// references need negative polarity because they appear contravariantly in the
+	// enclosing function type; without this, standalone simplification defaults to
+	// positive and resolves unconstrained params to Nothing.
+	pol polarity
 }
 
 type exprCacheEntry struct {
@@ -65,11 +72,11 @@ type exprCacheEntry struct {
 	exprHash uint64
 }
 
-func (ctx *TypeCtx) putCache(expr ir.Expr, typ SimpleType) {
+func (ctx *TypeCtx) putCache(expr ir.Expr, typ SimpleType, pol polarity) {
 	ctx.cache[exprCacheEntry{
 		exprHash: expr.Hash(),
 		r:        ir.RangeOf(expr),
-	}] = nodeCacheEntry{t: typ, at: ctx.level}
+	}] = nodeCacheEntry{t: typ, at: ctx.level, pol: pol}
 }
 
 func (n nodesToSimpletypeCache) getCached(expr ir.Expr) (nodeCacheEntry, bool) {
@@ -146,6 +153,7 @@ func (ctx *TypeCtx) nest() *TypeCtx {
 	copied := ctx.copy()
 	copied.parent = ctx
 	copied.env = make(map[string]typeInfo, len(ctx.env))
+	copied.paramNames = make(map[string]bool)
 	return copied
 }
 func (ctx *TypeCtx) copy() *TypeCtx {
@@ -195,6 +203,16 @@ func (ctx *TypeCtx) get(name string) (t typeInfo, ok bool) {
 		t, ok = ctx.parent.get(name)
 	}
 	return t, ok
+}
+
+func (ctx *TypeCtx) isParam(name string) bool {
+	if ctx.paramNames[name] {
+		return true
+	}
+	if ctx.parent != nil {
+		return ctx.parent.isParam(name)
+	}
+	return false
 }
 
 // TypesEquivalent carries the notation >:< in the scala implementation
@@ -535,7 +553,7 @@ func (ctx *TypeCtx) TypeOf(expr ir.Expr) (ret ir.Type) {
 		return &ir.NothingType{Positioner: expr}
 	}
 	instantiated := typeScheme.t.instantiate(ctx.fresher, typeScheme.at)
-	typ := ctx.GetAstTypeFor(instantiated)
+	typ := ctx.GetAstTypeFor(instantiated, typeScheme.pol)
 	// save for later so we do not need to go through simplification and expansion again
 	ctx.expandedTypeCache[exprCacheEntry{r: ir.RangeOf(expr), exprHash: expr.Hash()}] = typ
 	return typ

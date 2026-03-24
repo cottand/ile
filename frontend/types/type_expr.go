@@ -29,11 +29,12 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 	}
 
 	ctx.Debug("typeExpr: typing expression")
+	cachePol := positive
 	defer func() {
 		// for types not implemented, note ret might be nil at this stage
 		ctx.Debug("typeExpr: done typing expression", "result", ret, "bounds", boundsString(ret))
 
-		ctx.putCache(expr, ret)
+		ctx.putCache(expr, ret, cachePol)
 	}()
 
 	constrainOnErr := func(err ilerr.IleError) (terminateEarly bool) {
@@ -54,6 +55,12 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 				Name:       expr.Name,
 			}))
 			known = errorType()
+		}
+		// Function parameters appear at negative polarity within the function type.
+		// When TypeOf simplifies this sub-expression standalone, it must use negative
+		// polarity so the type variable resolves via upper bounds instead of lower bounds.
+		if ctx.isParam(expr.Name) {
+			cachePol = negative
 		}
 		instance := known.instantiate(ctx.fresher, ctx.level)
 		return makeProxy(instance, prov.prov())
@@ -146,6 +153,7 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 		for _, arg := range expr.ArgNames {
 			argType := ctx.newTypeVariable(newOriginProv(expr, "function parameter", ""), "", nil, nil)
 			nested.env[arg] = argType
+			nested.paramNames[arg] = true
 			argTypes = append(argTypes, argType)
 		}
 		bodyType := nested.TypeExpr(expr.Body, vars)

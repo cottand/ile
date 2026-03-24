@@ -1,0 +1,11 @@
+//ile:compilerTest test.Foo(10) | int64(10)
+
+package test
+
+fn Foo(x) {
+    Bar(x) + 1
+}
+
+fn Bar(y) {
+    y - 1
+}

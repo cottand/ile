@@ -21,10 +21,10 @@ type expanderState struct {
 
 // GetAstTypeFor converts a SimpleType into its corresponding ast.Type representation,
 // simplifying it first.
-func (ctx *TypeCtx) GetAstTypeFor(t SimpleType) ir.Type {
+func (ctx *TypeCtx) GetAstTypeFor(t SimpleType, pol polarity) ir.Type {
 	// Note: The Scala version calls uninstantiatedBody() first.
 	uninstantiated := t.uninstantiatedBody()
-	simple := ctx.simplifyPipeline(uninstantiated) // Simplify first
+	simple := ctx.simplifyPipeline(uninstantiated, pol) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
 	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ir.DumbShowCtx, 0))
 	return expanded

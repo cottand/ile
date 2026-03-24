@@ -94,7 +94,7 @@ var simplifyLogger = logger.With("section", "inference.simplify")
 
 // simplifyPipeline orchestrates the type simplification process.
 // Corresponds to the SimplifyPipeline class in Scala.
-func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
+func (ctx *TypeCtx) simplifyPipeline(st SimpleType, pol polarity) (ret SimpleType) {
 	defer func() {
 		if len(ctx.Failures) != 0 {
 			// when there are failures, ret might be nil, so we don't pretty print it
@@ -112,16 +112,16 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	// TODO unskid
 
 	// Corresponds to the first simplifyType call in Scala
-	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	cur = ctx.simplifyType(cur, pol, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// FIXME: divergence from scala reference
 	// Scala calls normalizeTypes_! here but Go calls normaliseType - different implementations
 	// TypeSimplifier.scala:831 vs this line
-	cur = ctx.normaliseType(cur, positive)
+	cur = ctx.normaliseType(cur, pol)
 
 	// FIXME: divergence from scala reference
 	// Scala has additional simplifyType pass after normalization - TypeSimplifier.scala:846
-	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	cur = ctx.simplifyType(cur, pol, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	cur = ctx.cleanBounds(cur, cleanBoundsOpts{preserveInvariantVars: true, inPlace: true})
 
@@ -129,7 +129,7 @@ func (ctx *TypeCtx) simplifyPipeline(st SimpleType) (ret SimpleType) {
 	// Missing unskidTypes_! phase - TypeSimplifier.scala:839
 	// TODO unskid
 
-	cur = ctx.simplifyType(cur, positive, simplifyRemovePolarVars, simplifyInlineBounds)
+	cur = ctx.simplifyType(cur, pol, simplifyRemovePolarVars, simplifyInlineBounds)
 
 	// FIXME: divergence from scala reference
 	// Missing factorRecursiveTypes_! phase - TypeSimplifier.scala:851
