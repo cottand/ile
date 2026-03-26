@@ -137,6 +137,7 @@ var (
 	_ basicType = (*arrayType)(nil)
 	_ basicType = (*classTag)(nil)
 	_ basicType = (*traitTag)(nil)
+	_ basicType = (*funcType)(nil)
 
 	_ SimpleType = (*recordType)(nil)
 
@@ -708,6 +709,7 @@ type funcType struct {
 	withProvenance
 }
 
+func (t funcType) isBasicType()                           {}
 func (t funcType) uninstantiatedBody() SimpleType         { return t }
 func (t funcType) instantiate(*Fresher, level) SimpleType { return t }
 func (t funcType) level() level {
@@ -737,7 +739,7 @@ func (t funcType) children(bool) iter.Seq[SimpleType] {
 func (t funcType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	mappedArgs := make([]SimpleType, len(t.args))
 	for i, arg := range t.args {
-	mappedArgs[i] = f(arg)
+		mappedArgs[i] = f(arg)
 	}
 	mappedRet := f(t.ret)
 	return funcType{

@@ -132,7 +132,8 @@ func (o *opsDNF) orConjunct(d dnf, c conjunct) (ret dnf) {
 }
 
 func (o *opsDNF) tryMergeIntersection(left, right rhsNF) (rhsNF, bool) {
-	panic(fmt.Sprintf("opsDNF.tryMergeIntersection: not implemented"))
+	o.ctx.addFailure("opsDNF.tryMergeIntersection: not implemented", nil)
+	return rhsBot{}, false
 }
 
 // tryMergeUnion attempts to merge two conjuncts in a union
@@ -800,18 +801,100 @@ func (o *opsCNF) disjunctOrDisjunct(left, right disjunct) *disjunct {
 }
 
 // rhsOrBasicType is simply `|` in the scala reference
-func (o *opsCNF) rhsOrBasicType(nf rhsNF, ty basicType) (ret rhsNF, ok bool) {
-	switch nf.(type) {
+func (o *opsCNF) rhsOrBasicType(nf rhsNF, ty basicType) (rhsNF, bool) {
+	switch nf := nf.(type) {
 	case *rhsBot:
 		if asObj, ok := ty.(objectTag); ok {
-			ret = &rhsBases{
-				tags: []objectTag{asObj},
-			}
-			return ret, true
+			return &rhsBases{tags: []objectTag{asObj}}, true
 		}
+		return &rhsBases{rest: ty.(rhsRest)}, true
 
+	case *rhsBases:
+		if asObj, ok := ty.(objectTag); ok {
+			if slices.ContainsFunc(nf.tags, func(t objectTag) bool { return t.Hash() == asObj.Hash() }) {
+				return nf, true
+			}
+			return &rhsBases{
+				tags:     append(slices.Clone(nf.tags), asObj),
+				rest:     nf.rest,
+				typeRefs: nf.typeRefs,
+			}, true
+		}
+		if nf.rest == nil {
+			return &rhsBases{tags: nf.tags, rest: ty.(rhsRest), typeRefs: nf.typeRefs}, true
+		}
+		return o.rhsBasesRestOrBasicType(nf, ty)
+
+	case *rhsField:
+		if asObj, ok := ty.(objectTag); ok {
+			return &rhsBases{tags: []objectTag{asObj}, rest: nf}, true
+		}
+		return nil, false
 	}
 	o.ctx.addFailure(fmt.Sprintf("unhandled case for rhsOrBasicType: %s (%T) | %s (%T)", nf, nf, ty, ty), nil)
+	return nil, false
+}
+
+// rhsBasesRestOrBasicType handles rhsBases with non-nil rest unioned with a basicType.
+// Returns nil, false when the result is Top.
+func (o *opsCNF) rhsBasesRestOrBasicType(nf *rhsBases, ty basicType) (rhsNF, bool) {
+	switch rest := nf.rest.(type) {
+	case tupleType:
+		if tyTuple, ok := ty.(tupleType); ok {
+			if len(rest.fields) != len(tyTuple.fields) {
+				newInner := unionOf(rest.inner(o.ctx), tyTuple.inner(o.ctx), unionOpts{})
+				return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+			}
+			newFields := make([]SimpleType, len(rest.fields))
+			for i := range rest.fields {
+				newFields[i] = unionOf(rest.fields[i], tyTuple.fields[i], unionOpts{})
+			}
+			return &rhsBases{tags: nf.tags, rest: tupleType{fields: newFields}, typeRefs: nf.typeRefs}, true
+		}
+		if tyArr, ok := ty.(arrayType); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyArr.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		if tyArr, ok := ty.(arrayBase); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyArr.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		return nil, false
+
+	case arrayType:
+		if tyTuple, ok := ty.(tupleType); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyTuple.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		if tyArr, ok := ty.(arrayType); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyArr.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		if tyArr, ok := ty.(arrayBase); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyArr.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		return nil, false
+
+	case namedTupleType:
+		if tyArr, ok := ty.(arrayBase); ok {
+			newInner := unionOf(rest.inner(o.ctx), tyArr.inner(o.ctx), unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: arrayType{innerT: newInner}, typeRefs: nf.typeRefs}, true
+		}
+		return nil, false
+
+	case funcType:
+		if tyFn, ok := ty.(funcType); ok {
+			newArg := intersectionOf(rest.args[0], tyFn.args[0], unionOpts{})
+			newRet := unionOf(rest.ret, tyFn.ret, unionOpts{})
+			return &rhsBases{tags: nf.tags, rest: funcType{args: []SimpleType{newArg}, ret: newRet}, typeRefs: nf.typeRefs}, true
+		}
+		return nil, false
+
+	case *rhsField:
+		return nil, false
+	}
+	o.ctx.addFailure(fmt.Sprintf("unhandled case for rhsBasesRestOrBasicType: %s (%T) rest=%T | %s (%T)", nf, nf, nf.rest, ty, ty), nil)
 	return nil, false
 }
 
