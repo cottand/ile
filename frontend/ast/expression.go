@@ -182,8 +182,8 @@ func (p *Parameter) Hash() uint64 {
 // SelectExpr represents a field selection (a.b).
 type SelectExpr struct {
 	Range
-	X    Expr
-	Sel  string
+	X   Expr
+	Sel string
 }
 
 func (e *SelectExpr) exprNode() {}
@@ -227,18 +227,18 @@ func (e *ListLit) Hash() uint64 {
 	return h.Sum64()
 }
 
-// StructLit represents a struct literal ({a: 1, b: 2}).
-type StructLit struct {
+// RecordLit represents a struct literal ({a: 1, b: 2}).
+type RecordLit struct {
 	Range
-	Fields []StructField
+	Fields []RecordField
 }
 
-func (e *StructLit) exprNode() {}
+func (e *RecordLit) exprNode() {}
 
-// Hash returns a hash value for the StructLit, based on its structural characteristics
-func (e *StructLit) Hash() uint64 {
+// Hash returns a hash value for the RecordLit, based on its structural characteristics
+func (e *RecordLit) Hash() uint64 {
 	h := fnv.New64a()
-	arr := []byte("StructLit")
+	arr := []byte("RecordLit")
 	arr = binary.LittleEndian.AppendUint64(arr, e.Range.Hash())
 
 	for _, field := range e.Fields {
@@ -249,17 +249,17 @@ func (e *StructLit) Hash() uint64 {
 	return h.Sum64()
 }
 
-// StructField represents a field in a struct literal.
-type StructField struct {
+// RecordField represents a field in a struct literal.
+type RecordField struct {
 	Range
 	Name  string
 	Value Expr
 }
 
-// Hash returns a hash value for the StructField, based on its structural characteristics
-func (f *StructField) Hash() uint64 {
+// Hash returns a hash value for the RecordField, based on its structural characteristics
+func (f *RecordField) Hash() uint64 {
 	h := fnv.New64a()
-	arr := []byte("StructField")
+	arr := []byte("RecordField")
 	_, _ = h.Write([]byte(f.Name))
 	arr = binary.LittleEndian.AppendUint64(arr, f.Range.Hash())
 

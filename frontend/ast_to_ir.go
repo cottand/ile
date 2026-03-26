@@ -81,7 +81,7 @@ func desugarExpr(expr ast.Expr) ir.Expr {
 			Args:       elements,
 			Positioner: ir.Range{PosStart: e.Range.PosStart, PosEnd: e.Range.PosEnd},
 		}
-	case *ast.StructLit:
+	case *ast.RecordLit:
 		fields := make([]ir.LabelValue, len(e.Fields))
 		for i, field := range e.Fields {
 			fields[i] = ir.LabelValue{

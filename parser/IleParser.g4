@@ -49,6 +49,7 @@ blockExpr
 
 type_
     : typeName
+    | recordTypeLiteral
     | literal
 //    : typeName typeArgs?
 //    | typeLit
@@ -154,14 +155,17 @@ primaryExpr
     | operandName fnCallArgs
     | primaryExpr (DOT IDENTIFIER | fnCallArgs) // select ecxpression (a.b)
     | listLiteral
-    | structLiteral
+    | recordLiteral
     ;
 
 listLiteral : L_BRACKET (expression (COMMA expression)* (COMMA)?)? R_BRACKET;
 
-structLiteral : L_CURLY (structElement (COMMA structElement)* COMMA?)? R_CURLY;
 
-structElement :  operandName ASSIGN expression;
+recordTypeLiteral : L_CURLY (recordTypeElement (COMMA recordTypeElement)* COMMA?)? R_CURLY;
+recordLiteral : L_CURLY (recordElement (COMMA recordElement)* COMMA?)? R_CURLY;
+
+recordTypeElement :  operandName COLON type_;
+recordElement :  operandName COLON expression;
 
 whenBlock
     : WHEN arithmeticExpr L_CURLY (whenCase EOS)+ R_CURLY
