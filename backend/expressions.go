@@ -237,7 +237,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVa
 	// add non inlineable Exprs here!
 
 	// some ast.Expr we can inline directly to a Go expression and return that
-	case *ir.RecordSelect, *ir.Literal, *ir.Call, *ir.Var:
+	case *ir.RecordSelect, *ir.Literal, *ir.Call, *ir.Var, *ir.RecordLit:
 		goExpr, err := tp.transpileExpr(e)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile when expression: %v", err)

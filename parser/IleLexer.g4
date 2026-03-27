@@ -23,6 +23,7 @@ IDENTIFIER: LETTER (LETTER | UNICODE_DIGIT)* -> mode(NLSEMI);
 
 L_PAREN        : '(';
 R_PAREN        : ')' -> mode(NLSEMI);
+HASH_L_CURLY   : '#{';
 L_CURLY        : '{';
 R_CURLY        : '}' -> mode(NLSEMI);
 L_BRACKET      : '[';

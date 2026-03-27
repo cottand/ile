@@ -1,0 +1,8 @@
+//ile:compilerTest test.x | int64(1)
+package test
+
+fn f() {
+    #{a: 1}
+}
+
+val x = f().a

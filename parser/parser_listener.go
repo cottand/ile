@@ -636,6 +636,9 @@ func (l *listener) doType(ctx IType_Context) ast.Type {
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("type literal: expected literal but got %T", type_))
 		return nil
 	}
+	if recordTypeLiteral := ctx.RecordTypeLiteral(); recordTypeLiteral != nil {
+		return l.doRecordType(recordTypeLiteral)
+	}
 	l.visitErrors = append(l.visitErrors, fmt.Errorf("type not implemented: '%v'", ctx.GetText()))
 	return nil
 }
@@ -703,3 +706,30 @@ func (l *listener) ExitRecordLiteral(ctx *RecordLiteralContext) {
 		Range:  getPos(ctx),
 	})
 }
+
+func (l *listener) doRecordType(literal IRecordTypeLiteralContext) ast.Type {
+	elements := literal.AllRecordTypeElement()
+	fields := make([]ast.StructTypeField, len(elements))
+
+	for i, _ := range slices.Backward(elements) {
+		typ, ok := l.typeStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("record type literal: type stack is empty"))
+			return nil
+		}
+		fields[i] = ast.StructTypeField{
+			Range: getPos(elements[i]),
+			Name:  elements[i].OperandName().GetText(),
+			Type:  typ,
+		}
+	}
+
+
+	return &ast.StructType{
+		Fields: fields,
+		Range:  getPos(literal),
+	}
+}
+
+
+

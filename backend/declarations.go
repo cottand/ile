@@ -31,7 +31,7 @@ func (tp *Transpiler) transpileDeclarations(vars []ir.Declaration) ([]goast.GenD
 		// Always use the inferred type for variables. If the declared type was different, the frontend
 		// would have failed to typecheck, so it is safe to assume that the inferred type is the correct one.
 		declType := tp.types.TypeOf(decl.E)
-		if isSuitableForGoConst(declType) {
+		if isSuitableForGoConst(decl) {
 			// we do not explicitly declare the type of a Go const, so that it remains as a Go 'untyped' const type
 			goConstDecls = append(goConstDecls, &goast.ValueSpec{
 				Names:  []*goast.Ident{goast.NewIdent(decl.Name)},

@@ -1,12 +1,13 @@
 package parser_test
 
 import (
+	"go/token"
+	"testing"
+
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/parser"
 	"github.com/stretchr/testify/assert"
-	"go/token"
-	"testing"
 )
 
 func testParse(t *testing.T, input string) (ast.File, *ilerr.Errors) {
@@ -217,7 +218,7 @@ func TestRecordLiteral(t *testing.T) {
 	file := `
 package main
 
-val r = {a: 1, b: 2}
+val r = #{a: 1, b: 2}
 `
 	src, _ := testParse(t, file)
 

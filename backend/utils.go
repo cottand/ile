@@ -2,8 +2,9 @@ package backend
 
 import (
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
 	"go/token"
+
+	"github.com/cottand/ile/frontend/ir"
 )
 
 const goVersion = "1.23.3"
@@ -55,9 +56,14 @@ func nearestGoType(lit *ir.Literal) (goType string, err error) {
 	}
 }
 
-func isSuitableForGoConst(t ir.Type) bool {
-	_, ok := t.(*ir.Literal)
-	return ok
+func isSuitableForGoConst(t ir.Declaration) bool {
+	_, isSingleExpr := t.E.(*ir.Literal)
+	if !isSingleExpr {
+		return false
+	}
+
+	_, isLitValueType := t.Type.(*ir.Literal)
+	return isLitValueType
 }
 
 func unwrapAscribe(expr ir.Expr) ir.Expr {

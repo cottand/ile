@@ -1,0 +1,6 @@
+//ile:compilerTest test.y | int64(3)
+package test
+
+val x = #{a: 2}
+
+val y = x.a + 1

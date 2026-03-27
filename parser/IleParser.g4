@@ -161,11 +161,18 @@ primaryExpr
 listLiteral : L_BRACKET (expression (COMMA expression)* (COMMA)?)? R_BRACKET;
 
 
-recordTypeLiteral : L_CURLY (recordTypeElement (COMMA recordTypeElement)* COMMA?)? R_CURLY;
-recordLiteral : L_CURLY (recordElement (COMMA recordElement)* COMMA?)? R_CURLY;
+recordTypeLiteral : HASH_L_CURLY (recordTypeElement (COMMA recordTypeElement)* COMMA?)? R_CURLY;
+recordLiteral : HASH_L_CURLY (recordElement (COMMA recordElement)* COMMA?)? R_CURLY;
 
 recordTypeElement :  operandName COLON type_;
 recordElement :  operandName COLON expression;
+
+
+dictTypeLiteral : L_CURLY (recordTypeElement (COMMA recordTypeElement)* COMMA?)? R_CURLY;
+dictLiteral : L_CURLY (recordElement (COMMA recordElement)* COMMA?)? R_CURLY;
+
+dictTypeElement :  operandName COLON type_;
+dictElement :  operandName COLON expression;
 
 whenBlock
     : WHEN arithmeticExpr L_CURLY (whenCase EOS)+ R_CURLY
