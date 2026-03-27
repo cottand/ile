@@ -1,0 +1,4 @@
+//ile:compilerTest test.x.a | int64(2)
+package test
+
+val x = {a: 2}

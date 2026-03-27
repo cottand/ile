@@ -57,17 +57,14 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 
 		// inferred to literal value
 	case *ir.Literal:
-		if tp.inFunctionSignature {
-			goType, err := nearestGoType(e)
-			return goast.NewIdent(goType), err
-		}
-		if _, ok := tp.currentExpr.(*ir.Assign); ok {
-			goType, err := nearestGoType(e)
-			return goast.NewIdent(goType), err
-		}
-		// if we are not in a function signature nor an expression body, we must be on a top level declaration.
+		goType, err := nearestGoType(e)
+		return goast.NewIdent(goType), err
+		// if we are not in a function signature, a record lit, nor an expression body, we must be on a top level declaration.
 		// so we can just use the literal value without a type signature
 		// to rely on Go inference to make literals be const (i.e., untyped types according to Go spec)
+		// TODO re-evaluate this 'default to untyped' approach in favour of keeping track if we are on a top-level
+		//  decl, because otherwise this will break every time we eval a type in a new place (eg generics)
+		panic("TODO deal with tracking const during transpiling")
 		return nil, nil
 
 		// generic type!
@@ -125,11 +122,28 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 		}
 		return tp.transpileType(common)
 
+	case *ir.RecordType:
+		fields := make([]*goast.Field, 0, len(e.Fields))
+		for _, field := range e.Fields {
+			fieldType, err := tp.transpileType(field.Type.Out)
+			if err != nil {
+				fieldType = goast.NewIdent("any")
+				tp.Error("failed to transpile field type", "field", field, "err", err)
+			}
+			fields = append(fields, &goast.Field{
+				Names: []*goast.Ident{goast.NewIdent(field.Name.Name)},
+				Type:  fieldType,
+			})
+		}
+		return &goast.StructType{
+			Fields: &goast.FieldList{List: fields},
+		}, nil
+
 	case *ir.NothingType:
 		return nil, nil
 
 	default:
-		return nil, fmt.Errorf("transpileType: unexpected ast.Type type: %v: %T", ir.TypeString(e), e)
+		return nil, fmt.Errorf("transpileType: unexpected ir.Type type: %v: %T", ir.TypeString(e), e)
 	}
 }
 

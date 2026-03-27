@@ -1,11 +1,13 @@
 package backend
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/token"
 	"reflect"
+	"slices"
 	"strconv"
 
 	"github.com/cottand/ile/frontend/ir"
@@ -143,6 +145,31 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	case *ir.ListLiteral:
 		l, err := tp.transpileListLiteral(originalExpr)
 		return l, err
+	case *ir.RecordLit:
+		recType, err := tp.transpileType(tp.types.TypeOf(originalExpr))
+		if err != nil {
+			return nil, fmt.Errorf("for record literal, failed to transpile type: %v", err)
+		}
+		sorted := make([]ir.LabelValue, len(e.Fields))
+		copy(sorted, e.Fields)
+		slices.SortFunc(sorted, func(a, b ir.LabelValue) int {
+			return cmp.Compare(a.Label.Name, b.Label.Name)
+		})
+		elts := make([]goast.Expr, len(sorted))
+		for i, field := range sorted {
+			val, err := tp.transpileExpr(field.Value)
+			if err != nil {
+				return nil, fmt.Errorf("for record literal field %s: %v", field.Label.Name, err)
+			}
+			elts[i] = &goast.KeyValueExpr{
+				Key:   goast.NewIdent(field.Label.Name),
+				Value: val,
+			}
+		}
+		return &goast.CompositeLit{
+			Type: recType,
+			Elts: elts,
+		}, nil
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}

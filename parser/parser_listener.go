@@ -303,7 +303,10 @@ func (l *listener) ExitOperand(ctx *OperandContext) {
 func (l *listener) ExitPrimaryExpr(ctx *PrimaryExprContext) {
 	// list literal case
 	if ctx.ListLiteral() != nil {
-		// The ExitListLiteral method will handle this
+		return
+	}
+
+	if ctx.RecordLiteral() != nil {
 		return
 	}
 
@@ -675,5 +678,28 @@ func (l *listener) ExitListLiteral(ctx *ListLiteralContext) {
 	l.expressionStack.Push(&ast.ListLit{
 		Elements: elements,
 		Range:    getPos(ctx),
+	})
+}
+
+func (l *listener) ExitRecordLiteral(ctx *RecordLiteralContext) {
+	elements := ctx.AllRecordElement()
+	fields := make([]ast.RecordField, len(elements))
+
+	for i, _ := range slices.Backward(elements) {
+		expr, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("record literal: expression stack is empty"))
+			return
+		}
+		fields[i] = ast.RecordField{
+			Range: getPos(elements[i]),
+			Name:  elements[i].OperandName().GetText(),
+			Value: expr,
+		}
+	}
+
+	l.expressionStack.Push(&ast.RecordLit{
+		Fields: fields,
+		Range:  getPos(ctx),
 	})
 }

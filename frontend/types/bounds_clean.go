@@ -1,8 +1,8 @@
 package types
 
 import (
-	"fmt"
 	"log/slog"
+	"strings"
 )
 
 type cleanBoundsOpts struct {
@@ -140,7 +140,6 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 		return intersectionOf(lhs, rhs, unionOpts{})
 
 	case negType:
-		// Process the negated type with inverted parent polarity
 		var newParent *boolTypeVar
 		if parent != nil {
 			newParent = &boolTypeVar{b: !parent.b, tv: parent.tv}
@@ -157,17 +156,88 @@ func (cbc *cleanBoundsCtx) process(typ SimpleType, parent *boolTypeVar) SimpleTy
 		return cbc.process(t.SimpleType, parent)
 
 	case typeRef:
-		// If it's a builtin type, expand it and process the expansion
 		if cbc.ctx.isBuiltinType(t.defName) {
 			return cbc.process(cbc.ctx.expand(t, expandOpts{}), parent)
-		} else {
-			return t.doMap(func(child SimpleType) SimpleType {
-				return cbc.process(child, nil)
-			})
 		}
+
+		return t.doMap(func(child SimpleType) SimpleType {
+			return cbc.process(child, nil)
+		})
 	case recordType:
-		cbc.ctx.addFailure(fmt.Sprintf("cleanBounds: record types not implemented yet: %v", t), t.prov())
-		return t
+		mappedFields := make([]recordField, 0, len(t.fields))
+		for _, field := range t.fields {
+			fnme := field.name.Name
+			hashIdx := strings.IndexByte(fnme, '#')
+			defaultField := func() recordField {
+				return recordField{
+					name: field.name,
+					type_: fieldType{
+						lowerBound:     cbc.process(field.type_.lowerBound, nil),
+						upperBound:     cbc.process(field.type_.upperBound, nil),
+						withProvenance: field.type_.withProvenance,
+					},
+				}
+			}
+			if hashIdx < 0 {
+				mappedFields = append(mappedFields, defaultField())
+				continue
+			}
+			prefix := fnme[:hashIdx]
+			postfix := fnme[hashIdx+1:]
+			td, ok := cbc.ctx.typeDefs[prefix]
+			if !ok || td.typeVarVariances == nil {
+				mappedFields = append(mappedFields, defaultField())
+				continue
+			}
+			var foundVariance varianceInfo
+			found := false
+			for _, tpa := range td.typeParamArgs {
+				if string(tpa.Fst) == postfix {
+					foundVariance = td.typeVarVariances[tpa.Snd.id]
+					found = true
+					break
+				}
+			}
+			if !found {
+				mappedFields = append(mappedFields, defaultField())
+				continue
+			}
+			switch {
+			case foundVariance.covariant && foundVariance.contravariant:
+				mappedFields = append(mappedFields, recordField{
+					name: field.name,
+					type_: fieldType{
+						lowerBound:     bottomType,
+						upperBound:     topType,
+						withProvenance: field.type_.withProvenance,
+					},
+				})
+			case foundVariance.covariant:
+				mappedFields = append(mappedFields, recordField{
+					name: field.name,
+					type_: fieldType{
+						lowerBound:     bottomType,
+						upperBound:     cbc.process(field.type_.upperBound, nil),
+						withProvenance: field.type_.withProvenance,
+					},
+				})
+			case foundVariance.contravariant:
+				mappedFields = append(mappedFields, recordField{
+					name: field.name,
+					type_: fieldType{
+						lowerBound:     cbc.process(field.type_.lowerBound, nil),
+						upperBound:     topType,
+						withProvenance: field.type_.withProvenance,
+					},
+				})
+			default:
+				mappedFields = append(mappedFields, defaultField())
+			}
+		}
+		return recordType{
+			fields:         mappedFields,
+			withProvenance: t.withProvenance,
+		}
 
 	default:
 		// For other types, map over their children with neutral polarity

@@ -410,6 +410,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 // --- Analysis 1 Implementation ---
 
+// analyze1 corresponds to Analyze1's Traverser in the scala reference
 func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 	// Use reflection to prevent infinite loops with recursive types handled via pointers
 	st = unwrapProvenance(st) // Operate on the underlying type
@@ -467,10 +468,10 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 		a1.analyze1(ty.lowerBound, invariant)
 		a1.analyze1(ty.upperBound, invariant)
 	case recordType:
-		// FIXME: divergence from scala reference
-		// Record type analysis not implemented - TypeSimplifier.scala:376 handles RecordType
-		a1.simplifier.addFailure("analyze1: Record Type case not implemented, see Analyze and InvaraintFields traverser", ty.provenance.Range)
-		return
+		for _, field := range ty.fields {
+			a1.analyze1(field.type_.lowerBound, pol.inverse())
+			a1.analyze1(field.type_.upperBound, pol)
+		}
 	case tupleType:
 		for _, field := range ty.fields {
 			a1.analyze1(field, pol)
@@ -891,16 +892,14 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			return newLb // Negative: becomes lower bound
 		}
 	case recordType:
-		// FIXME: divergence from scala reference
-		// Record type transformation not implemented - TypeSimplifier.scala:587 handles RecordType
-		panic("record type not implemented")
-	//	newFields := make([]util.Pair[ast.Var, fieldType], len(ty.fields))
-	//	for i, field := range ty.fields {
-	//		newFty := ts.transformFieldType(field.type_, pol, parent)
-	//		newFields[i] = util.Pair[ast.Var, fieldType]{name: field.name, type_: newFty}
-	//	}
-	//	Re-sort fields after transformation? makeRecordType does this.
-	//	return makeRecordType(newFields, &ty.provenance)
+		newFields := make([]recordField, len(ty.fields))
+		for i, field := range ty.fields {
+			newFields[i] = recordField{
+				name:  field.name,
+				type_: ts.transformFieldType(field.type_, pol, parent),
+			}
+		}
+		return newRecordType(recordType{fields: newFields, withProvenance: ty.withProvenance})
 	case tupleType:
 		newFields := make([]SimpleType, len(ty.fields))
 		for i, field := range ty.fields {
@@ -943,16 +942,13 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 	}
 }
 
-// transformFieldType transforms the bounds of a fieldType.
 func (ts *transformerState) transformFieldType(ft fieldType, pol polarity, parent *typeVariable) fieldType {
-	// If field represents mutable state, treat bounds invariantly?
-	// Scala's FieldType case seems complex. Let's try a simpler approach:
-	// Lower bound is contravariant relative to outer polarity.
-	// Upper bound is covariant relative to outer polarity.
-	newLb := ts.transform(ft.lowerBound, pol.inverse(), parent)
-	newUb := ts.transform(ft.upperBound, pol, parent)
-	// Reconstruct, potentially simplifying if lb == ub?
-	// For now, just reconstruct.
+	if ft.lowerBound == ft.upperBound {
+		b := ts.transform(ft.upperBound, invariant, nil)
+		return fieldType{lowerBound: b, upperBound: b, withProvenance: ft.withProvenance}
+	}
+	newLb := ts.transform(ft.lowerBound, pol.inverse(), nil)
+	newUb := ts.transform(ft.upperBound, pol, nil)
 	return fieldType{lowerBound: newLb, upperBound: newUb, withProvenance: ft.withProvenance}
 }
 

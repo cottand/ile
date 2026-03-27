@@ -213,6 +213,66 @@ val list = [1, 2, 3]
 	assert.Equal(t, token.INT, listLit.Elements[2].(*ast.Literal).Kind)
 }
 
+func TestRecordLiteral(t *testing.T) {
+	file := `
+package main
+
+val r = {a: 1, b: 2}
+`
+	src, _ := testParse(t, file)
+
+	assert.Len(t, src.Declarations, 1)
+	fst := src.Declarations[0]
+	assert.Equal(t, "r", fst.Name)
+	assert.IsType(t, &ast.RecordLit{}, fst.Value)
+
+	rec := fst.Value.(*ast.RecordLit)
+	assert.Len(t, rec.Fields, 2)
+
+	assert.Equal(t, "a", rec.Fields[0].Name)
+	assert.IsType(t, &ast.Literal{}, rec.Fields[0].Value)
+	assert.Equal(t, "1", rec.Fields[0].Value.(*ast.Literal).Value)
+
+	assert.Equal(t, "b", rec.Fields[1].Name)
+	assert.IsType(t, &ast.Literal{}, rec.Fields[1].Value)
+	assert.Equal(t, "2", rec.Fields[1].Value.(*ast.Literal).Value)
+}
+
+func TestRecordLiteralSingleField(t *testing.T) {
+	file := `
+package main
+
+val r = {name: "hello"}
+`
+	src, _ := testParse(t, file)
+
+	assert.Len(t, src.Declarations, 1)
+	fst := src.Declarations[0]
+	assert.IsType(t, &ast.RecordLit{}, fst.Value)
+
+	rec := fst.Value.(*ast.RecordLit)
+	assert.Len(t, rec.Fields, 1)
+	assert.Equal(t, "name", rec.Fields[0].Name)
+	assert.IsType(t, &ast.Literal{}, rec.Fields[0].Value)
+	assert.Equal(t, "hello", rec.Fields[0].Value.(*ast.Literal).Value)
+}
+
+func TestRecordLiteralEmpty(t *testing.T) {
+	file := `
+package main
+
+val r = {}
+`
+	src, _ := testParse(t, file)
+
+	assert.Len(t, src.Declarations, 1)
+	fst := src.Declarations[0]
+	assert.IsType(t, &ast.RecordLit{}, fst.Value)
+
+	rec := fst.Value.(*ast.RecordLit)
+	assert.Len(t, rec.Fields, 0)
+}
+
 func TestBlockWithMultipleStatements(t *testing.T) {
 	file := `
 package main
