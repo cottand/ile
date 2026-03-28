@@ -636,7 +636,7 @@ func (cs *constraintSolver) recImpl(lhs, rhs SimpleType, shadows *shadowsState) 
 
 	lhsTypeRef, okLhsTypeRef := lhs.(typeRef)
 	rhsTypeRef, okRhsTypeRef := rhs.(typeRef)
-	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ir.ArrayTypeName {
+	if okLhsTypeRef && okRhsTypeRef && lhsTypeRef.defName != ir.ListTypeName {
 		if lhsTypeRef.defName == rhsTypeRef.defName {
 			if len(lhsTypeRef.typeArgs) != len(rhsTypeRef.typeArgs) {
 				return cs.reportError(fmt.Sprintf("type definition mismatch: %s vs %s", lhsTypeRef.defName, rhsTypeRef.defName))

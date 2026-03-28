@@ -2,11 +2,12 @@ package types
 
 import (
 	"fmt"
+	"maps"
+	"slices"
+
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
-	"maps"
-	"slices"
 )
 
 // typeIrType returns the SimpleType corresponding to an ast.Type
@@ -49,7 +50,7 @@ func (ctx *typeAstTypeContext) typeNamedType(name typeName, pos ir.Range) (kind 
 	}
 	foundTypeDef, ok := ctx.typeDefs[name]
 	if ok {
-		return foundTypeDef.defKind, len(foundTypeDef.typeVars), true
+		return foundTypeDef.defKind, len(foundTypeDef.typeParamArgs), true
 	}
 	ctx.addError(ilerr.New(ilerr.NewUndefinedVariable{
 		Positioner: pos,
@@ -206,6 +207,44 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 			})
 		}
 		return newRecordType(record)
+	case *ir.AppliedType:
+		prov := typeProvenance{
+			Range: ir.RangeOf(typ),
+			desc:  "applied type reference",
+		}
+		_, nParams, ok := ctx.typeNamedType(typ.Base.Name, ir.RangeOf(typ))
+		if !ok {
+			return errorType()
+		}
+		var realTargs []SimpleType
+		if len(typ.Args) == nParams {
+			realTargs = make([]SimpleType, 0, nParams)
+			for _, arg := range typ.Args {
+				realTargs = append(realTargs, ctx.typeAstTypeRec(arg))
+			}
+		} else {
+			ctx.addError(ilerr.New(ilerr.NewWrongNumberOfTypeArgs{
+				Positioner: ir.RangeOf(typ),
+				Name:       typ.Base.Name,
+				Expected:   nParams,
+				Found:      len(typ.Args),
+			}))
+			realTargs = make([]SimpleType, 0, nParams)
+			for i, arg := range typ.Args {
+				if i >= nParams {
+					break
+				}
+				realTargs = append(realTargs, ctx.typeAstTypeRec(arg))
+			}
+			for len(realTargs) < nParams {
+				realTargs = append(realTargs, ctx.newTypeVariable(typeProvenance{}, "", nil, nil))
+			}
+		}
+		return typeRef{
+			defName:        typ.Base.Name,
+			typeArgs:       realTargs,
+			withProvenance: prov.embed(),
+		}
 	case *ir.GoType:
 		t := convertGoType(typ.Underlying)
 		if t == nil {
@@ -219,8 +258,8 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 		}
 		resolved := ctx.typeAstTypeRec(t)
 		goProvenance := typeProvenance{
-			Range: ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
-			desc:  fmt.Sprintf("imported go value"),
+			Range:         ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
+			desc:          fmt.Sprintf("imported go value"),
 			isType:        true,
 			originName:    typ.Underlying.Name(),
 			originPackage: typ.Underlying.Pkg().Path(),

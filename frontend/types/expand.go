@@ -3,10 +3,11 @@ package types
 import (
 	"cmp"
 	"fmt"
-	"github.com/cottand/ile/frontend/ir"
-	set "github.com/hashicorp/go-set/v3"
 	"go/token"
 	"slices"
+
+	"github.com/cottand/ile/frontend/ir"
+	set "github.com/hashicorp/go-set/v3"
 )
 
 // expanderState holds the state during the recursive expansion of a SimpleType to an ast.Type.
@@ -298,9 +299,9 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 		// Use original range as approximation, or maybe inner range?
 		arrayTypeName := &ir.TypeName{Name: "Array", Range: rng}
 		return &ir.AppliedType{
-			Base:       *arrayTypeName,
-			Args:       []ir.Type{inner},
-			Positioner: ir.RangeBetween(arrayTypeName, inner),
+			Base:  *arrayTypeName,
+			Args:  []ir.Type{inner},
+			Range: ir.RangeBetween(arrayTypeName, inner),
 		}
 
 	case negType:
@@ -358,7 +359,7 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 
 	case typeRef:
 		targs := make([]ir.Type, len(ty.typeArgs))
-		var firstArgRange, lastArgRange ir.Range
+		var lastArgRange ir.Range
 		for i, ta := range ty.typeArgs {
 			// Check for wildcard case: Bounds(Bot, Top) -> ast.TypeBounds{Lb: Bot, Ub: Top}
 			if tr, ok := ta.(typeRange); ok && isBottom(tr.lowerBound) && isTop(tr.upperBound) {
@@ -372,9 +373,6 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 				targs[i] = st.expandRec(ta)
 			}
 
-			if i == 0 {
-				firstArgRange = ir.RangeOf(targs[i])
-			}
 			if i == len(ty.typeArgs)-1 {
 				lastArgRange = ir.RangeOf(targs[i])
 			}
@@ -385,13 +383,12 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 			return base // Just the type name if no arguments
 		}
 		// Calculate range for AppliedType
-		appliedRange := ir.RangeBetween(base, firstArgRange)
-		appliedRange = ir.RangeBetween(appliedRange, lastArgRange)
+		appliedRange := ir.RangeBetween(base, lastArgRange)
 
 		return &ir.AppliedType{
-			Base:       *base,
-			Args:       targs,
-			Positioner: appliedRange,
+			Base:  *base,
+			Args:  targs,
+			Range: appliedRange,
 		}
 
 	case typeRange:

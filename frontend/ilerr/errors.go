@@ -27,6 +27,7 @@ const (
 	NameRedeclaration
 	TypeMismatch
 	ExpectedTypeParams
+	WrongNumberOfTypeArgs
 	EmptyWhen
 	RepeatedRecordField
 )
@@ -388,6 +389,24 @@ func (e NewExpectedTypeParams) Error() string {
 func (e NewExpectedTypeParams) Code() ErrCode    { return ExpectedTypeParams }
 func (e NewExpectedTypeParams) getStack() []byte { return e.stack }
 func (e NewExpectedTypeParams) withStack(stack []byte) IleError {
+	e.stack = stack
+	return e
+}
+
+type NewWrongNumberOfTypeArgs struct {
+	ir.Positioner
+	Name     string
+	Expected int
+	Found    int
+	stack    []byte
+}
+
+func (e NewWrongNumberOfTypeArgs) Error() string {
+	return fmt.Sprintf("wrong number of type arguments for '%s' – expected %d, found %d", e.Name, e.Expected, e.Found)
+}
+func (e NewWrongNumberOfTypeArgs) Code() ErrCode    { return WrongNumberOfTypeArgs }
+func (e NewWrongNumberOfTypeArgs) getStack() []byte { return e.stack }
+func (e NewWrongNumberOfTypeArgs) withStack(stack []byte) IleError {
 	e.stack = stack
 	return e
 }

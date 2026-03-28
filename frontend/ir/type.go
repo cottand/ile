@@ -137,7 +137,7 @@ func (t *UnionType) Hash() uint64 {
 type AppliedType struct {
 	Base TypeName
 	Args []Type
-	Positioner
+	Range
 }
 
 func (t *AppliedType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
@@ -481,6 +481,8 @@ func (t *GoType) Hash() uint64 {
 }
 
 // ListType represents a list type with elements of a specific type
+//
+// Deprecated: use AppliedType instead
 type ListType struct {
 	ElementType Type
 	Positioner

@@ -57,8 +57,7 @@ func nearestGoType(lit *ir.Literal) (goType string, err error) {
 }
 
 func isSuitableForGoConst(t ir.Declaration) bool {
-	_, isSingleExpr := t.E.(*ir.Literal)
-	if !isSingleExpr {
+	if _, isSingleExpr := t.E.(*ir.Literal); !isSingleExpr {
 		return false
 	}
 

@@ -1,15 +1,19 @@
 package types
 
 import (
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/hashicorp/go-set/v3"
 	"slices"
+
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/util"
+	"github.com/hashicorp/go-set/v3"
 )
 
 var builtinProv = newOriginProv(ir.Range{}, "builtin", "builtin")
 
-// instantiated types that can be referenced directly
+// Instantiated types that can be referenced directly
 // so they cannot contain type variables, therefore, they are usable anywhere
+//
+// Any types added here should also be added to universeInit and builtinTypeDefinitions.
 var (
 	// anyClassTag is called Object in the reference scala implementation
 	anyClassTag = classTag{
@@ -55,10 +59,12 @@ var (
 )
 
 type universeStruct struct {
+	typeDefs           []TypeDefinition
 	any, nothing       SimpleType
 	string, int, float SimpleType
 	true, false, bool  SimpleType
 	plus               SimpleType
+	list               SimpleType
 }
 
 func (t *Fresher) universeEnv() map[string]typeInfo {
@@ -113,14 +119,15 @@ func (t *Fresher) universeEnv() map[string]typeInfo {
 // polymorphic types (which require first instantiating the type variables).
 func (t *Fresher) universeInit() universeStruct {
 	return universeStruct{
-		any:     anyClassTag,
-		nothing: bottomType,
-		string:  stringType,
-		int:     intType,
-		float:   floatType,
-		true:    trueType,
-		false:   falseType,
-		bool:    boolType,
+		typeDefs: t.initTypeDefinitions(),
+		any:      anyClassTag,
+		nothing:  bottomType,
+		string:   stringType,
+		int:      intType,
+		float:    floatType,
+		true:     trueType,
+		false:    falseType,
+		bool:     boolType,
 		// overloading plus for string concatenation or floats can only be done via
 		// overloading, and the only overloading MLStruct supports
 		// is type class overloading, so we are leaving that for later for now
@@ -145,52 +152,66 @@ var errorTypeInstance = classTag{
 	},
 }
 
-var builtinTypes = []TypeDefinition{
-	{
-		defKind:     ir.KindClass,
-		name:        ir.IntTypeName,
-		bodyType:    topType,
-		baseClasses: intType.parents,
-	},
-	{
-		defKind:     ir.KindClass,
-		name:        ir.FloatTypeName,
-		bodyType:    topType,
-		baseClasses: floatType.parents,
-	},
-	{
-		defKind:     ir.KindClass,
-		name:        ir.StringTypeName,
-		bodyType:    topType,
-		baseClasses: intType.parents,
-	},
-	{
-		defKind:     ir.KindClass,
-		name:        ir.TrueName,
-		bodyType:    topType,
-		baseClasses: set.From([]typeName{ir.AnyTypeName}),
-	},
-	{
-		defKind:     ir.KindClass,
-		name:        ir.FalseName,
-		bodyType:    topType,
-		baseClasses: set.From([]typeName{ir.AnyTypeName}),
-	},
-	{
-		defKind:  ir.KindAlias,
-		name:     ir.BoolTypeName,
-		bodyType: boolType,
-	},
-	{
-		defKind:     ir.KindClass,
-		name:        ir.NilTypeName,
-		bodyType:    topType,
-		baseClasses: set.From([]typeName{ir.AnyTypeName}),
-	},
+func (t *Fresher) initTypeDefinitions() []TypeDefinition {
+	return []TypeDefinition{
+		{
+			name:        ir.IntTypeName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: intType.parents,
+		},
+		{
+			name:        ir.FloatTypeName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: floatType.parents,
+		},
+		{
+			name:        ir.StringTypeName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: intType.parents,
+		},
+		{
+			name:        ir.TrueName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: set.From([]typeName{ir.AnyTypeName}),
+		},
+		{
+			name:        ir.FalseName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: set.From([]typeName{ir.AnyTypeName}),
+		},
+		{
+			name:     ir.BoolTypeName,
+			defKind:  ir.KindAlias,
+			bodyType: boolType,
+		},
+		{
+			name:        ir.NilTypeName,
+			defKind:     ir.KindClass,
+			bodyType:    topType,
+			baseClasses: set.From([]typeName{ir.AnyTypeName}),
+		},
+		func() TypeDefinition {
+			tv := t.newTypeVariable(1, builtinProv, "", nil, nil)
+			tParam := util.NewPair[typeName, *typeVariable]("A", tv)
+			return TypeDefinition{
+				defKind:          ir.KindAlias,
+				name:             ir.ListTypeName,
+				typeParamArgs:    []util.Pair[typeName, *typeVariable]{tParam},
+				typeVarVariances: map[TypeVarID]varianceInfo{tv.id: varianceCovariant},
+				bodyType:         arrayType{innerT: tv},
+				baseClasses:      set.New[typeName](0),
+			}
+		}(),
+	}
 }
 
-func (_ *TypeCtx) isBuiltinType(name string) bool {
-	return slices.ContainsFunc(builtinTypes, func(def TypeDefinition) bool {
+func (ctx *TypeCtx) isBuiltinType(name string) bool {
+	return slices.ContainsFunc(ctx.builtins().typeDefs, func(def TypeDefinition) bool {
 		return def.name == name
 	})
 }

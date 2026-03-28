@@ -1,9 +1,10 @@
 package types
 
 import (
+	"reflect"
+
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
-	"reflect"
 )
 
 // Fresher keeps track of new variable IDs
@@ -29,6 +30,9 @@ func NewFresher() *Fresher {
 	return &f
 }
 
+// newTypeVariable creates a new type variable with the given level, name hint, and bounds.
+//
+// It corresponds to freshVar in the scala reference
 func (t *Fresher) newTypeVariable(
 	level level,
 	prov typeProvenance,

@@ -374,3 +374,18 @@ func (e *VarDecl) Hash() uint64 {
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }
+
+type IndexAccessExpr struct {
+	Range
+	X     Expr
+	Index Expr
+}
+
+func (e *IndexAccessExpr) exprNode() {}
+func (e *IndexAccessExpr) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("IndexAccessExpr")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Range.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}

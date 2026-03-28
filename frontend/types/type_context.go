@@ -111,16 +111,20 @@ type TypeState struct {
 	dontRecordProvenance bool
 }
 
+func (ctx *TypeCtx) builtins() universeStruct {
+	return ctx.fresher.universe
+}
+
 // NewEmptyTypeCtx should be the entry point to get a TypeCtx, but not how you
 // produce a TypeCtx from another one. For that use copy
 //
 // TypeState is shared across nested levels of TypeCtx
 func NewEmptyTypeCtx() *TypeCtx {
-	defs := make(map[string]TypeDefinition, len(builtinTypes))
-	for _, def := range builtinTypes {
+	fresher := NewFresher()
+	defs := make(map[string]TypeDefinition, len(fresher.universe.typeDefs))
+	for _, def := range fresher.universe.typeDefs {
 		defs[def.name] = def
 	}
-	fresher := NewFresher()
 	return &TypeCtx{
 		parent:    nil,
 		env:       fresher.universeEnv(),
@@ -455,7 +459,7 @@ func (ctx *TypeCtx) ProcessTypeDefs(newDefs []ir.TypeDefinition) *TypeCtx {
 				name:          td0.Name.Name,
 				typeParamArgs: typeParamsArgsAsSlice,
 				typeVars:      typeVars,
-				bodyType: intersectionType{lhs: anyClassTag, rhs: bodyType, withProvenance: withProvenance{typeProvenance{
+				bodyType: intersectionType{lhs: ctx.builtins().any, rhs: bodyType, withProvenance: withProvenance{typeProvenance{
 					desc:       "intersection type",
 					originName: "",
 					isType:     true,

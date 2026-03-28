@@ -1,11 +1,14 @@
 package frontend
 
 import (
+	"strings"
+
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
-	"strings"
 )
+
+const GoImportDirectivePrefix = "go:"
 
 // DesugarPhase accepts an ast.File and returns an ir.File and any errors encountered during the conversion.
 // It follows the pattern of DesugarPhaseOld but constructs an IR from an AST.

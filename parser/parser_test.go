@@ -243,7 +243,7 @@ func TestRecordLiteralSingleField(t *testing.T) {
 	file := `
 package main
 
-val r = {name: "hello"}
+val r = #{name: "hello"}
 `
 	src, _ := testParse(t, file)
 

@@ -1,0 +1,9 @@
+//ile:compilerTest test.s | "hello, world!"
+
+package test
+
+import fmt "go:fmt"
+
+val who = "world"
+
+val s = fmt.Sprintf("hello, %s!", [who])

@@ -59,7 +59,9 @@ func (t *FuncType) Hash() uint64 {
 	return h.Sum64()
 }
 
-// ListType represents a list type (e.g., [Int]).
+// ListType represents a list type (e.g., Int[]).
+//
+// Deprecated: use AppliedType instead
 type ListType struct {
 	Range
 	ElementType Type

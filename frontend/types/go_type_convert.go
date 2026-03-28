@@ -1,16 +1,22 @@
 package types
 
 import (
-	"github.com/cottand/ile/frontend/ir"
 	"go/constant"
 	gotypes "go/types"
+
+	"github.com/cottand/ile/frontend/ir"
 )
+
+func isAny(t gotypes.Type) bool {
+	interf, ok := t.Underlying().(*gotypes.Interface)
+	return ok && interf.NumMethods() == 0
+}
 
 func convertGoType(obj gotypes.Object) ir.Type {
 	pkg := obj.Pkg().Path()
 	prov := typeProvenance{
 		originPackage: pkg,
-		desc: "go type",
+		desc:          "go type",
 		Range: ir.Range{
 			PosStart: obj.Pos(),
 			PosEnd:   obj.Pos(),
@@ -23,6 +29,13 @@ func convertGoType(obj gotypes.Object) ir.Type {
 	var ileType ir.Type
 	asConst, _ := obj.(*gotypes.Const)
 	switch t := obj.Type().(type) {
+	case *gotypes.Alias:
+		if isAny(t) {
+			return &ir.AnyType{
+				Positioner: in,
+			}
+		}
+		panic("handle alias " + obj.Name())
 	case *gotypes.Basic:
 		switch t.Kind() {
 		case gotypes.Bool:
@@ -67,6 +80,19 @@ func convertGoType(obj gotypes.Object) ir.Type {
 		default:
 			panic("unreachable")
 		}
+	case *gotypes.Slice:
+		goType := convertGoType(gotypes.NewTypeName(obj.Pos(), obj.Pkg(), obj.Name(), t.Elem()))
+		if goType == nil {
+			return nil
+		}
+		return &ir.AppliedType{
+			Base: ir.TypeName{
+				Name:       ir.ListTypeName,
+				Range:      ir.Range{},
+				Provenance: "go slice",
+			},
+			Args: []ir.Type{goType},
+		}
 	case *gotypes.Signature:
 		var ret ir.Type
 		if t.Recv() == nil {
@@ -84,9 +110,20 @@ func convertGoType(obj gotypes.Object) ir.Type {
 		if t.Params() == nil {
 			params = []ir.Type{}
 		}
-		for i := 0; i < t.Params().Len(); i++ {
+		for i := range t.Params().Len() {
 			param := t.Params().At(i)
-			params = append(params, convertGoType(param))
+
+			goType := convertGoType(param)
+			if goType == nil {
+				return nil
+			}
+			var next ir.Type
+			//if t.Variadic() && i == t.Params().Len()-1 {
+			//	next = &ir.ListType{ElementType: goType}
+			//} else {
+			next = goType
+			//}
+			params = append(params, next)
 		}
 		return &ir.FnType{
 			Args:   params,

@@ -3,12 +3,13 @@ package ir
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/hashicorp/go-set/v3"
 	"go/token"
 	"hash/fnv"
 	"log/slog"
 	"strconv"
 	"strings"
+
+	"github.com/hashicorp/go-set/v3"
 )
 
 var (
@@ -27,6 +28,7 @@ var (
 	_ Expr = (*WhenMatch)(nil)
 	_ Expr = (*Unused)(nil)
 	_ Expr = (*ListLiteral)(nil)
+	_ Expr = (*IndexAccess)(nil)
 
 	_ Expr = (*ErrorExpr)(nil)
 
@@ -61,6 +63,7 @@ func (e *Variant) Describe() string        { return "variant" }
 func (e *WhenMatch) Describe() string      { return "variant-matching switch" }
 func (e *Unused) Describe() string         { return "expression" }
 func (e *ListLiteral) Describe() string    { return "list literal" }
+func (e *IndexAccess) Describe() string    { return "index access" }
 func (e *ErrorExpr) Describe() string      { return "error expression" }
 
 // Expr is the base for all expressions
@@ -689,6 +692,30 @@ func (e *MatchTypePattern) matchPattern() {}
 func (e *MatchTypePattern) TransformChildExprs(_ func(expr Expr) Expr) MatchPattern {
 	copied := *e
 	return &copied
+}
+
+// IndexAccess corresponds to the `[]` operator in other languages
+type IndexAccess struct {
+	Range
+	Index Expr
+	Value Expr
+}
+
+func (e *IndexAccess) ExprName() string { return "IndexAccess" }
+
+func (e *IndexAccess) Transform(f func(Expr) Expr) Expr {
+	copied := *e
+	copied.Index = e.Index.Transform(f)
+	copied.Value = e.Value.Transform(f)
+	return f(&copied)
+}
+
+func (e *IndexAccess) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("IndexAccess")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Index.Hash())
+	_, _ = h.Write(arr)
+	return h.Sum64()
 }
 
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be

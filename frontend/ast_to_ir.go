@@ -1,11 +1,12 @@
 package frontend
 
 import (
-	"github.com/cottand/ile/frontend/ast"
-	"github.com/cottand/ile/frontend/ir"
 	"hash/fnv"
 	"log/slog"
 	"reflect"
+
+	"github.com/cottand/ile/frontend/ast"
+	"github.com/cottand/ile/frontend/ir"
 )
 
 // desugarExpr converts an AST expression to an IR expression
@@ -173,6 +174,13 @@ func desugarExpr(expr ast.Expr) ir.Expr {
 		}
 
 		return result
+
+	case *ast.IndexAccessExpr:
+		return &ir.IndexAccess{
+			Range: ir.RangeOf(e.Range),
+			Index: desugarExpr(e.Index),
+			Value: desugarExpr(e.X),
+		}
 	default:
 		slog.With("section", "desugar.expr").Warn("unsupported expression type", "type", reflect.TypeOf(e))
 		// If we don't know how to convert this expression, return an error expression
@@ -226,11 +234,6 @@ func ConvertType(t ast.Type) ir.Type {
 			Return: ConvertType(typ.ReturnType),
 			Range:  ir.Range{PosStart: typ.Range.PosStart, PosEnd: typ.Range.PosEnd},
 		}
-	case *ast.ListType:
-		return &ir.ListType{
-			ElementType: ConvertType(typ.ElementType),
-			Positioner:  ir.Range{PosStart: typ.Range.PosStart, PosEnd: typ.Range.PosEnd},
-		}
 	case *ast.StructType:
 		fields := make([]ir.RecordField, len(typ.Fields))
 		for i, field := range typ.Fields {
@@ -271,9 +274,9 @@ func ConvertType(t ast.Type) ir.Type {
 		baseType := ConvertType(typ.Base)
 		if typeName, ok := baseType.(*ir.TypeName); ok {
 			return &ir.AppliedType{
-				Base:       *typeName,
-				Args:       args,
-				Positioner: ir.Range{PosStart: typ.Range.PosStart, PosEnd: typ.Range.PosEnd},
+				Base:  *typeName,
+				Args:  args,
+				Range: ir.RangeOf(typ),
 			}
 		}
 
@@ -298,6 +301,7 @@ func ConvertType(t ast.Type) ir.Type {
 			Syntax: "Type literal value is nil",
 		}
 	default:
+		slog.Warn("unsupported type in ConvertType", "type", reflect.TypeOf(t))
 		// If we don't know how to convert this type, return an error type
 		return &ErrorType{
 			Range:  ir.Range{PosStart: t.Pos(), PosEnd: t.End()},

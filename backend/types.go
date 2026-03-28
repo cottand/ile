@@ -98,17 +98,11 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 			Elt: goType,
 		}, nil
 
-	case *ir.ListType:
-		// List type with elements of a specific type (slice in Go)
-		elemTypeExpr, err := tp.transpileType(e.ElementType)
-		if err != nil {
-			return nil, fmt.Errorf("failed to transpile element type: %v", err)
-		}
+	case *ir.AppliedType:
+		return tp.transpileAppliedType(e)
 
-		return &goast.ArrayType{
-			Len: nil, // nil length means slice
-			Elt: elemTypeExpr,
-		}, nil
+	case *ir.ListType:
+		return nil, fmt.Errorf("deprecated list type, use AppliedType instead")
 
 	case *ir.UnionType:
 		// try to find a common supertype for literals - otherwise, use any
@@ -145,6 +139,22 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 	default:
 		return nil, fmt.Errorf("transpileType: unexpected ir.Type type: %v: %T", ir.TypeString(e), e)
 	}
+}
+
+func (tp *Transpiler) transpileAppliedType(e *ir.AppliedType) (goast.Expr, error) {
+	if e.Base.Name == ir.ListTypeName && len(e.Args) == 1 {
+		// List type with elements of a specific type (slice in Go)
+		elemTypeExpr, err := tp.transpileType(e.Args[0])
+		if err != nil {
+			return nil, fmt.Errorf("failed to transpile element type: %v", err)
+		}
+
+		return &goast.ArrayType{
+			Len: nil, // nil length means slice
+			Elt: elemTypeExpr,
+		}, nil
+	}
+	return nil, fmt.Errorf("applied type not supported yet: %v", e.ShowIn(ir.DumbShowCtx, 0))
 }
 
 func (tp *Transpiler) tryFindCommonType(left, right ir.Type) (ir.Type, error) {

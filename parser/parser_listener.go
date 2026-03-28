@@ -301,7 +301,6 @@ func (l *listener) ExitOperand(ctx *OperandContext) {
 }
 
 func (l *listener) ExitPrimaryExpr(ctx *PrimaryExprContext) {
-	// list literal case
 	if ctx.ListLiteral() != nil {
 		return
 	}
@@ -326,23 +325,32 @@ func (l *listener) ExitPrimaryExpr(ctx *PrimaryExprContext) {
 			}
 		}
 		// callee must be popped after the arguments as it was parsed first
-		var callee ast.Expr
-		if name := ctx.OperandName(); name != nil {
-			callee = &ast.Identifier{
-				Name:  name.GetText(),
-				Range: getPos(name),
-			}
-		} else if primaryExpr != nil {
-			var ok bool
-			callee, ok = l.expressionStack.Pop()
-			if !ok {
-				l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
-			}
+		callee, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
 		}
 		l.expressionStack.Push(&ast.CallExpr{
 			Function: callee,
 			Args:     args,
 			Range:    getPos(ctx),
+		})
+		return
+	}
+
+	// index access case a[b]
+	if indexAccess := ctx.IndexAccess(); indexAccess != nil {
+		arg, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
+		}
+		callee, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
+		}
+		l.expressionStack.Push(&ast.IndexAccessExpr{
+			X:     callee,
+			Index: arg,
+			Range: getPos(ctx),
 		})
 		return
 	}
@@ -724,12 +732,8 @@ func (l *listener) doRecordType(literal IRecordTypeLiteralContext) ast.Type {
 		}
 	}
 
-
 	return &ast.StructType{
 		Fields: fields,
 		Range:  getPos(literal),
 	}
 }
-
-
-

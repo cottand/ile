@@ -152,11 +152,18 @@ arithmeticExpr
 // primaryExpr is what can go on the left-hand-side of `.` or `()`
 primaryExpr
     : operand
-    | operandName fnCallArgs
-    | primaryExpr (DOT IDENTIFIER | fnCallArgs) // select ecxpression (a.b)
+    //| operandName fnCallArgs
+    | primaryExpr
+         (
+            DOT IDENTIFIER
+            | fnCallArgs
+            | indexAccess
+         ) // select ecxpression (a.b)
     | listLiteral
     | recordLiteral
     ;
+
+indexAccess : L_BRACKET expression R_BRACKET;
 
 listLiteral : L_BRACKET (expression (COMMA expression)* (COMMA)?)? R_BRACKET;
 

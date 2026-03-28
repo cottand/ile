@@ -1,0 +1,6 @@
+//ile:compilerTest test.b | int64(1)
+package test
+
+
+val a = [1,2,3]
+val b = a[0]
