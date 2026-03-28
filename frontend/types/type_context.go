@@ -389,6 +389,14 @@ func (ctx *TypeCtx) isSubtype(this, that SimpleType, cache ctxCache) bool {
 			return false
 		}
 	}
+	// arrays/lists
+	{
+		thisArr, okThis := this.(arrayBase)
+		thatArr, okThat := that.(arrayType)
+		if okThis && okThat {
+			return ctx.isSubtype(thisArr.inner(ctx), thatArr.inner(ctx), cache)
+		}
+	}
 	ctx.addFailure(fmt.Sprintf("isSubtype not implemented for: %s: %T and %s: %T", this, this, that, that), this.prov())
 	return false
 }

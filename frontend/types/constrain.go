@@ -1463,19 +1463,15 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return cs.extrude(t.lowerBound, targetLvl, false) // Negative polarity
 
 	case funcType:
-		cs.ctx.addFailure("extrude not implemented for func types", ty.prov())
-		//extrudedLhs := cs.extrude(t.args[0], targetLvl, !pol) // Contravariant
-		//if extrudedLhs == nil {
-		//	return nil
-		//}
-		//extrudedRhs := cs.extrude(t.ret, targetLvl, pol) // Covariant
-		//if extrudedRhs == nil {
-		//	return nil
-		//}
-		//// Assuming single argument function for now, like Scala's FunctionType(l, r)
-		//return funcType{args: []SimpleType{extrudedLhs}, ret: extrudedRhs, withProvenance: t.withProvenance}
-		return ty
-
+		args := make([]SimpleType, 0, len(t.args))
+		for _, arg := range t.args {
+			args = append(args, cs.extrude(arg, targetLvl, !pol))
+		}
+		return funcType{
+			args:           args,
+			ret:            cs.extrude(t.ret, targetLvl, pol),
+			withProvenance: t.withProvenance,
+		}
 	case unionType: // ComposedType(true, ...)
 		extrudedLhs := cs.extrude(t.lhs, targetLvl, pol)
 		if extrudedLhs == nil {

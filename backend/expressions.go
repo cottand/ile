@@ -116,7 +116,7 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 		args := make([]goast.Expr, len(e.Args))
 		for i, arg := range e.Args {
 			var err error
-			args[i], err = tp.injectPotentialNothingType(arg)
+			args[i], err = tp.transpileFunctionParamExpr(e.Func, arg)
 			if err != nil {
 				return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
 			}
@@ -173,6 +173,19 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	default:
 		return nil, fmt.Errorf("for expr, unexpected type %v", reflect.TypeOf(expr))
 	}
+}
+
+func (tp *Transpiler) transpileFunctionParamExpr(fn ir.Expr, arg ir.Expr) (goast.Expr, error) {
+	fmt.Print(fn)
+
+	fmt.Println(tp.types.TypeOf(fn))
+	fmt.Println(tp.types.TypeOf(arg))
+
+	ret, err := tp.injectPotentialNothingType(arg)
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
 }
 
 func (tp *Transpiler) transpileListLiteral(expr ir.Expr) (goast.Expr, error) {

@@ -87,6 +87,16 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ir.Type {
 
 // expandRec is the recursive helper for expandSimpleType.
 func (st *expanderState) expandRec(t SimpleType) ir.Type {
+	// Restore ir.GoTypes
+	if goT := t.prov().underlyingGoType; goT != nil {
+		return &ir.GoType{
+			Underlying:  goT,
+			Range:       t.prov().Range,
+			PackagePath: goT.Pkg().Path(),
+			PackageName: goT.Pkg().Name(),
+		}
+	}
+
 	// Unwrap provenance wrappers transparently
 	if pt, ok := t.(wrappingProvType); ok {
 		// Keep the outer provenance range if the inner one is invalid

@@ -200,6 +200,7 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 			fieldProv := typeProvenance{
 				Range: ir.RangeOf(field),
 				desc:  "record field",
+				underlyingGoType: valueType.prov().underlyingGoType,
 			}
 			record.fields = append(record.fields, recordField{
 				name:  name,
@@ -257,16 +258,9 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 			return errorType()
 		}
 		resolved := ctx.typeAstTypeRec(t)
-		goProvenance := typeProvenance{
-			Range:         ir.Range{PosStart: typ.Underlying.Pos(), PosEnd: typ.Underlying.Pos()},
-			desc:          fmt.Sprintf("imported go value"),
-			isType:        true,
-			originName:    typ.Underlying.Name(),
-			originPackage: typ.Underlying.Pkg().Path(),
-		}
 		return wrappingProvType{
 			SimpleType:      resolved,
-			proxyProvenance: goProvenance,
+			proxyProvenance: goProvenanceFor(typ.Underlying),
 		}
 
 	default:

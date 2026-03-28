@@ -101,9 +101,6 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 	case *ir.AppliedType:
 		return tp.transpileAppliedType(e)
 
-	case *ir.ListType:
-		return nil, fmt.Errorf("deprecated list type, use AppliedType instead")
-
 	case *ir.UnionType:
 		// try to find a common supertype for literals - otherwise, use any
 		common, err := tp.tryFindCommonType(e.Left, e.Right)

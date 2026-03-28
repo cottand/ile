@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"go/token"
+	"go/types"
 	"hash/fnv"
 	"iter"
 	"slices"
@@ -57,7 +58,10 @@ type typeProvenance struct {
 	isType     bool   // Whether this represents a type
 	// Original package where the Range is
 	// should be empty for local types
-	originPackage string
+	originPackage    string
+
+	// underlyingGoType is nil unless this type was imported from Go
+	underlyingGoType types.Object
 }
 
 var emptyProv = typeProvenance{}

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"go/constant"
 	gotypes "go/types"
 
@@ -131,4 +132,19 @@ func convertGoType(obj gotypes.Object) ir.Type {
 		}
 	}
 	return ileType
+}
+
+
+func goProvenanceFor(object gotypes.Object) typeProvenance {
+	return typeProvenance{
+		Range: ir.Range{
+			PosStart: object.Pos(),
+			PosEnd:   object.Pos(),
+		},
+		desc:             fmt.Sprintf("imported go value"),
+		isType:           true,
+		originName:       object.Name(),
+		originPackage:    object.Pkg().Path(),
+		underlyingGoType: object,
+	}
 }
