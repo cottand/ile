@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/util"
@@ -149,6 +150,24 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 
 		}
 
+		processedFields := sync.OnceValue(func() recordType {
+			newFields := make([]recordField, 0, len(lhs.reft.fields))
+			for _, field := range lhs.reft.fields {
+				newFields = append(newFields, recordField{
+					name: field.name,
+					type_: fieldType{
+						lowerBound:     n.processType(field.type_.lowerBound, pol.inverse()),
+						upperBound:     n.processType(field.type_.upperBound, pol),
+						withProvenance: field.type_.withProvenance,
+					},
+				})
+			}
+			return recordType{
+				fields:         newFields,
+				withProvenance: lhs.reft.withProvenance,
+			}
+		})
+
 		var newArray arrayBase
 		if lhs.arr != nil {
 			switch arr := lhs.arr.(type) {
@@ -174,8 +193,14 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 								}
 							}
 						}
-						// This is a regular field
-						regularFields = append(regularFields, field)
+						regularFields = append(regularFields, recordField{
+							name: field.name,
+							type_: fieldType{
+								lowerBound:     n.processType(field.type_.lowerBound, pol.inverse()),
+								upperBound:     n.processType(field.type_.upperBound, pol),
+								withProvenance: field.type_.withProvenance,
+							},
+						})
 					}
 				}
 
@@ -210,10 +235,18 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 				} else {
 					lhs.reft = recordType{} // Empty record type
 				}
+			case arrayType:
+				newArray = arrayType{
+					innerT:         n.processType(arr.innerT, pol),
+					withProvenance: arr.withProvenance,
+				}
+				lhs.reft = processedFields()
 			default:
 				n.addFailure(fmt.Sprintf("LHS ND with arr types (in this case %T) not implemented, see normalizeTypes_!()-helper()", lhs.arr), emptyProv)
 				return lhs.toType()
 			}
+		} else {
+			lhs.reft = processedFields()
 		}
 
 		if lhs.base != nil {
@@ -232,7 +265,7 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 			fn:        newFn,
 			arr:       newArray,
 			traitTags: lhs.traitTags,
-			reft:      lhs.reft, // keep in mind reference copies the record here - we don't yet because it's not implemented but look into why
+			reft:      lhs.reft,
 			typeRefs:  newTypeRefs,
 		}
 		return newLhs.toType()

@@ -195,6 +195,9 @@ func (tp *Transpiler) transpileFnCall(e *ir.Call) (expr goast.Expr, err error) {
 			if fnType().(*ir.FnType).Variadic {
 
 				// break down the list literal and inline each individual element into the Go vararg as arguments
+				// TODO should that not be an optimisation, where we inline a list literal into
+				//  each individual arg? Might be possible but I struggle how that could be done without
+				//  decoupling the transpiler and TypeCtx, because we the 'optimised' ir.Expr would not type anymore!
 				if arg, ok := arg.(*ir.ListLiteral); ok {
 					for _, listLitArg := range arg.Args {
 						goArg, err := tp.transpileFunctionParamExpr(listLitArg)
