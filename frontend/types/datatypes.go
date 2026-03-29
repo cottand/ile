@@ -708,8 +708,9 @@ func (t typeRange) doMap(f func(SimpleType) SimpleType) SimpleType {
 }
 
 type funcType struct {
-	args []SimpleType
-	ret  SimpleType
+	args     []SimpleType
+	ret      SimpleType
+	variadic bool
 	withProvenance
 }
 
@@ -726,6 +727,9 @@ func (t funcType) level() level {
 
 func (t funcType) String() string {
 	var argsStr string = util.JoinString(t.args, ", ")
+	if t.variadic {
+		return fmt.Sprintf("(fn ...%s -> %s)", argsStr, t.ret.String())
+	}
 	return fmt.Sprintf("(fn %s -> %s)", argsStr, t.ret.String())
 }
 func (t funcType) children(bool) iter.Seq[SimpleType] {
@@ -749,6 +753,7 @@ func (t funcType) doMap(f func(SimpleType) SimpleType) SimpleType {
 	return funcType{
 		args:           mappedArgs,
 		ret:            mappedRet,
+		variadic:       t.variadic,
 		withProvenance: t.withProvenance,
 	}
 }
@@ -1097,6 +1102,9 @@ func (t funcType) Hash() uint64 {
 		hash = hash*16777619 ^ arg.Hash()
 	}
 	hash = hash*16777619 ^ t.ret.Hash()
+	if t.variadic {
+		hash = hash*16777619 ^ 1
+	}
 	return hash
 }
 

@@ -189,8 +189,9 @@ func (o *opsDNF) tryMergeUnion(left, right conjunct) (ret conjunct, ok bool) {
 			args[i] = intersectionOf(arg, rightRefined.fn.args[i], unionOpts{})
 		}
 		fnType = &funcType{
-			args: args,
-			ret:  unionOf(leftRefined.fn.ret, rightRefined.fn.ret, unionOpts{}),
+			args:     args,
+			ret:      unionOf(leftRefined.fn.ret, rightRefined.fn.ret, unionOpts{}),
+			variadic: leftRefined.fn.variadic,
 		}
 	}
 
@@ -390,7 +391,7 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 		if !argsChanged && newRet == t.ret {
 			return t // Optimization
 		}
-		return funcType{args: newArgs, ret: newRet, withProvenance: withProvenance{originalProv}}
+		return funcType{args: newArgs, ret: newRet, variadic: t.variadic, withProvenance: withProvenance{originalProv}}
 
 	case recordType:
 		newFields := make([]recordField, len(t.fields))
@@ -887,7 +888,7 @@ func (o *opsCNF) rhsBasesRestOrBasicType(nf *rhsBases, ty basicType) (rhsNF, boo
 		if tyFn, ok := ty.(funcType); ok {
 			newArg := intersectionOf(rest.args[0], tyFn.args[0], unionOpts{})
 			newRet := unionOf(rest.ret, tyFn.ret, unionOpts{})
-			return &rhsBases{tags: nf.tags, rest: funcType{args: []SimpleType{newArg}, ret: newRet}, typeRefs: nf.typeRefs}, true
+			return &rhsBases{tags: nf.tags, rest: funcType{args: []SimpleType{newArg}, ret: newRet, variadic: rest.variadic}, typeRefs: nf.typeRefs}, true
 		}
 		return nil, false
 
@@ -976,7 +977,7 @@ func (o *opsCNF) rhsRestOrRhsRest(left, right rhsRest) rhsRest {
 			newArg := intersectionOf(l.args[0], r.args[0], unionOpts{}) // Assuming single arg for now
 			newRet := unionOf(l.ret, r.ret, unionOpts{})
 			// TODO: Preserve provenance better
-			return funcType{args: []SimpleType{newArg}, ret: newRet}
+			return funcType{args: []SimpleType{newArg}, ret: newRet, variadic: l.variadic}
 		}
 		return nil // Func | Array/FieldType -> Top
 	case arrayBase: // tuple, namedTuple, array

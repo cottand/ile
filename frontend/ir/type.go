@@ -354,8 +354,9 @@ func (t *ConstrainedType) Hash() uint64 {
 //
 // Exceptionally, Args or Return may be nil, because we allow partially specifying the type of a function in the AST
 type FnType struct {
-	Args   []Type
-	Return Type
+	Args     []Type
+	Return   Type
+	Variadic bool
 	Range
 }
 
@@ -368,10 +369,13 @@ func withParensIf(when bool, str string) string {
 
 func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	argShow := make([]string, 0, len(t.Args))
-	for _, arg := range t.Args {
+	for i, arg := range t.Args {
 		str := "_"
 		if arg != nil {
 			str = arg.ShowIn(ctx, 20)
+		}
+		if t.Variadic && i == len(t.Args)-1 {
+			str = "..." + str
 		}
 		argShow = append(argShow, str)
 	}
@@ -402,6 +406,11 @@ func (t *FnType) Hash() uint64 {
 		hash = t.Return.Hash()
 	}
 	arr = binary.LittleEndian.AppendUint64(arr, hash)
+	if t.Variadic {
+		arr = append(arr, 1)
+	} else {
+		arr = append(arr, 0)
+	}
 	_, _ = h.Write(arr)
 	return h.Sum64()
 }

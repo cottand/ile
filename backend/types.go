@@ -31,7 +31,12 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 		for i, arg := range e.Args {
 			tParam, err := tp.transpileType(arg)
 			errs = errors.Join(errs, err)
-			params[i] = &goast.Field{Type: tParam}
+			if e.Variadic && i == len(e.Args)-1 {
+				tParam = variadicElemType(tParam)
+				params[i] = &goast.Field{Type: &goast.Ellipsis{Elt: tParam}}
+			} else {
+				params[i] = &goast.Field{Type: tParam}
+			}
 		}
 		if isUnitType(e.Return) {
 			return &goast.FuncType{
@@ -136,6 +141,16 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 	default:
 		return nil, fmt.Errorf("transpileType: unexpected ir.Type type: %v: %T", ir.TypeString(e), e)
 	}
+}
+
+// variadicElemType unwraps a slice type ([]T) to get the element type T
+// for use in variadic parameter declarations (...T).
+// If the type is not a slice, it returns the type as-is.
+func variadicElemType(t goast.Expr) goast.Expr {
+	if arr, ok := t.(*goast.ArrayType); ok && arr.Len == nil {
+		return arr.Elt
+	}
+	return t
 }
 
 func (tp *Transpiler) transpileAppliedType(e *ir.AppliedType) (goast.Expr, error) {

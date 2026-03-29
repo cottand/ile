@@ -153,6 +153,7 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 		return funcType{
 			args:           argTypes,
 			ret:            retType,
+			variadic:       typ.Variadic,
 			withProvenance: prov.embed(),
 		}
 	case *ir.Literal:

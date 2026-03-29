@@ -148,8 +148,10 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 			fields[i] = t.freshen(l, limit, field, rigidify)
 		}
 		return funcType{
-			args: fields,
-			ret:  t.freshen(l, limit, type_.ret, rigidify),
+			args:           fields,
+			ret:            t.freshen(l, limit, type_.ret, rigidify),
+			variadic:       type_.variadic,
+			withProvenance: type_.withProvenance,
 		}
 	case unionType:
 		return unionType{

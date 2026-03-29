@@ -863,7 +863,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			newArgs[i] = ts.transform(arg, pol.inverse(), parent) // Contravariant args
 		}
 		newRet := ts.transform(ty.ret, pol, parent) // Covariant return
-		return funcType{args: newArgs, ret: newRet, withProvenance: ty.withProvenance}
+		return funcType{args: newArgs, ret: newRet, variadic: ty.variadic, withProvenance: ty.withProvenance}
 	case unionType:
 		lhs := ts.transform(ty.lhs, pol, parent)
 		rhs := ts.transform(ty.rhs, pol, parent)

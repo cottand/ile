@@ -118,17 +118,12 @@ func convertGoType(obj gotypes.Object) ir.Type {
 			if goType == nil {
 				return nil
 			}
-			var next ir.Type
-			//if t.Variadic() && i == t.Params().Len()-1 {
-			//	next = &ir.ListType{ElementType: goType}
-			//} else {
-			next = goType
-			//}
-			params = append(params, next)
+			params = append(params, goType)
 		}
 		return &ir.FnType{
-			Args:   params,
-			Return: ret,
+			Args:     params,
+			Return:   ret,
+			Variadic: t.Variadic(),
 		}
 	}
 	return ileType

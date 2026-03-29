@@ -141,6 +141,7 @@ func (n typeNormaliser) lhsNFToType(pol polarity, lhs lhsNF) (ret SimpleType) {
 			newFn = &funcType{
 				withProvenance: lhs.fn.withProvenance,
 				ret:            n.processType(lhs.fn.ret, pol),
+				variadic:       lhs.fn.variadic,
 			}
 			for _, arg := range lhs.fn.args {
 				newFn.args = append(newFn.args, n.processType(arg, pol.inverse()))

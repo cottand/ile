@@ -88,6 +88,10 @@ func (ctx *TypeCtx) expandSimpleType(t SimpleType, stopAtTyVars bool) ir.Type {
 // expandRec is the recursive helper for expandSimpleType.
 func (st *expanderState) expandRec(t SimpleType) ir.Type {
 	// Restore ir.GoTypes
+	// the original intent of this was to catch these during the compile phase,
+	// to leverage this when transpiling
+	//
+	// That's not actually the case anymore (grep for ir.GoType to verify)
 	if goT := t.prov().underlyingGoType; goT != nil {
 		return &ir.GoType{
 			Underlying:  goT,
@@ -197,9 +201,10 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 		ret := st.expandRec(ty.ret)
 		funcRange := rng
 		return &ir.FnType{
-			Args:   args,
-			Return: ret,
-			Range:  funcRange,
+			Args:     args,
+			Return:   ret,
+			Variadic: ty.variadic,
+			Range:    funcRange,
 		}
 	//
 	case unionType:

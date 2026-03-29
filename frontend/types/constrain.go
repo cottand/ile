@@ -1470,6 +1470,7 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 		return funcType{
 			args:           args,
 			ret:            cs.extrude(t.ret, targetLvl, pol),
+			variadic:       t.variadic,
 			withProvenance: t.withProvenance,
 		}
 	case unionType: // ComposedType(true, ...)

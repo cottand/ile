@@ -9,23 +9,22 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
 )
 
-// if we're trying to evaluate an expression of type nothing, use its zero value instead
+// injectPotentialNothingType wraps goExpr in a closure that returns a zero-value if ileExprType is Nothing
+//
 // (by now the compiler has asserted such a value would never be used anyway)
 //
 // We could just do this for every expression, but there are plenty of them we don't need to query the type
 // system for (like record select, literals, etc). So instead we call this in scenarios we need to guard against
 // this only
-func (tp *Transpiler) injectPotentialNothingType(expr ir.Expr) (goast.Expr, error) {
-	exprType := tp.types.TypeOf(expr)
-	transpiled, err := tp.transpileExpr(expr)
-
-	if !types.Equal(exprType, ir.NothingTypePtr) {
-		return transpiled, err
+func (tp *Transpiler) injectPotentialNothingType(goExpr goast.Expr, ileExprType ir.Type) (goast.Expr, error) {
+	if !types.Equal(ileExprType, ir.NothingTypePtr) {
+		return goExpr, nil
 	}
 
 	return &goast.CallExpr{
@@ -34,11 +33,31 @@ func (tp *Transpiler) injectPotentialNothingType(expr ir.Expr) (goast.Expr, erro
 		}},
 			Body: &goast.BlockStmt{List: []goast.Stmt{
 				// evaluate the desired expression, then return any
-				&goast.ExprStmt{X: transpiled},
+				&goast.ExprStmt{X: goExpr},
 				&goast.ReturnStmt{Results: []goast.Expr{goast.NewIdent("nil")}},
 			}}},
 	}, nil
+}
 
+// newSliceExpr tales the existing goExpr and makes it a slice by adding a function closure
+func (tp *Transpiler) newSliceExpr(expr goast.Expr, retType goast.Expr) *goast.CallExpr {
+	return &goast.CallExpr{
+		Fun: &goast.FuncLit{Type: &goast.FuncType{Results: &goast.FieldList{
+			List: []*goast.Field{{Type: retType}},
+		}},
+			Body: &goast.BlockStmt{List: []goast.Stmt{
+				&goast.AssignStmt{
+					Tok: token.DEFINE,
+					Lhs: []goast.Expr{goast.NewIdent("slice")},
+					Rhs: []goast.Expr{expr},
+				},
+				&goast.ReturnStmt{Results: []goast.Expr{
+					&goast.SliceExpr{
+						X: goast.NewIdent("slice"),
+					},
+				}},
+			}}},
+	}
 }
 
 func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
@@ -85,46 +104,7 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 			Sel: goast.NewIdent(e.Label),
 		}, nil
 	case *ir.Call:
-		if asVar, ok := e.Func.(*ir.Var); ok {
-			operator, isOperator := ileToGoOperators[asVar.Name]
-			if isOperator {
-				switch len(e.Args) {
-				case 0:
-					panic("TODO nullary operators")
-				case 1:
-					panic("TODO unary operators")
-				case 2:
-					lhs, err1 := tp.transpileExpr(e.Args[0])
-					rhs, err2 := tp.transpileExpr(e.Args[1])
-					if err1 != nil || err2 != nil {
-						return nil, fmt.Errorf("for call expr, unexpected errors: %v", errors.Join(err1, err2))
-					}
-					return &goast.BinaryExpr{
-						X:  lhs,
-						Y:  rhs,
-						Op: operator,
-					}, nil
-				default:
-					return nil, fmt.Errorf("for call expr, less than 3 arguments, got %d", len(e.Args))
-				}
-			}
-		}
-		goFn, err := tp.transpileExpr(e.Func)
-		if err != nil {
-			return nil, fmt.Errorf("for call expr function, unexpected error: %v", err)
-		}
-		args := make([]goast.Expr, len(e.Args))
-		for i, arg := range e.Args {
-			var err error
-			args[i], err = tp.transpileFunctionParamExpr(e.Func, arg)
-			if err != nil {
-				return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
-			}
-		}
-		return &goast.CallExpr{
-			Fun:  goFn,
-			Args: args,
-		}, nil
+		return tp.transpileFnCall(e)
 	case *ir.WhenMatch:
 		statements, err := tp.transpileExpressionToStatements(expr, "return")
 		if err != nil {
@@ -175,18 +155,91 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	}
 }
 
-func (tp *Transpiler) transpileFunctionParamExpr(fn ir.Expr, arg ir.Expr) (goast.Expr, error) {
-	fmt.Print(fn)
-
-	fmt.Println(tp.types.TypeOf(fn))
-	fmt.Println(tp.types.TypeOf(arg))
-
-	ret, err := tp.injectPotentialNothingType(arg)
-	if err != nil {
-		return nil, err
+func (tp *Transpiler) transpileFnCall(e *ir.Call) (expr goast.Expr, err error) {
+	if asVar, ok := e.Func.(*ir.Var); ok {
+		operator, isOperator := ileToGoOperators[asVar.Name]
+		if isOperator {
+			switch len(e.Args) {
+			case 0:
+				panic("TODO nullary operators")
+			case 1:
+				panic("TODO unary operators")
+			case 2:
+				lhs, err1 := tp.transpileExpr(e.Args[0])
+				rhs, err2 := tp.transpileExpr(e.Args[1])
+				if err1 != nil || err2 != nil {
+					return nil, fmt.Errorf("for call expr, unexpected errors: %v", errors.Join(err1, err2))
+				}
+				return &goast.BinaryExpr{
+					X:  lhs,
+					Y:  rhs,
+					Op: operator,
+				}, nil
+			default:
+				return nil, fmt.Errorf("for call expr, less than 3 arguments, got %d", len(e.Args))
+			}
+		}
 	}
+	goFn, err := tp.transpileExpr(e.Func)
+	if err != nil {
+		return nil, fmt.Errorf("for call expr function, unexpected error: %v", err)
+	}
+	fnType := sync.OnceValue(func() ir.Type {
+		return tp.types.TypeOf(e.Func)
+	})
+	args := make([]goast.Expr, 0, len(e.Args))
+	ellipsis := token.Pos(0)
+	for i, arg := range e.Args {
+		var err error
+		if i == len(e.Args)-1 {
+			if fnType().(*ir.FnType).Variadic {
+
+				// break down the list literal and inline each individual element into the Go vararg as arguments
+				if arg, ok := arg.(*ir.ListLiteral); ok {
+					for _, listLitArg := range arg.Args {
+						goArg, err := tp.transpileFunctionParamExpr(listLitArg)
+						if err != nil {
+							return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
+						}
+						args = append(args, goArg)
+					}
+				} else {
+					// ellipsis should only be set if we are NOT inlining the vararg args
+					ellipsis = token.Pos(1)
+					return nil, fmt.Errorf("TODO for call expr, not handling intermediary storage of the vararg argument")
+				}
+				continue
+			}
+		}
+		goArg, err := tp.transpileFunctionParamExpr(arg)
+		if err != nil {
+			return nil, fmt.Errorf("for call expr param, unexpected error: %v", err)
+		}
+		args = append(args, goArg)
+	}
+
+	return &goast.CallExpr{
+		Fun:      goFn,
+		Args:     args,
+		Ellipsis: ellipsis,
+	}, nil
+}
+
+func (tp *Transpiler) transpileFunctionParamExpr(arg ir.Expr) (goast.Expr, error) {
+	goArg, err := tp.transpileExpr(arg)
+	if err != nil {
+		return nil, fmt.Errorf("for call expr param, unexpected error: %w", err)
+	}
+
+	ret, err := tp.injectPotentialNothingType(goArg, tp.types.TypeOf(arg))
+	if err != nil {
+		return nil, fmt.Errorf("for call expr param, unexpected error when wrapping: %w", err)
+	}
+
 	return ret, nil
 }
+
+var s string = fmt.Sprintf(`hello, %s!`, []any{"a"}...)
 
 func (tp *Transpiler) transpileListLiteral(expr ir.Expr) (goast.Expr, error) {
 	typed := tp.types.TypeOf(expr)
