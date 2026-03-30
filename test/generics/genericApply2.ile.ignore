@@ -1,0 +1,7 @@
+//ile:compilerTest test.result() | int64(3)
+
+package test
+
+fn apply(f, y): { f(y) }
+
+fn result() { apply(fn x -> x + 1, 2) }

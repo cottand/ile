@@ -264,6 +264,24 @@ func (ctx *typeAstTypeContext) typeAstTypeRec(typ ir.Type) SimpleType {
 			proxyProvenance: goProvenanceFor(typ.Underlying),
 		}
 
+	case *ir.TypeVar:
+		name := typ.NameHint
+		if name == "" {
+			name = typ.Identifier
+		}
+		if existing, ok := ctx.tempVars[name]; ok {
+			return existing
+		}
+		prov := typeProvenance{
+			Range:  ir.RangeOf(typ),
+			desc:   "type variable",
+			isType: true,
+		}
+		fresh := ctx.newTypeVariable(prov, name, nil, nil)
+		ctx.tempVars[name] = fresh
+		ctx.localVars[name] = *fresh
+		return fresh
+
 	default:
 		panic(fmt.Sprintf("typeIrType: implement me for the %T %s", typ, ir.TypeString(typ)))
 	}

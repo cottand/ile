@@ -17,6 +17,7 @@ VAL         : 'val';
 
 
 NIL_LIT: 'Nil' -> mode(NLSEMI);
+TYPE_VAR: '\'' LETTER (LETTER | UNICODE_DIGIT)* -> mode(NLSEMI);
 IDENTIFIER: LETTER (LETTER | UNICODE_DIGIT)* -> mode(NLSEMI);
 
 // Punctuation

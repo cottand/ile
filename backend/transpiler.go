@@ -15,6 +15,8 @@ type Transpiler struct {
 	currentExpr ir.Expr
 	// inFunctionSignature is used during transpileType to determine if we can use const types or not
 	inFunctionSignature bool
+	// typeVarNames maps ir.TypeVar identifiers to Go type parameter names during function transpilation
+	typeVarNames map[string]string
 
 	*slog.Logger
 }

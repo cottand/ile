@@ -118,14 +118,14 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 		return ctx.TypeExpr(expr.Body, vars)
 	case *ir.LetGroup:
 		bindingVars := make([]*typeVariable, len(expr.Vars))
-		// first, add all the vars to the env
+		// first, add all the vars to the env at level + 1
 		for i, binding := range expr.Vars {
 			bindingVars[i] = ctx.fresher.newTypeVariable(ctx.level+1, typeProvenance{}, binding.Var, nil, nil)
 			ctx.env[binding.Var] = bindingVars[i]
 		}
-		// ...and after they have been added, actually try to resolve each binding's value
+		// ...and after they have been added, actually try to resolve each binding's value at level + 1
 		for i, binding := range expr.Vars {
-			typed := ctx.TypeExpr(binding.Value, vars)
+			typed := ctx.nextLevel().TypeExpr(binding.Value, vars)
 			bindingProv := newOriginProv(binding.Value, "binding of "+binding.Value.Describe(), "")
 			ctx.constrain(typed, bindingVars[i], bindingProv, constrainOnErr)
 		}

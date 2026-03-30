@@ -78,6 +78,18 @@ func TestFunctionsEndToEnd(t *testing.T) {
 	}
 }
 
+func TestGenericsEndToEnd(t *testing.T) {
+	files, err := testSet.ReadDir("test/generics")
+	assert.NoError(t, err)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".ile") {
+			continue
+		}
+		testFile(t, "generics", f)
+	}
+}
+
+
 func TestInteropEndToEnd(t *testing.T) {
 	files, err := testSet.ReadDir("test/interop")
 	assert.NoError(t, err)

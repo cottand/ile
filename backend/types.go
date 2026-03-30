@@ -72,9 +72,16 @@ func (tp *Transpiler) transpileType(t ir.Type) (goast.Expr, error) {
 		panic("TODO deal with tracking const during transpiling")
 		return nil, nil
 
-		// generic type!
 	case *ir.TypeVar:
-		return nil, fmt.Errorf("generics are not implemented yet, but got %v", t.ShowIn(ir.DumbShowCtx, 0))
+		if tp.typeVarNames != nil {
+			if name, ok := tp.typeVarNames[e.Identifier]; ok {
+				return goast.NewIdent(name), nil
+			}
+		}
+		return goast.NewIdent("any"), nil
+
+	case *ir.ConstrainedType:
+		return tp.transpileType(e.Base)
 
 	case *ir.AnyType:
 		return goast.NewIdent("any"), nil

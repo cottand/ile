@@ -3,11 +3,12 @@ package frontend
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/frontend/ir"
 	"github.com/cottand/ile/frontend/types"
 	gopackages "golang.org/x/tools/go/packages"
-	"log/slog"
 )
 
 //// Universe is the *infer.TypeEnv which corresponds to all symbols that do not need Imports to be used,
@@ -18,7 +19,6 @@ import (
 //	env.Declare("False", &hmtypes.Const{Name: "Bool"})
 //	return env
 //}()
-
 
 type InferenceEnv struct {
 	// GoImports references Imports by path
@@ -45,19 +45,16 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ir.File, *ilerr.Err
 
 	vars := make(map[string]types.SimpleType)
 	totalFailures := make([]error, 0)
+	groupedPkg.Body = ir.IntLiteral("1", ir.Range{})
+	_ = ctx.TypeExpr(groupedPkg, vars)
+	totalFailures = append(totalFailures, ctx.Failures...)
+	if len(ctx.Failures) > 0 {
+		return files, nil, fmt.Errorf("failures found:\n %s", errors.Join(ctx.Failures...))
+	}
+	errs = errs.With(ctx.Errors...)
+
 	for i, file := range env.Syntax {
 		for j, decl := range file.Declarations {
-
-			groupedPkg.Body = &ir.Var{
-				Name: decl.Name,
-			}
-			_ = ctx.TypeExpr(groupedPkg, vars)
-			totalFailures = append(totalFailures, ctx.Failures...)
-			if len(ctx.Failures) > 0 {
-				continue
-			}
-			errs = errs.With(ctx.Errors...)
-
 			typed := ctx.TypeOf(decl.E)
 			inferenceLogger.Debug("found type for decl", "name", decl.Name, "type", typed.ShowIn(ir.DumbShowCtx, 0))
 			decl.Type = typed

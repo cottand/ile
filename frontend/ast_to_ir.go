@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"reflect"
+	"strings"
 
 	"github.com/cottand/ile/frontend/ast"
 	"github.com/cottand/ile/frontend/ir"
@@ -234,6 +235,13 @@ func ConvertType(t ast.Type) ir.Type {
 
 	switch typ := t.(type) {
 	case *ast.TypeName:
+		if strings.HasPrefix(typ.Name, "'") {
+			return &ir.TypeVar{
+				NameHint:   strings.TrimPrefix(typ.Name, "'"),
+				Identifier: typ.Name,
+				Range:      ir.Range{PosStart: typ.Range.PosStart, PosEnd: typ.Range.PosEnd},
+			}
+		}
 		return &ir.TypeName{
 			Name:  typ.Name,
 			Range: ir.Range{PosStart: typ.Range.PosStart, PosEnd: typ.Range.PosEnd},

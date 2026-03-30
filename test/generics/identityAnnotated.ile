@@ -1,0 +1,7 @@
+//ile:compilerTest test.addOne(1) | int64(2)
+
+package test
+
+fn id(y: 'a): 'a { y }
+
+fn addOne(x) { id(x) + 1 }

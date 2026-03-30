@@ -1,0 +1,13 @@
+//ile:compilerTest test.addOne(1) | 2
+
+package test
+
+import fmt "go:fmt"
+
+
+fn id1(x) { x }
+fn id2(y) { y }
+
+
+fn addOne(x) { id1(x) + 1 }
+fn printOne(x) { fmt.Sprintf(x, []) }

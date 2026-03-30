@@ -48,11 +48,14 @@ blockExpr
     ;
 
 type_
-    : typeName
+    : typeName typeArgs?
+    | TYPE_VAR
     | recordTypeLiteral
     | literal
-//    : typeName typeArgs?
-//    | typeLit
+    ;
+
+typeArgs
+    : LESS type_ (COMMA type_)* GREATER
     ;
 
 typeName

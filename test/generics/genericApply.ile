@@ -1,0 +1,7 @@
+//ile:compilerTest test.result() | int64(3)
+
+package test
+
+fn first(x: 'a, y: 'b): 'a { x }
+
+fn result() { first(3, 4) }

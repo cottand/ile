@@ -672,13 +672,36 @@ func (l *listener) doMatchPattern(ctx IMatchPatternContext) (ast.Type, error) {
 }
 
 func (l *listener) doType(ctx IType_Context) ast.Type {
+	if typeVar := ctx.TYPE_VAR(); typeVar != nil {
+		return &ast.TypeName{
+			Range: getPos(ctx),
+			Name:  typeVar.GetText(),
+		}
+	}
 	typeName := ctx.TypeName()
 	if typeName != nil {
-		// Create a simple type name node
-		return &ast.TypeName{
+		base := &ast.TypeName{
 			Range: getPos(ctx),
 			Name:  typeName.GetText(),
 		}
+		if typeArgsCtx := ctx.TypeArgs(); typeArgsCtx != nil {
+			types := typeArgsCtx.AllType_()
+			args := make([]ast.Type, len(types))
+			for i := range slices.Backward(types) {
+				var ok bool
+				args[i], ok = l.typeStack.Pop()
+				if !ok {
+					l.visitErrors = append(l.visitErrors, fmt.Errorf("type args: type stack is empty"))
+					return nil
+				}
+			}
+			return &ast.TypeApplication{
+				Range: getPos(ctx),
+				Base:  base,
+				Args:  args,
+			}
+		}
+		return base
 	}
 	if typeLiteral := ctx.Literal(); typeLiteral != nil {
 		type_, ok := l.expressionStack.Pop()
