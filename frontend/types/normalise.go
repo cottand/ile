@@ -20,7 +20,7 @@ import (
 // normaliseType corresponds to normalizeTypes_! in the scala reference
 func (ctx *TypeCtx) normaliseType(st SimpleType, p polarity) (res SimpleType) {
 	normaliser := typeNormaliser{
-		Logger:    logger.With("section", "inference.normalise"),
+		Logger:    ctx.logger.With("section", "inference.normalise"),
 		TypeCtx:   ctx,
 		processed: set.New[TypeVarID](1),
 		DNF:       newOpsDNF(ctx, true),

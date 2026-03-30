@@ -1,0 +1,7 @@
+//ile:compilerTest test.Result() | int64(3)
+package test
+
+fn Result(): Int {
+    val add1 = fn a: Int -> a + 1
+    add1(2)
+}

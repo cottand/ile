@@ -144,6 +144,7 @@ arithmeticExpr
     ) arithmeticExpr
     | arithmeticExpr LOGICAL_AND arithmeticExpr
     | arithmeticExpr LOGICAL_OR arithmeticExpr
+    | arithmeticExpr (EOS)? PIPE arithmeticExpr
     | whenBlock
     | L_PAREN blockExpr R_PAREN
 //    | fnLit

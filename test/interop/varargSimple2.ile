@@ -1,10 +1,19 @@
-//ile:compilerTest test.s | "hello, world!"
+//ile:compilerTest test.getString() | "Have we found it? world"
 
 package test
 
-import fmt "go:fmt"
+import fmt  "go:fmt"
+import strings "go:strings"
 
 val what = "hello"
 val who = "world"
 
-val s = fmt.Sprintf("%s, %s!", [what, who])
+fn getString() {
+  val s = fmt.Sprintf("%s, %s!", [what, who])
+  val found = when strings.Contains(s, "world") {
+    True -> "world"
+    False -> "no world"
+  }
+
+  fmt.Sprintf("Have we found it? %s", [found])
+}

@@ -261,6 +261,23 @@ func (l *listener) ExitArithmeticExpr(ctx *ArithmeticExprContext) {
 	case ctx.LOGICAL_AND() != nil:
 		binOp = IleTokenInGo[ctx.LOGICAL_AND().GetSymbol().GetTokenType()]
 		antlrPos = ctx.LOGICAL_AND().GetSymbol().GetStart()
+	case ctx.PIPE() != nil:
+		rhs, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
+			return
+		}
+		lhs, ok := l.expressionStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("expression stack is empty"))
+			return
+		}
+		l.expressionStack.Push(&ast.PipeExpr{
+			Left:  lhs,
+			Right: rhs,
+			Range: intervalTo2Pos(antlr.Interval{Start: ctx.PIPE().GetSymbol().GetStart(), Stop: ctx.PIPE().GetSymbol().GetStart()}),
+		})
+		return
 	default:
 		l.visitErrors = append(l.visitErrors, fmt.Errorf("unexpected binary operator: %v", ctx.GetText()))
 		return
@@ -522,6 +539,41 @@ func (l *listener) ExitFunctionDecl(ctx *FunctionDeclContext) {
 		Value:    &ast.FuncLit{Range: pos, Params: parameters, Body: blockExpr},
 		TypeAnn:  funcType, // Set the function type as the type annotation
 		Comments: l.findCommentsPreceding(ctx.GetParser().GetTokenStream(), ctx.FN().GetSymbol()),
+	})
+}
+
+func (l *listener) ExitFnLit(ctx *FnLitContext) {
+	parsedParams := ctx.AllParameterDecl()
+
+	params := make([]stringTypePair, len(parsedParams))
+	for i := range slices.Backward(parsedParams) {
+		p, ok := l.paramDeclStack.Pop()
+		if !ok {
+			l.visitErrors = append(l.visitErrors, fmt.Errorf("fnLit: param stack empty"))
+			return
+		}
+		params[i] = p
+	}
+
+	body, ok := l.expressionStack.Pop()
+	if !ok {
+		l.visitErrors = append(l.visitErrors, fmt.Errorf("fnLit: expression stack empty"))
+		return
+	}
+
+	parameters := make([]ast.Parameter, len(params))
+	for i, param := range params {
+		parameters[i] = ast.Parameter{
+			Range:   getPos(parsedParams[i]),
+			Name:    param.str,
+			TypeAnn: param.typ,
+		}
+	}
+
+	l.expressionStack.Push(&ast.FuncLit{
+		Range:  getPos(ctx),
+		Params: parameters,
+		Body:   body,
 	})
 }
 

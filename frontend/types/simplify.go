@@ -90,17 +90,15 @@ func (p simpleTypePolarity) String() string {
 const simplifyRemovePolarVars = true
 const simplifyInlineBounds = true // Controls bound inlining for non-rec, non-invariant vars
 
-var simplifyLogger = logger.With("section", "inference.simplify")
-
 // simplifyPipeline orchestrates the type simplification process.
 // Corresponds to the SimplifyPipeline class in Scala.
 func (ctx *TypeCtx) simplifyPipeline(st SimpleType, pol polarity) (ret SimpleType) {
 	defer func() {
 		if len(ctx.Failures) != 0 {
 			// when there are failures, ret might be nil, so we don't pretty print it
-			simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret)
+			ctx.logger.With("section", "inference.simplify").Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret)
 		} else {
-			simplifyLogger.Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret, "result.bounds", boundsString(ret))
+			ctx.logger.With("section", "inference.simplify").Info("simplification pipeline finished", "simpleType", st, "bounds", boundsString(st), "result", ret, "result.bounds", boundsString(ret))
 		}
 	}()
 
@@ -150,7 +148,7 @@ type typeSimplifier struct {
 func newTypeSimplifier(ctx *TypeCtx) typeSimplifier {
 	return typeSimplifier{
 		TypeCtx: ctx,
-		Logger:  simplifyLogger,
+		Logger:  ctx.logger.With("section", "inference.simplify"),
 	}
 }
 
@@ -160,7 +158,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 
 	simplifier := newTypeSimplifier(ctx)
 
-	simplifyLogger.Debug("simplifyType: starting", "type", st, "polarity", pol, "bounds", boundsString(st))
+	simplifier.Debug("simplifyType: starting", "type", st, "polarity", pol, "bounds", boundsString(st))
 
 	// --- Analysis 1: Polarity and Occurrence Counts ---
 	occNums := make(map[polarVariableKey]int)
@@ -197,7 +195,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 		}
 		_, _ = fmt.Fprintf(coOccsStr, "}; ")
 	}
-	simplifyLogger.Debug("simplifyType: occurrences " + coOccsStr.String())
+	simplifier.Debug("simplifyType: occurrences " + coOccsStr.String())
 
 	// --- Processing: Determine Substitutions ---
 	allVars := getVariables(st) // getCached all unique variables
@@ -343,7 +341,7 @@ func (ctx *TypeCtx) simplifyType(st SimpleType, pol polarity, removePolarVars bo
 					// FIXME: divergence from scala reference
 					// Unification logic differs from TypeSimplifier.scala:529-553
 					// Potential unification: w into tv
-					logger.Debug("simplifyType: [sub] Rule 4 (Unify Candidate)", "from", w, "to", tv)
+					simplifier.Debug("simplifyType: [sub] Rule 4 (Unify Candidate)", "from", w, "to", tv)
 					varSubst[w.id] = tv // Mark w to be replaced by tv
 
 					// Merge bounds (w's bounds into tv's)
@@ -417,7 +415,7 @@ func (a1 *analysis1State) analyze1(st SimpleType, pol polarity) {
 
 	switch ty := st.(type) {
 	case *typeVariable:
-		logger.Debug("analyze1: (Type Variable case)", "var", ty, "polarity", pol)
+		a1.simplifier.Debug("analyze1: (Type Variable case)", "var", ty, "polarity", pol)
 
 		// Determine effective polarity for bound processing
 		if pol == invariant {
@@ -509,7 +507,7 @@ func (ctx *TypeCtx) typeRefTraverseTypeArguments(t typeRef, pol polarity) iter.S
 	return func(yield func(polarity, SimpleType) bool) {
 		def, ok := ctx.typeDefs[t.defName]
 		if !ok {
-			logger.Error("typeRefTraverseTypeArguments: type definition not found or type argument length mismatch", "defName", t.defName)
+			ctx.logger.Error("typeRefTraverseTypeArguments: type definition not found or type argument length mismatch", "defName", t.defName)
 			return
 		}
 		if def.typeVarVariances == nil {
@@ -522,14 +520,14 @@ func (ctx *TypeCtx) typeRefTraverseTypeArguments(t typeRef, pol polarity) iter.S
 		}
 
 		if len(t.typeArgs) != len(def.typeParamArgs) {
-			logger.Error("typeRefTraverseTypeArguments: type argument length mismatch", "defName", t.defName, "typeArgs", t.typeArgs, "typeParamArgs", def.typeParamArgs)
+			ctx.logger.Error("typeRefTraverseTypeArguments: type argument length mismatch", "defName", t.defName, "typeArgs", t.typeArgs, "typeParamArgs", def.typeParamArgs)
 		}
 
 		for i, typeParam := range def.typeParamArgs {
 			typeParam := typeParam.Snd
 			varianceInf, ok := def.typeVarVariances[typeParam.id]
 			if !ok {
-				logger.Error("could not find variance info of type parameter of type reference", "defName", t.defName, "typeParam", typeParam.id)
+				ctx.logger.Error("could not find variance info of type parameter of type reference", "defName", t.defName, "typeParam", typeParam.id)
 				varianceInf = varianceInvariant
 			}
 			var nextPol polarity
@@ -776,7 +774,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 				})
 			}
 			mergedBound := ts.mergeTransform(ty, pol == positive, ty)
-			logger.Debug("simplify: transform: Inlining bounds for removed var", "var", ty, "mergedBounds", mergedBound, "polarity", pol.String())
+			ts.Debug("simplify: transform: Inlining bounds for removed var", "var", ty, "mergedBounds", mergedBound, "polarity", pol.String())
 			// Need to pass parent variable to recursive call to handle cycles during inlining
 			return mergedBound
 		}
@@ -795,7 +793,7 @@ func (ts *transformerState) transform(st SimpleType, pol polarity, parent *typeV
 			// Use a temporary provenance; final provenance comes from usage context
 			renewedVar = ts.ctx.fresher.newTypeVariable(ty.level_, emptyProv, ty.nameHint, nil, nil)
 			ts.renewals[ty] = renewedVar
-			logger.Debug("simplify: transform: renewed", "from", ty, "to", renewedVar)
+			ts.Debug("simplify: transform: renewed", "from", ty, "to", renewedVar)
 		}
 
 		if shouldInline { // pol != invariant here

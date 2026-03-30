@@ -1,0 +1,10 @@
+//ile:compilerTest test.Result() | int64(7)
+package test
+
+fn Sub(a: Int, b: Int): Int {
+    a - b
+}
+
+fn Result(): Int {
+    10 |> Sub(_, 3)
+}

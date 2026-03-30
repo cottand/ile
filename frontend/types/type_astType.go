@@ -19,7 +19,7 @@ func (ctx *TypeCtx) typeIrType(
 	newDefsInfo map[string]util.Pair[ir.TypeDefKind, int],
 ) (ret SimpleType, typeVars []typeVariable) {
 	defer func() {
-		logger.Debug("assigned type representation to ast.Type", "ast.Type", typ, "type", ret)
+		ctx.logger.Debug("assigned type representation to ast.Type", "ast.Type", typ, "type", ret)
 	}()
 	localVars := make(map[typeName]typeVariable)
 	newCtx := &typeAstTypeContext{

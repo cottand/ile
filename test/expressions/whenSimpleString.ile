@@ -1,0 +1,19 @@
+//ile:compilerTest test.x.name | "two"
+package test
+
+
+
+val x = do(2)
+
+fn do(x) {
+   val n = when x {
+    1 -> "one"
+    2 -> "two"
+    3 -> "three"
+    _ -> "whatever"
+  }
+
+  #{ name: n, age: 25, hobby: "gymming" }
+}
+
+

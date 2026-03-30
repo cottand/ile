@@ -262,7 +262,7 @@ func TestRecordLiteralEmpty(t *testing.T) {
 	file := `
 package main
 
-val r = {}
+val r = #{}
 `
 	src, _ := testParse(t, file)
 

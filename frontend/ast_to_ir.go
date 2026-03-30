@@ -175,6 +175,20 @@ func desugarExpr(expr ast.Expr) ir.Expr {
 
 		return result
 
+	case *ast.PipeExpr:
+		if call, ok := e.Right.(*ast.CallExpr); ok {
+			for i, arg := range call.Args {
+				if ident, ok := arg.(*ast.Identifier); ok && ident.Name == "_" {
+					call.Args[i] = e.Left
+					return desugarExpr(call)
+				}
+			}
+		}
+		return &ir.Call{
+			Func:  desugarExpr(e.Right),
+			Args:  []ir.Expr{desugarExpr(e.Left)},
+			Range: ir.Range{PosStart: e.Range.PosStart, PosEnd: e.Range.PosEnd},
+		}
 	case *ast.IndexAccessExpr:
 		return &ir.IndexAccess{
 			Range: ir.RangeOf(e.Range),

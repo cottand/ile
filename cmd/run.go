@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/cottand/ile/ile"
-	"github.com/cottand/ile/internal/log"
-	"github.com/spf13/cobra"
 	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/cottand/ile/ile"
+	"github.com/cottand/ile/internal/log"
+	"github.com/spf13/cobra"
 )
 
 var RunCmd = &cobra.Command{
@@ -32,6 +33,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// quieten the logger
 	log.SetLevel(slog.LevelError)
 	log.AddSource(false)
+	log.SetEnabledSections()
 
 	target, err := filepath.Abs(args[0])
 	if err != nil {

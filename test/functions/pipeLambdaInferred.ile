@@ -1,0 +1,6 @@
+//ile:compilerTest test.Result() | int64(3)
+package test
+
+fn Result(): Int {
+    2 |> (fn it -> it + 1)
+}

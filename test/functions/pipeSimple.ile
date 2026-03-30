@@ -1,0 +1,10 @@
+//ile:compilerTest test.Result() | int64(3)
+package test
+
+fn AddOne(a: Int): Int {
+    a + 1
+}
+
+fn Result(): Int {
+    2 |> AddOne
+}

@@ -186,6 +186,8 @@ func (tp *Transpiler) tryFindCommonType(left, right ir.Type) (ir.Type, error) {
 		return tp.tryFindCommonType(commonInUnion, right)
 	}
 
-	tp.Warn("could not find common supertype for types", "left", left, "right", right)
-	return &ir.AnyType{}, nil
+	return tp.tryFindCommonType(right, left)
+
+	//tp.Warn("could not find common supertype for types", "left", left, "right", right)
+	//return &ir.AnyType{}, nil
 }

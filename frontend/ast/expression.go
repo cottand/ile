@@ -375,6 +375,32 @@ func (e *VarDecl) Hash() uint64 {
 	return h.Sum64()
 }
 
+// PipeExpr represents a pipe expression (a |> f).
+type PipeExpr struct {
+	Range
+	Left  Expr
+	Right Expr
+}
+
+func (e *PipeExpr) exprNode() {}
+
+func (e *PipeExpr) Hash() uint64 {
+	h := fnv.New64a()
+	arr := []byte("PipeExpr")
+	arr = binary.LittleEndian.AppendUint64(arr, e.Range.Hash())
+
+	if e.Left != nil {
+		arr = binary.LittleEndian.AppendUint64(arr, e.Left.Hash())
+	}
+
+	if e.Right != nil {
+		arr = binary.LittleEndian.AppendUint64(arr, e.Right.Hash())
+	}
+
+	_, _ = h.Write(arr)
+	return h.Sum64()
+}
+
 type IndexAccessExpr struct {
 	Range
 	X     Expr

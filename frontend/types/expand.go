@@ -27,7 +27,7 @@ func (ctx *TypeCtx) GetAstTypeFor(t SimpleType, pol polarity) ir.Type {
 	uninstantiated := t.uninstantiatedBody()
 	simple := ctx.simplifyPipeline(uninstantiated, pol) // Simplify first
 	expanded := ctx.expandSimpleType(simple, false)
-	logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ir.DumbShowCtx, 0))
+	ctx.logger.Info("expanded type", "simpleType", t, "simplifiedBounds", boundsString(simple), "expanded", expanded.ShowIn(ir.DumbShowCtx, 0))
 	return expanded
 }
 

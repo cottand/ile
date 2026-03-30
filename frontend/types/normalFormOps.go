@@ -23,7 +23,7 @@ type opsDNF struct {
 }
 
 func newOpsDNF(ctx *TypeCtx, preserveTypeRefs bool) *opsDNF {
-	return &opsDNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs, Logger: logger.With("section", "inference.DNF")}
+	return &opsDNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs, Logger: ctx.logger.With("section", "inference.DNF")}
 }
 
 // --- DNF Methods (Corresponds to methods on DNF class in Scala) ---
@@ -65,9 +65,9 @@ func (o *opsDNF) conjunctOrConjunct(left, right conjunct) *conjunct {
 }
 
 func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
-	logger.Debug("conjunctAndConjunct: entry", "left", left, "right", right, "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
+	o.Debug("conjunctAndConjunct: entry", "left", left, "right", right, "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
 	if o.ctx.isSubtype(left.lhs.toType(), right.rhs.toType(), nil) {
-		logger.Debug("conjunctAndConjunct: contradiction", "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
+		o.Debug("conjunctAndConjunct: contradiction", "left.lhs", left.lhs.toType(), "right.rhs", right.rhs.toType())
 		return conjunct{}, false
 	}
 
@@ -90,7 +90,7 @@ func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 
 	// Create the merged conjunct
 	result, ok := o.simplifyConjunct(newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars))
-	logger.Debug("conjunctAndConjunct: result", "result", result, "ok", ok, "resultType", result.toType())
+	o.Debug("conjunctAndConjunct: result", "result", result, "ok", ok, "resultType", result.toType())
 	return result, ok
 }
 
@@ -335,7 +335,7 @@ func (o *opsDNF) mk(ty SimpleType, pol bool) (ret dnf) {
 	case *PolymorphicType:
 		// This case might indicate an issue if polymorphic types are expected
 		// to be instantiated before normalization. Handle by normalizing the body.
-		logger.Warn("Normalizing polymorphic type body directly", "type", t)
+		o.Warn("Normalizing polymorphic type body directly", "type", t)
 		return o.mk(t.Body, pol)
 	default:
 		o.ctx.addFailure(fmt.Sprintf("DNF.mk: unhandled type %T", ty), ty.prov())
@@ -493,7 +493,7 @@ func (o *opsDNF) mapPolRecursive(ty SimpleType, pol polarity, fn func(pol polari
 
 	case *PolymorphicType:
 		// This case should ideally not be hit if types are instantiated first.
-		logger.Warn("mapPolRecursive encountered PolymorphicType", "type", t)
+		o.Warn("mapPolRecursive encountered PolymorphicType", "type", t)
 		newBody := o.mapPolRecursive(t.Body, pol, fn)
 		if newBody == t.Body {
 			return t
@@ -621,10 +621,11 @@ func isPrimitiveTypeName(name typeName) bool {
 type opsCNF struct {
 	ctx              *TypeCtx
 	preserveTypeRefs bool
+	*slog.Logger
 }
 
 func newOpsCNF(ctx *TypeCtx, preserveTypeRefs bool) *opsCNF {
-	return &opsCNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs}
+	return &opsCNF{ctx: ctx, preserveTypeRefs: preserveTypeRefs, Logger: ctx.logger.With("section", "inference.CNF")}
 }
 
 func (o *opsCNF) toDNF() *opsDNF {
@@ -701,7 +702,7 @@ func (o *opsCNF) mk(ty SimpleType, pol bool) cnf {
 		return o.mk(boundToUse, pol)
 
 	case *PolymorphicType:
-		logger.Warn("Normalizing polymorphic type body directly for CNF", "type", t)
+		o.Warn("Normalizing polymorphic type body directly for CNF", "type", t)
 		return o.mk(t.Body, pol)
 
 	default:

@@ -155,6 +155,12 @@ var errorTypeInstance = classTag{
 func (t *Fresher) initTypeDefinitions() []TypeDefinition {
 	return []TypeDefinition{
 		{
+			name:        ir.AnyTypeName,
+			defKind:     ir.KindAlias,
+			bodyType:    topType,
+			baseClasses: set.From([]typeName{}),
+		},
+		{
 			name:        ir.IntTypeName,
 			defKind:     ir.KindClass,
 			bodyType:    topType,

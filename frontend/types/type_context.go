@@ -108,6 +108,8 @@ type TypeState struct {
 	cache             nodesToSimpletypeCache
 	expandedTypeCache expandedTypeCache
 
+	logger *slog.Logger
+
 	dontRecordProvenance bool
 }
 
@@ -135,6 +137,7 @@ func NewEmptyTypeCtx() *TypeCtx {
 			fresher:           fresher,
 			cache:             make(map[exprCacheEntry]nodeCacheEntry, 1),
 			expandedTypeCache: make(map[exprCacheEntry]ir.Type, 1),
+			logger:            slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
 		},
 		logger: slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
 	}
@@ -536,12 +539,12 @@ func (ctx *TypeCtx) ComputeVariances([]TypeDefinition) {
 }
 
 func (ctx *TypeState) addFailure(message string, pos ir.Positioner) {
-	logger.Error("failure during inference", "message", message)
+	ctx.logger.Error("failure during inference", "message", message)
 	ctx.Failures = append(ctx.Failures, typeError{message: message, Positioner: pos, stack: debug.Stack()})
 }
 
 func (ctx *TypeState) addError(ileError ilerr.IleError) {
-	logger.Warn("error during inference", "message", ileError.Error(), "at", ilerr.FormatWithCode(ileError))
+	ctx.logger.Warn("error during inference", "message", ileError.Error(), "at", ilerr.FormatWithCode(ileError))
 	ctx.Errors = append(ctx.Errors, ileError)
 }
 
@@ -597,7 +600,7 @@ func (ctx *TypeCtx) variancesForTypeDef(defName string, id TypeVarID) varianceIn
 
 // getTypeDefinitionVariances retrieves variance information for type parameters.
 func (ctx *TypeCtx) getTypeDefinitionVariances(name typeName) ([]Variance, bool) {
-	logger.Warn("getTypeDefinitionVariances not implemented", "type", name)
+	ctx.logger.Warn("getTypeDefinitionVariances not implemented", "type", name)
 	// Placeholder: Assume invariant for now
 	def, ok := ctx.typeDefs[name] // Assuming tyDefs stores this info
 	if !ok {

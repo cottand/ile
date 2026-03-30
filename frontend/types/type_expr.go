@@ -9,8 +9,6 @@ import (
 	"github.com/cottand/ile/frontend/ir"
 )
 
-var logger = slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference")
-
 type exprTyper struct {
 	*TypeCtx
 	*slog.Logger

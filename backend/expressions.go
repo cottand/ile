@@ -125,6 +125,45 @@ func (tp *Transpiler) transpileExpr(expr ir.Expr) (goast.Expr, error) {
 	case *ir.ListLiteral:
 		l, err := tp.transpileListLiteral(originalExpr)
 		return l, err
+	case *ir.Func:
+		fnType, ok := tp.types.TypeOf(e).(*ir.FnType)
+		if !ok {
+			return nil, fmt.Errorf("expected function type for lambda")
+		}
+
+		params := &goast.FieldList{}
+		for i, argName := range e.ArgNames {
+			argType, err := tp.transpileType(fnType.Args[i])
+			if err != nil {
+				return nil, fmt.Errorf("lambda param %s: %v", argName, err)
+			}
+			params.List = append(params.List, &goast.Field{
+				Names: []*goast.Ident{goast.NewIdent(argName)},
+				Type:  argType,
+			})
+		}
+
+		var results *goast.FieldList
+		if !isUnitType(fnType.Return) {
+			retType, err := tp.transpileType(fnType.Return)
+			if err != nil {
+				return nil, fmt.Errorf("lambda return: %v", err)
+			}
+			results = &goast.FieldList{
+				List: []*goast.Field{{Type: retType}},
+			}
+		}
+
+		body, err := tp.transpileExpressionToStatements(e.Body, "return")
+		if err != nil {
+			return nil, fmt.Errorf("lambda body: %v", err)
+		}
+
+		return &goast.FuncLit{
+			Type: &goast.FuncType{Params: params, Results: results},
+			Body: &goast.BlockStmt{List: body},
+		}, nil
+
 	case *ir.RecordLit:
 		recType, err := tp.transpileType(tp.types.TypeOf(originalExpr))
 		if err != nil {
@@ -306,7 +345,7 @@ func (tp *Transpiler) transpileExpressionToStatements(expr ir.Expr, finalLocalVa
 	// add non inlineable Exprs here!
 
 	// some ast.Expr we can inline directly to a Go expression and return that
-	case *ir.RecordSelect, *ir.Literal, *ir.Call, *ir.Var, *ir.RecordLit:
+	case *ir.RecordSelect, *ir.Literal, *ir.Call, *ir.Var, *ir.RecordLit, *ir.Func:
 		goExpr, err := tp.transpileExpr(e)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transpile when expression: %v", err)

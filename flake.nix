@@ -51,6 +51,16 @@
         postInstall = ''
         '';
       });
+      packages.ile-wasm-wasi = packages.ile.overrideAttrs (final: prev: {
+        env.GOOS = "wasip1";
+        env.GOARCH = "wasm";
+        pname = "ile.wasm";
+
+        # we would need a WASM host to run WASM-compiled tests, so let's not
+        doCheck = false;
+        postInstall = ''
+        '';
+      });
 
       packages.ile-wasm-types = pkgs.writeText "ile-wasm.d.ts" (builtins.readFile ./ile/wasm.d.ts);
 
@@ -61,5 +71,18 @@
 
         cp -r $GOROOT/lib/wasm/ $out/lib/wasm
       '';
+
+      packages.web-playground-assets = pkgs.runCommand "ile-web-playground" { } ''
+        mkdir -p $out
+        cp ${./playground/index.html} $out/index.html
+        cp ${packages.go-wasm-exec}/lib/wasm/wasm_exec.js $out/wasm_exec.js
+        cp ${packages.ile-wasm}/bin/js_wasm/ile $out/ile.wasm
+      '';
+
+      packages.web-playground = pkgs.writeShellScriptBin "web-playground" ''
+        echo "Serving playground at http://localhost:8000"
+        ${pkgs.python3}/bin/python3 -m http.server -d ${packages.web-playground-assets} 8000
+      '';
+
     }));
 }

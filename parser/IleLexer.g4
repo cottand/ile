@@ -53,6 +53,7 @@ GREATER_OR_EQUALS : '>=';
 
 // Arithmetic operators
 
+PIPE       : '|>';
 OR         : '|';
 DIV        : '/';
 MOD        : '%';

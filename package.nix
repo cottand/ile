@@ -1,4 +1,4 @@
-{ system, lib, buildGoModule, antlr, installShellFiles, clang, ... }:
+{ system, lib, buildGoModule, antlr, installShellFiles, clang, go, ... }:
 let
   name = "ile";
 in
@@ -12,6 +12,7 @@ buildGoModule {
 
   env.CGO_ENABLED = "0";
   ANTLR_BIN = "${antlr}/bin/antlr";
+  GO_SHARE_SRC_DIR = "${go}/share/go/src";
 
   # will run antlr codegen
   preBuild = ''

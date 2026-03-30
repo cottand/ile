@@ -2,15 +2,8 @@ package ile
 
 import (
 	"fmt"
-	"github.com/cottand/ile/backend"
-	"github.com/cottand/ile/frontend"
-	"github.com/cottand/ile/frontend/ilerr"
-	"github.com/cottand/ile/frontend/ir"
-	"github.com/cottand/ile/frontend/types"
-	"github.com/cottand/ile/parser"
 	"go/format"
 	"go/token"
-	gopackages "golang.org/x/tools/go/packages"
 	"io/fs"
 	"log/slog"
 	"math"
@@ -19,12 +12,29 @@ import (
 	"strconv"
 	"strings"
 	"testing/fstest"
+
+	"github.com/cottand/ile/backend"
+	"github.com/cottand/ile/frontend"
+	"github.com/cottand/ile/frontend/ilerr"
+	"github.com/cottand/ile/frontend/ir"
+	"github.com/cottand/ile/frontend/types"
+	"github.com/cottand/ile/parser"
+	gopackages "golang.org/x/tools/go/packages"
 )
 
-func goLoadPkgsConfig() *gopackages.Config {
-	return &gopackages.Config{
-		Mode: gopackages.NeedName | gopackages.NeedImports | gopackages.NeedDeps | gopackages.NeedTypesInfo | gopackages.NeedTypes | gopackages.NeedFiles,
+func goLoadPkgsConfig() (*gopackages.Config, error) {
+	overlay := map[string][]byte{}
+	if err := loadGoPackageSource("fmt", overlay); err != nil {
+		return nil, fmt.Errorf("could not load fmt: %w", err)
 	}
+	return &gopackages.Config{
+		Mode:    gopackages.NeedName | gopackages.NeedImports | gopackages.NeedDeps | gopackages.NeedTypesInfo | gopackages.NeedTypes | gopackages.NeedFiles,
+		Overlay: overlay,
+	}, nil
+}
+
+func loadGoPackageSource(name string, overlay map[string][]byte) error {
+	return nil
 }
 
 var packageLogger = slog.With("section", "package")
@@ -147,16 +157,19 @@ func LoadPackage(dir fs.FS, config PkgLoadSettings) (*Package, error) {
 
 	// gopackages resolution phase
 	if len(irFile.GoImports) > 0 {
-		tmpGoDir, err := tmpGoCompileDir()
+		//tmpGoDir, err := tmpGoCompileDir()
+		//if err != nil {
+		//	return nil, fmt.Errorf("failed to create temporary go directory: %w", err)
+		//}
+		//if tmpGoDir != "" {
+		//	defer func(path string) {
+		//		_ = os.RemoveAll(path)
+		//	}(tmpGoDir)
+		//}
+		cfg, err := goLoadPkgsConfig()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create temporary go directory: %w", err)
+			return nil, fmt.Errorf("failed to create go load pkgs config: %w", err)
 		}
-		if tmpGoDir != "" {
-			defer func(path string) {
-				_ = os.RemoveAll(path)
-			}(tmpGoDir)
-		}
-		cfg := goLoadPkgsConfig()
 		var goImportPaths []string
 		for _, goImport := range irFile.GoImports {
 			goImportPaths = append(goImportPaths, goImport.ImportPath)
