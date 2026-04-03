@@ -1,0 +1,11 @@
+//ile:compilerTest test.result() | string("hello 42")
+
+package test
+
+import fmt "go:fmt"
+
+fn id(x) { x }
+
+fn strResult() { id("hello") }
+fn intResult() { id(42) }
+fn result() { fmt.Sprintf("%v %v", [strResult(), intResult()]) }

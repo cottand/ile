@@ -128,6 +128,7 @@ func (ctx *exprTyper) typeExpr(expr ir.Expr, vars map[typeName]SimpleType) (ret 
 			typed := ctx.nextLevel().TypeExpr(binding.Value, vars)
 			bindingProv := newOriginProv(binding.Value, "binding of "+binding.Value.Describe(), "")
 			ctx.constrain(typed, bindingVars[i], bindingProv, constrainOnErr)
+			ctx.env[binding.Var] = PolymorphicType{_level: ctx.level, Body: bindingVars[i]}
 		}
 
 		nested := ctx.nest()

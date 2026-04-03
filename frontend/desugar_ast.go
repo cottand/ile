@@ -54,8 +54,11 @@ func DesugarPhase(file ast.File) (ir.File, *ilerr.Errors) {
 		if decl.TypeAnn != nil {
 			irType = ConvertType(decl.TypeAnn)
 
-			// If we have both an expression and a type annotation, wrap the expression in an Ascribe
-			if irExpr != nil {
+			// If we have both an expression and a type annotation, wrap the expression in an Ascribe.
+			// Skip wrapping when the annotation is a FnType with all-nil components (unannotated
+			// function declarations) — the Ascribe would create independent type variables for param
+			// and return, breaking the identity needed for polymorphic inference.
+			if irExpr != nil && !isWildcardFnType(irType) {
 				irExpr = &ir.Ascribe{
 					Expr:  irExpr,
 					Type_: irType,
@@ -75,4 +78,20 @@ func DesugarPhase(file ast.File) (ir.File, *ilerr.Errors) {
 	}
 
 	return irFile, res
+}
+
+func isWildcardFnType(t ir.Type) bool {
+	fn, ok := t.(*ir.FnType)
+	if !ok {
+		return false
+	}
+	if fn.Return != nil {
+		return false
+	}
+	for _, arg := range fn.Args {
+		if arg != nil {
+			return false
+		}
+	}
+	return true
 }

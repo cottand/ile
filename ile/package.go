@@ -534,7 +534,8 @@ func (p *Package) DisplayTypes() (string, error) {
 	sb := strings.Builder{}
 	for _, file := range p.syntax {
 		for _, decl := range file.Declarations {
-			sb.WriteString(fmt.Sprintf("%s: %s\n", decl.Name, ir.TypeString(decl.Type)))
+			showCtx := ir.NewStatefulSequentialShowCtx()
+			sb.WriteString(fmt.Sprintf("%s: %s\n", decl.Name, decl.Type.ShowIn(showCtx, 0)))
 		}
 	}
 

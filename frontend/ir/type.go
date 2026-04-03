@@ -233,7 +233,22 @@ type dumbShowCtx struct{}
 
 var DumbShowCtx ShowCtx = (*dumbShowCtx)(nil)
 
-func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return typeVar.Identifier }
+func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return "'" + typeVar.Identifier }
+
+// statefulSequentialShowCtx returns simple type variable names ('a, 'b, 'c, ...) sequentially
+//
+// It is useful for instantiating a new one on separate types that are known to have no overlapping type variables
+type statefulSequentialShowCtx struct {
+	latestIndex uint32
+}
+
+func NewStatefulSequentialShowCtx() ShowCtx {
+	return &statefulSequentialShowCtx{}
+}
+
+func (ctx *statefulSequentialShowCtx) NameOf(typeVar *TypeVar) string {
+	return "'" + string(rune('a'+ctx.latestIndex))
+}
 
 type TypeName struct {
 	Name string

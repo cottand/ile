@@ -59,7 +59,11 @@ func (t *Fresher) freshenAbove(l level, limit level, type_ SimpleType) SimpleTyp
 }
 
 func (t *Fresher) freshenAboveWithRigidify(l level, limit level, type_ SimpleType, rigidify bool) SimpleType {
-	return t.freshen(l, limit, type_, rigidify)
+	old := t.freshened
+	t.freshened = make(map[TypeVarID]SimpleType)
+	result := t.freshen(l, limit, type_, rigidify)
+	t.freshened = old
+	return result
 }
 
 func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool) SimpleType {
@@ -193,6 +197,22 @@ func (t *Fresher) freshen(l level, limit level, type_ SimpleType, rigidify bool)
 	case arrayType:
 		return arrayType{
 			innerT:         t.freshen(l, limit, type_.innerT, rigidify),
+			withProvenance: type_.withProvenance,
+		}
+	case recordType:
+		fields := make([]recordField, len(type_.fields))
+		for i, field := range type_.fields {
+			fields[i] = recordField{
+				name: field.name,
+				type_: fieldType{
+					lowerBound:     t.freshen(l, limit, field.type_.lowerBound, rigidify),
+					upperBound:     t.freshen(l, limit, field.type_.upperBound, rigidify),
+					withProvenance: field.type_.withProvenance,
+				},
+			}
+		}
+		return recordType{
+			fields:         fields,
 			withProvenance: type_.withProvenance,
 		}
 	case classTag, traitTag:

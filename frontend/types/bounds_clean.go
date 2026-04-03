@@ -55,7 +55,7 @@ func (cbc *cleanBoundsCtx) renew(tv *typeVariable) (ret *typeVariable) {
 	}
 
 	defer func() {
-		cbc.renewed[ret.id] = ret
+		cbc.renewed[tv.id] = ret
 	}()
 
 	if cbc.inPlace {

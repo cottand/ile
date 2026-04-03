@@ -71,106 +71,121 @@ func isUnitType(t ir.Type) bool {
 
 }
 
+func (tp *Transpiler) resetTypeVarNames() {
+	tp.typeVarNames = nil
+}
+
+func (tp *Transpiler) transpileSingleFunctionDecl(irFunc ir.Declaration) (*goast.FuncDecl, error) {
+	defer tp.resetTypeVarNames()
+
+	fn, ok := unwrapAscribe(irFunc.E).(*ir.Func)
+	if !ok {
+		return nil, nil
+	}
+
+	annotationTypeVars, annotationType := extractAnnotationTypeVars(irFunc.E)
+
+	if len(annotationTypeVars) > 0 {
+		tp.typeVarNames = make(map[string]string, len(annotationTypeVars))
+		for i, tv := range annotationTypeVars {
+			tp.typeVarNames[tv.Identifier] = typeVarGoName(tv, i)
+		}
+	}
+
+	var fnType ir.Type
+	if annotationType != nil && len(annotationTypeVars) > 0 {
+		fnType = annotationType
+	} else {
+		fnType = tp.types.TypeOf(irFunc.E)
+	}
+
+	typeVars, bounds := extractTypeVars(fnType)
+
+	if tp.typeVarNames == nil && len(typeVars) > 0 {
+		tp.typeVarNames = make(map[string]string, len(typeVars))
+		for i, tv := range typeVars {
+			tp.typeVarNames[tv.Identifier] = typeVarGoName(tv, i)
+		}
+	}
+
+	paramDecl, err := tp.transpileGenericParameterDecls(irFunc, fn, fnType)
+	if err != nil {
+		return nil, err
+	}
+
+	t, ok := fnType.(*ir.FnType)
+	if !ok {
+		if ct, ok2 := fnType.(*ir.ConstrainedType); ok2 {
+			t, ok = ct.Base.(*ir.FnType)
+		}
+	}
+	if !ok {
+		return nil, errors.New("expected a function type")
+	}
+	isUnitFunc := isUnitType(t.Return)
+
+	var body []goast.Stmt
+	if isUnitFunc {
+		body, err = tp.transpileExpressionToStatements(fn.Body, "")
+	} else {
+		body, err = tp.transpileExpressionToStatements(fn.Body, "return")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var resultList *goast.FieldList
+	if !isUnitFunc {
+		tp.inFunctionSignature = true
+		resultType, err := tp.transpileType(t.Return)
+		tp.inFunctionSignature = false
+		if err != nil {
+			return nil, err
+		}
+		resultList = &goast.FieldList{
+			List: []*goast.Field{{
+				Type: resultType,
+			}},
+		}
+	}
+
+	var typeParamList *goast.FieldList
+	if len(typeVars) > 0 {
+		typeParamFields := make([]*goast.Field, 0, len(typeVars))
+		for i, tv := range typeVars {
+			goName := typeVarGoName(tv, i)
+			constraint := boundsToGoConstraint(bounds[tv.Identifier])
+			typeParamFields = append(typeParamFields, &goast.Field{
+				Names: []*goast.Ident{goast.NewIdent(goName)},
+				Type:  goast.NewIdent(constraint),
+			})
+		}
+		typeParamList = &goast.FieldList{List: typeParamFields}
+	}
+
+	goDecl := &goast.FuncDecl{
+		Name: goast.NewIdent(irFunc.Name),
+		Type: &goast.FuncType{
+			TypeParams: typeParamList,
+			Params:     &paramDecl,
+			Results:    resultList,
+		},
+		Body: &goast.BlockStmt{List: body},
+	}
+	return goDecl, nil
+}
+
 func (tp *Transpiler) transpileFunctionDecls(fs []ir.Declaration) ([]goast.Decl, error) {
 	var goDecls []goast.Decl
 	var errs []error
-	for _, irFunc := range fs {
-		if fn, ok := unwrapAscribe(irFunc.E).(*ir.Func); ok {
-			annotationTypeVars, annotationType := extractAnnotationTypeVars(irFunc.E)
-
-			if len(annotationTypeVars) > 0 {
-				// TODO extract each decl into its own function,
-				//  and use defer (tp.typeVarNames = nil)
-				//  instead of the current ugly nil-setting every time
-				tp.typeVarNames = make(map[string]string, len(annotationTypeVars))
-				for i, tv := range annotationTypeVars {
-					tp.typeVarNames[tv.Identifier] = typeVarGoName(tv, i)
-				}
-			}
-
-			var fnType ir.Type
-			if annotationType != nil && len(annotationTypeVars) > 0 {
-				fnType = annotationType
-			} else {
-				fnType = tp.types.TypeOf(irFunc.E)
-			}
-
-			typeVars, bounds := extractTypeVars(fnType)
-
-			paramDecl, err := tp.transpileGenericParameterDecls(irFunc, fn, fnType)
-			if err != nil {
-				tp.typeVarNames = nil
-				errs = append(errs, err)
-				continue
-			}
-
-			t, ok := fnType.(*ir.FnType)
-			if !ok {
-				if ct, ok2 := fnType.(*ir.ConstrainedType); ok2 {
-					t, ok = ct.Base.(*ir.FnType)
-				}
-			}
-			if !ok {
-				tp.typeVarNames = nil
-				errs = append(errs, errors.New("expected a function type"))
-				continue
-			}
-			isUnitFunc := isUnitType(t.Return)
-
-			var body []goast.Stmt
-			if isUnitFunc {
-				body, err = tp.transpileExpressionToStatements(fn.Body, "")
-			} else {
-				body, err = tp.transpileExpressionToStatements(fn.Body, "return")
-			}
-			if err != nil {
-				tp.typeVarNames = nil
-				errs = append(errs, err)
-				continue
-			}
-
-			var resultList *goast.FieldList
-			if !isUnitFunc {
-				tp.inFunctionSignature = true
-				resultType, err := tp.transpileType(t.Return)
-				tp.inFunctionSignature = false
-				if err != nil {
-					tp.typeVarNames = nil
-					errs = append(errs, err)
-					continue
-				}
-				resultList = &goast.FieldList{
-					List: []*goast.Field{{
-						Type: resultType,
-					}},
-				}
-			}
-
-			var typeParamList *goast.FieldList
-			if len(typeVars) > 0 {
-				typeParamFields := make([]*goast.Field, 0, len(typeVars))
-				for i, tv := range typeVars {
-					goName := typeVarGoName(tv, i)
-					constraint := boundsToGoConstraint(bounds[tv.Identifier])
-					typeParamFields = append(typeParamFields, &goast.Field{
-						Names: []*goast.Ident{goast.NewIdent(goName)},
-						Type:  goast.NewIdent(constraint),
-					})
-				}
-				typeParamList = &goast.FieldList{List: typeParamFields}
-			}
-
-			goDecl := goast.FuncDecl{
-				Name: goast.NewIdent(irFunc.Name),
-				Type: &goast.FuncType{
-					TypeParams: typeParamList,
-					Params:     &paramDecl,
-					Results:    resultList,
-				},
-				Body: &goast.BlockStmt{List: body},
-			}
-			tp.typeVarNames = nil
-			goDecls = append(goDecls, &goDecl)
+	for _, decl := range fs {
+		goFuncDecl, err := tp.transpileSingleFunctionDecl(decl)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if goFuncDecl != nil {
+			goDecls = append(goDecls, goFuncDecl)
 		}
 	}
 	return goDecls, errors.Join(errs...)
@@ -276,12 +291,21 @@ func typeVarGoName(tv *ir.TypeVar, index int) string {
 	if name == "" {
 		name = strings.TrimPrefix(tv.Identifier, "'")
 	}
-	if name == "" {
+	if name == "" || !isValidGoIdent(name) {
 		return fmt.Sprintf("T%d", index+1)
 	}
 	runes := []rune(name)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+func isValidGoIdent(s string) bool {
+	for _, r := range s {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 func boundsToGoConstraint(b *ir.TypeBounds) string {
