@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"os"
+	"runtime/debug"
 
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend/ilerr"
@@ -110,6 +111,7 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		defer func() {
 			if v := recover(); v != nil {
 				t.Errorf("test panicked: %v", v)
+				t.Log(string(debug.Stack()))
 			}
 		}()
 
@@ -154,6 +156,8 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		err = format.Node(sourceBuf, &token.FileSet{}, &firstGoFile)
 		assert.NoError(t, err)
 
+		// print program types again just so they are at the bottom of the logs
+		t.Logf("program types:\n---\n%s---", typsStr)
 		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
 
 		_, err = i.Eval(sourceBuf.String())

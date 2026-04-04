@@ -1514,9 +1514,7 @@ func (cs *constraintSolver) extrude(ty SimpleType, targetLvl level, pol bool) Si
 				type_: fieldType{lowerBound: extrudedLb, upperBound: extrudedUb, withProvenance: withProvenance{field.type_.prov()}},
 			}
 		}
-		// Use makeRecordType for potential sorting/simplification
-		panic("extrude: implement makeRecordType")
-		//return makeRecordType(newFields, &t.provenance)
+		return newRecordType(recordType{fields: newFields, withProvenance: t.withProvenance})
 
 	case tupleType:
 		newFields := make([]SimpleType, len(t.fields))
