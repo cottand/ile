@@ -51,6 +51,7 @@ func InferencePhase(env InferenceEnv, ctx *types.TypeCtx) ([]ir.File, *ilerr.Err
 	if len(ctx.Failures) > 0 {
 		return files, nil, fmt.Errorf("failures found:\n %s", errors.Join(ctx.Failures...))
 	}
+	ctx.LowerTypes(groupedPkg)
 	errs = errs.With(ctx.Errors...)
 
 	for i, file := range env.Syntax {

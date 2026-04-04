@@ -1,0 +1,21 @@
+//ile:compilerTest test.result() | "two"
+
+package main
+
+fn applyTwice(f, g, y) { f(g(y)) }
+
+fn toString(x) {
+  when x {
+     1 -> "one"
+     2 -> "two"
+     Int -> "int"
+   }
+}
+
+fn result() {
+  applyTwice(
+    toString,
+    fn x -> x,
+    2,
+  )
+}

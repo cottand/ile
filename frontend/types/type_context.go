@@ -107,6 +107,7 @@ type TypeState struct {
 	// cache keeps hashes of ast elements to already-simplified ast.Type
 	cache             nodesToSimpletypeCache
 	expandedTypeCache expandedTypeCache
+	loweredTypes      map[exprCacheEntry]ir.Type
 
 	logger *slog.Logger
 
@@ -137,7 +138,7 @@ func NewEmptyTypeCtx() *TypeCtx {
 			fresher:           fresher,
 			cache:             make(map[exprCacheEntry]nodeCacheEntry, 1),
 			expandedTypeCache: make(map[exprCacheEntry]ir.Type, 1),
-			logger: slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
+			logger:            slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
 		},
 		logger: slog.New(ir.IleIRSlogHandler(slog.Default().Handler())).With("section", "inference"),
 	}
@@ -562,8 +563,15 @@ func (ctx *TypeCtx) TypeOf(expr ir.Expr) (ret ir.Type) {
 			logger.Info("resolved type post-inference", "type", ret)
 		}
 	}()
+	key := exprCacheEntry{r: ir.RangeOf(expr), exprHash: expr.Hash()}
+	if t, ok := ctx.loweredTypes[key]; ok {
+		return t
+	}
+
+	ctx.logger.Warn("lowered type not found in ctx.loweredTypes", "expr", expr)
+
 	// check if simplified before
-	expanded, ok := ctx.expandedTypeCache[exprCacheEntry{r: ir.RangeOf(expr), exprHash: expr.Hash()}]
+	expanded, ok := ctx.expandedTypeCache[key]
 	if ok {
 		return expanded
 	}

@@ -90,7 +90,6 @@ func (o *opsDNF) conjunctAndConjunct(left, right conjunct) (conjunct, bool) {
 
 	// Create the merged conjunct
 	result, ok := o.simplifyConjunct(newConjunct(mergedLhs, mergedRhs, mergedVars, mergedNvars))
-	o.Debug("conjunctAndConjunct: result", "result", result, "ok", ok, "resultType", result.toType())
 	return result, ok
 }
 

@@ -1,0 +1,15 @@
+//ile:compilerTest test.result() | "hi"
+
+package main
+
+fn applyTwice(f, g, y) { f(g(y)) }
+
+fn id(x) { x }
+
+fn result() {
+  applyTwice(
+    id,
+    id,
+    "hi",
+  )
+}

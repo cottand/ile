@@ -89,7 +89,6 @@ func TestGenericsEndToEnd(t *testing.T) {
 	}
 }
 
-
 func TestInteropEndToEnd(t *testing.T) {
 	files, err := testSet.ReadDir("test/interop")
 	assert.NoError(t, err)
@@ -109,9 +108,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		}
 
 		defer func() {
-			//if v := recover(); v != nil {
-			//	t.Errorf("test panicked: %v", v)
-			//}
+			if v := recover(); v != nil {
+				t.Errorf("test panicked: %v", v)
+			}
 		}()
 
 		content, err := testSet.ReadFile(path.Join("test", name))
@@ -158,7 +157,9 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
 
 		_, err = i.Eval(sourceBuf.String())
-		assert.NoError(t, err)
+		if !assert.NoError(t, err) {
+			t.Fatal()
+		}
 
 		resActual, err := i.Eval(eval)
 		if !assert.NoError(t, err) {

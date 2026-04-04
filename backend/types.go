@@ -193,8 +193,22 @@ func (tp *Transpiler) tryFindCommonType(left, right ir.Type) (ir.Type, error) {
 		return tp.tryFindCommonType(commonInUnion, right)
 	}
 
-	return tp.tryFindCommonType(right, left)
+	switch right := right.(type) {
+	case *ir.Literal:
+		if left, ok := left.(*ir.Literal); ok {
+			if right.Kind == left.Kind {
+				// will be approximated with nearestGoType
+				return left, nil
+			}
+		}
+	case *ir.UnionType:
+		commonInUnion, err := tp.tryFindCommonType(right.Left, right.Right)
+		if err != nil {
+			return nil, err
+		}
+		return tp.tryFindCommonType(commonInUnion, left)
+	}
 
-	//tp.Warn("could not find common supertype for types", "left", left, "right", right)
-	//return &ir.AnyType{}, nil
+	tp.Warn("could not find common supertype for types", "left", left, "left", right)
+	return &ir.AnyType{}, nil
 }

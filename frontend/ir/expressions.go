@@ -718,6 +718,67 @@ func (e *IndexAccess) Hash() uint64 {
 	return h.Sum64()
 }
 
+// Walk visits every sub-expression in the tree bottom-up without copying.
+func Walk(expr Expr, f func(Expr)) {
+	if expr == nil {
+		return
+	}
+	switch e := expr.(type) {
+	case *Literal, *Var, *RecordEmpty, *ErrorExpr:
+		// leaf nodes
+	case *Call:
+		Walk(e.Func, f)
+		for _, arg := range e.Args {
+			Walk(arg, f)
+		}
+	case *Ascribe:
+		Walk(e.Expr, f)
+	case *Func:
+		Walk(e.Body, f)
+	case *Assign:
+		Walk(e.Value, f)
+		Walk(e.Body, f)
+	case *LetGroup:
+		for _, b := range e.Vars {
+			Walk(b.Value, f)
+		}
+		Walk(e.Body, f)
+	case *RecordSelect:
+		Walk(e.Record, f)
+	case *RecordLit:
+		for _, lv := range e.Fields {
+			Walk(lv.Value, f)
+		}
+	case *RecordExtend:
+		for _, lv := range e.Labels {
+			Walk(lv.Value, f)
+		}
+		if e.Record != nil {
+			Walk(e.Record, f)
+		}
+	case *RecordRestrict:
+		Walk(e.Record, f)
+	case *Variant:
+		Walk(e.Value, f)
+	case *WhenMatch:
+		Walk(e.Value, f)
+		for _, c := range e.Cases {
+			Walk(c.Value, f)
+		}
+	case *Unused:
+		Walk(e.Value, f)
+		Walk(e.Body, f)
+	case *ListLiteral:
+		for _, arg := range e.Args {
+			Walk(arg, f)
+		}
+	case *IndexAccess:
+		Walk(e.Index, f)
+		Walk(e.Value, f)
+	}
+	f(expr)
+}
+
 // ErrorExpr is an AST node that could not be parsed, and it is where an Expr should be
 type ErrorExpr struct {
 	Range

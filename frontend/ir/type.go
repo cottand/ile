@@ -239,15 +239,26 @@ func (*dumbShowCtx) NameOf(typeVar *TypeVar) string { return "'" + typeVar.Ident
 //
 // It is useful for instantiating a new one on separate types that are known to have no overlapping type variables
 type statefulSequentialShowCtx struct {
-	latestIndex uint32
+	latestIndex rune
+	shown       map[string]rune
 }
 
 func NewStatefulSequentialShowCtx() ShowCtx {
-	return &statefulSequentialShowCtx{}
+	return &statefulSequentialShowCtx{
+		shown:       make(map[string]rune),
+		latestIndex: 'a',
+	}
 }
 
 func (ctx *statefulSequentialShowCtx) NameOf(typeVar *TypeVar) string {
-	return "'" + string(rune('a'+ctx.latestIndex))
+	seen, ok := ctx.shown[typeVar.Identifier]
+	if ok {
+		return "'" + string(seen)
+	}
+	str := "'" + string(ctx.latestIndex)
+	ctx.shown[typeVar.Identifier] = ctx.latestIndex
+	ctx.latestIndex++
+	return str
 }
 
 type TypeName struct {
@@ -399,11 +410,14 @@ func (t *FnType) ShowIn(ctx ShowCtx, outerPrecedence uint16) string {
 	if args != "" {
 		args = args + " "
 	}
+	if len(t.Args) > 1 {
+		args = "(" + args + ") "
+	}
 	retStr := "_"
 	if t.Return != nil {
 		retStr = t.Return.ShowIn(ctx, 30)
 	}
-	return withParensIf(outerPrecedence > 30, "fn "+args+"-> "+retStr)
+	return withParensIf(outerPrecedence > 20, "fn "+args+"-> "+retStr)
 }
 
 func (t *FnType) Hash() uint64 {
