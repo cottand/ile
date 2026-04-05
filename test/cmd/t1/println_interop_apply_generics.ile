@@ -1,0 +1,39 @@
+package main
+
+import fmt "go:fmt"
+
+fn appendGreeting(greeting, who) {
+    fmt.Sprintf("%s, %s!", [greeting, who])
+}
+
+fn id(x) { x }
+fn tap(x, f) {
+  f(x)
+  x
+}
+
+fn main() {
+  println("Hello world from ile!")
+
+  pickSomeone(2)
+    |> personString
+    |> appendGreeting("Hello", _)
+    |> id
+    |> tap(_, fn x -> fmt.Println("debug: %v", [x]))
+    |> println
+}
+
+fn personString(p: #{name: String, age: Int, hobby: String}) {
+  fmt.Sprintf("%s is %d years old and likes %s", [p.name, p.age, p.hobby])
+}
+
+fn pickSomeone(i) {
+  val n = when i {
+     0 -> "Tim"
+     1 -> "Alice"
+     _ -> "who tf"
+   }
+
+  #{ name: n, age: 40, hobby: "gymming" }
+}
+
