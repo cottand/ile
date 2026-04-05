@@ -80,6 +80,7 @@ func TestFunctionsEndToEnd(t *testing.T) {
 }
 
 func TestGenericsEndToEnd(t *testing.T) {
+	//t.Skip("TODO implement WASM-based testing so that we do not run into issues with generics and yaegi")
 	files, err := testSet.ReadDir("test/generics")
 	assert.NoError(t, err)
 	for _, f := range files {
@@ -119,9 +120,6 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		assert.NoError(t, err)
 
 		eval, expected := extractTestComment(t, string(content))
-		i := interp.New(interp.Options{GoPath: build.Default.GOPATH})
-		err = i.Use(stdlib.Symbols)
-		assert.NoError(t, err)
 
 		pkg, cErrs, err := ile.NewPackageFromBytes(content, path.Join(testSetRoot, name))
 		assert.NoError(t, err, "Unexpected failures in NewPackageFromBytes")
@@ -160,20 +158,28 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		t.Logf("program types:\n---\n%s---", typsStr)
 		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
 
-		_, err = i.Eval(sourceBuf.String())
-		if !assert.NoError(t, err) {
-			t.Fatal()
-		}
-
-		resActual, err := i.Eval(eval)
-		if !assert.NoError(t, err) {
-			t.Fatal()
-		}
-
-		iClean := interp.New(interp.Options{})
-		resExpected, err := iClean.Eval(expected)
-		assert.NoError(t, err)
-
-		assert.True(t, resExpected.Equal(resActual), "not equal: expected=(%v)%v actual=(%v)%v\nfor source:\n----\n%v\n----", resExpected.Type(), resExpected, resActual.Type(), resActual, sourceBuf.String())
+		testEvalWithYaegi(t, sourceBuf.String(), eval, expected)
 	})
+}
+
+func testEvalWithYaegi(t *testing.T, program string, expectedExpr, evalActualExpr string) {
+	i := interp.New(interp.Options{GoPath: build.Default.GOPATH})
+	err := i.Use(stdlib.Symbols)
+	assert.NoError(t, err)
+
+	_, err = i.Eval(program)
+	if !assert.NoError(t, err) {
+		t.Fatal()
+	}
+
+	resActual, err := i.Eval(evalActualExpr)
+	if !assert.NoError(t, err) {
+		t.Fatal()
+	}
+
+	iClean := interp.New(interp.Options{})
+	resExpected, err := iClean.Eval(expectedExpr)
+	assert.NoError(t, err)
+
+	assert.True(t, resExpected.Equal(resActual), "not equal: expected=(%v)%v actual=(%v)%v", resExpected.Type(), resExpected, resActual.Type(), resActual)
 }

@@ -2,18 +2,9 @@ module github.com/cottand/ile
 
 go 1.25.6
 
-toolchain go1.25.6
-
-
-replace (
-	// github.com/traefik/yaegi => github.com/cogentcore/yaegi v0.0.0-20260116172027-700fbf8949f3
-	//exclude github.com/traefik/yaegi v0.16.1
-)
-
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/benbjohnson/immutable v0.4.3
-	github.com/hashicorp/go-set v0.1.14
 	github.com/hashicorp/go-set/v3 v3.0.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
