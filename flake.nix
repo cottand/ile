@@ -25,8 +25,6 @@
           hash = "sha256-yYrBLoT73MVRAOpoJhRNc5wr096FbxJNK8iyNiCiTjI=";
         };
 
-
-
         npmDepsHash = "sha256-FlFbTdmBv324jlP85/aHT8FzpR0NzcrGdD2PMuq/TAo=";
         npmPackFlags = [ "--ignore-scripts" ];
         installPhase = ''

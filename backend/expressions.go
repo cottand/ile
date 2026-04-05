@@ -231,7 +231,7 @@ func (tp *Transpiler) transpileFnCall(e *ir.Call) (expr goast.Expr, err error) {
 	for i, arg := range e.Args {
 		var err error
 		if i == len(e.Args)-1 {
-			if fnType().(*ir.FnType).Variadic {
+			if ft, ok := fnType().(*ir.FnType); ok && ft.Variadic {
 
 				// break down the list literal and inline each individual element into the Go vararg as arguments
 				// TODO should that not be an optimisation, where we inline a list literal into
