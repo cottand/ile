@@ -2,25 +2,27 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
+	"fmt"
+	"go/format"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
+	"testing"
 
 	"github.com/cottand/ile/backend"
 	"github.com/cottand/ile/frontend/ilerr"
 	"github.com/cottand/ile/ile"
 	"github.com/stretchr/testify/assert"
-	"github.com/traefik/yaegi/stdlib"
-
-	"go/build"
-	"go/format"
-	"go/token"
-	"io/fs"
-	"path"
-	"strings"
-	"testing"
-
-	"github.com/traefik/yaegi/interp"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 const logGoAST = true
@@ -80,7 +82,6 @@ func TestFunctionsEndToEnd(t *testing.T) {
 }
 
 func TestGenericsEndToEnd(t *testing.T) {
-	//t.Skip("TODO implement WASM-based testing so that we do not run into issues with generics and yaegi")
 	files, err := testSet.ReadDir("test/generics")
 	assert.NoError(t, err)
 	for _, f := range files {
@@ -104,6 +105,7 @@ func TestInteropEndToEnd(t *testing.T) {
 
 func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 	return t.Run(f.Name(), func(t *testing.T) {
+		t.Parallel()
 		name := path.Join(at, f.Name())
 		if ignoreEndToEndTests[name] {
 			t.Skip("marked as ignored: " + name)
@@ -158,28 +160,116 @@ func testFile(t *testing.T, at string, f fs.DirEntry) bool {
 		t.Logf("program types:\n---\n%s---", typsStr)
 		t.Log("go AST:\n-------\n", sourceBuf.String(), "\n-------")
 
-		testEvalWithYaegi(t, sourceBuf.String(), eval, expected)
+		testEvalWithWazero(t, sourceBuf.String(), eval, expected)
 	})
 }
 
-func testEvalWithYaegi(t *testing.T, program string, expectedExpr, evalActualExpr string) {
-	i := interp.New(interp.Options{GoPath: build.Default.GOPATH})
-	err := i.Use(stdlib.Symbols)
-	assert.NoError(t, err)
+func testEvalWithWazero(t *testing.T, program string, expectedExpr, evalActualExpr string) {
+	t.Helper()
 
-	_, err = i.Eval(program)
+	pkgName := extractPackageName(t, program)
+	mainProgram := strings.Replace(program, "package "+pkgName, "package main", 1)
+
+	tmpDir := t.TempDir()
+
+	goMod := fmt.Sprintf("module tmpmod\n\ngo %s\n", goVersion())
+	err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644)
 	if !assert.NoError(t, err) {
-		t.Fatal()
+		return
 	}
 
-	resActual, err := i.Eval(evalActualExpr)
+	err = os.WriteFile(filepath.Join(tmpDir, "gen.go"), []byte(mainProgram), 0644)
 	if !assert.NoError(t, err) {
-		t.Fatal()
+		return
 	}
 
-	iClean := interp.New(interp.Options{})
-	resExpected, err := iClean.Eval(expectedExpr)
-	assert.NoError(t, err)
+	mainGo := fmt.Sprintf(`package main
 
-	assert.True(t, resExpected.Equal(resActual), "not equal: expected=(%v)%v actual=(%v)%v", resExpected.Type(), resExpected, resActual.Type(), resActual)
+import (
+	"fmt"
+	"os"
+	"reflect"
+)
+
+func main() {
+	actual := %s
+	expected := %s
+	if reflect.DeepEqual(actual, expected) {
+		fmt.Fprint(os.Stdout, "PASS")
+	} else {
+		fmt.Fprintf(os.Stdout, "FAIL: expected=(%%T)%%v actual=(%%T)%%v", expected, expected, actual, actual)
+	}
+}
+`, evalActualExpr, expectedExpr)
+
+	err = os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(mainGo), 0644)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	wasmPath := filepath.Join(tmpDir, "output.wasm")
+	cmd := exec.Command("go", "build", "-o", wasmPath, ".")
+	cmd.Dir = tmpDir
+	cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+	buildOutput, err := cmd.CombinedOutput()
+	if !assert.NoError(t, err, "go build to wasm failed:\n%s", string(buildOutput)) {
+		return
+	}
+
+	wasmBytes, err := os.ReadFile(wasmPath)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	ctx := context.Background()
+	rt := wazero.NewRuntime(ctx)
+	defer rt.Close(ctx)
+
+	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
+
+	var stdout, stderr bytes.Buffer
+	config := wazero.NewModuleConfig().
+		WithStdout(&stdout).
+		WithStderr(&stderr)
+
+	_, err = rt.InstantiateWithConfig(ctx, wasmBytes, config)
+	if err != nil {
+		t.Fatalf("wasm execution failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	result := stdout.String()
+	if !strings.HasPrefix(result, "PASS") {
+		t.Fatalf("wazero eval: %s", result)
+	}
+}
+
+func extractPackageName(t *testing.T, source string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", source, parser.PackageClauseOnly)
+	if !assert.NoError(t, err, "failed to parse package name from generated source") {
+		t.FailNow()
+	}
+	return f.Name.Name
+}
+
+var goVersionCached string
+
+func goVersion() string {
+	if goVersionCached != "" {
+		return goVersionCached
+	}
+	out, err := exec.Command("go", "env", "GOVERSION").Output()
+	if err != nil {
+		return "1.24"
+	}
+	v := strings.TrimSpace(string(out))
+	v = strings.TrimPrefix(v, "go")
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) >= 2 {
+		goVersionCached = parts[0] + "." + parts[1]
+	} else {
+		goVersionCached = v
+	}
+	return goVersionCached
 }

@@ -1,4 +1,4 @@
-//ile:compilerTest test.getAgain() | string("hello world!")
+//ile:compilerTest getAgain() | string("hello world!")
 
 package test
 

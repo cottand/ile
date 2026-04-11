@@ -1,4 +1,4 @@
-//ile:compilerTest test.getString() | "Have we found it? world"
+//ile:compilerTest getString() | "Have we found it? world"
 
 package test
 

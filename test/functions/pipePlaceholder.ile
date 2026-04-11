@@ -1,4 +1,4 @@
-//ile:compilerTest test.Result() | int64(7)
+//ile:compilerTest Result() | int64(7)
 package test
 
 fn Sub(a: Int, b: Int): Int {

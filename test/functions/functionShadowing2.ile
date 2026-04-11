@@ -1,4 +1,4 @@
-//ile:compilerTest test.Foo(10) | int64(8)
+//ile:compilerTest Foo(10) | int64(8)
 
 package test
 

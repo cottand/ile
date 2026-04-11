@@ -1,4 +1,4 @@
-//ile:compilerTest test.res | int64(1)
+//ile:compilerTest res | int64(1)
 
 package test
 

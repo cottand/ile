@@ -1,4 +1,4 @@
-//ile:compilerTest test.s | "hello, world!"
+//ile:compilerTest s | "hello, world!"
 
 package test
 

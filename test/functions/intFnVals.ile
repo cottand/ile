@@ -1,4 +1,4 @@
-//ile:compilerTest test.MakeInt(1) | int64(2)
+//ile:compilerTest MakeInt(1) | int64(2)
 package test
 
 fn MakeInt(a: Int): Int {

@@ -1,4 +1,4 @@
-//ile:compilerTest test.match(2) | int64(4)
+//ile:compilerTest match(2) | int64(4)
 package test
 
 fn match(x) {

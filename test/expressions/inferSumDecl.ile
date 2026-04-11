@@ -1,4 +1,4 @@
-//ile:compilerTest test.someVal | int64(45)
+//ile:compilerTest someVal | int64(45)
 package test
 
 val someVal = 32 + 10 + 1 + 2

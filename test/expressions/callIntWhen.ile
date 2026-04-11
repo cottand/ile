@@ -1,4 +1,4 @@
-//ile:compilerTest test.F(0) | int64(1)
+//ile:compilerTest F(0) | int64(1)
 package test
 
 fn F(n) {

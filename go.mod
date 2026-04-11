@@ -10,6 +10,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/traefik/yaegi v0.16.1
 	//github.com/cogentcore/yaegi v0.0.0-20260116172027-700fbf8949f3
+	github.com/tetratelabs/wazero v1.11.0
 	golang.org/x/tools v0.30.0
 )
 
@@ -21,5 +22,6 @@ require (
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

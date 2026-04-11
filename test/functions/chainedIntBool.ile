@@ -1,4 +1,4 @@
-//ile:compilerTest test.Test() | int64(2)
+//ile:compilerTest Test() | int64(2)
 package test
 
 fn IntPlusOne(a: Int): Int {

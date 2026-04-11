@@ -1,4 +1,4 @@
-//ile:compilerTest test.AsInt(true) | int64(1)
+//ile:compilerTest AsInt(true) | int64(1)
 package test
 
 fn AsInt(b): Int {

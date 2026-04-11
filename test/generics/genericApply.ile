@@ -1,4 +1,4 @@
-//ile:compilerTest test.result() | int64(3)
+//ile:compilerTest result() | int64(3)
 
 package test
 

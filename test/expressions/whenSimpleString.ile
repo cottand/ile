@@ -1,4 +1,4 @@
-//ile:compilerTest test.x.name | "two"
+//ile:compilerTest x.name | "two"
 package test
 
 

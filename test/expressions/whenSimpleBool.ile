@@ -1,4 +1,4 @@
-//ile:compilerTest test.match | "yay"
+//ile:compilerTest match | "yay"
 package test
 
 val match = when 1 {

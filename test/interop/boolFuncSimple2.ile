@@ -1,4 +1,4 @@
-//ile:compilerTest test.res | true
+//ile:compilerTest res | true
 
 package test
 

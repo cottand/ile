@@ -1,4 +1,4 @@
-//ile:compilerTest test.DecrementOne(10) | int64(10)
+//ile:compilerTest DecrementOne(10) | int64(10)
 
 package test
 

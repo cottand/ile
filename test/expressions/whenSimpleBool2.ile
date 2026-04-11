@@ -1,4 +1,4 @@
-//ile:compilerTest test.match | int64(11)
+//ile:compilerTest match | int64(11)
 package test
 
 

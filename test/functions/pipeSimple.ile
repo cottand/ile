@@ -1,4 +1,4 @@
-//ile:compilerTest test.Result() | int64(3)
+//ile:compilerTest Result() | int64(3)
 package test
 
 fn AddOne(a: Int): Int {

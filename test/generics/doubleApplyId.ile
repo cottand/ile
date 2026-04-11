@@ -1,4 +1,4 @@
-//ile:compilerTest test.result() | "hi"
+//ile:compilerTest result() | "hi"
 
 package main
 

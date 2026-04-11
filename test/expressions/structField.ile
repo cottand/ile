@@ -1,4 +1,4 @@
-//ile:compilerTest test.y | int64(3)
+//ile:compilerTest y | int64(3)
 package test
 
 val x = #{a: 2}

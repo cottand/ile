@@ -1,4 +1,4 @@
-//ile:compilerTest test.SomeF() | int64(42)
+//ile:compilerTest SomeF() | int64(42)
 package test
 
 fn SomeF(): Int {

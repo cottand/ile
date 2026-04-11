@@ -310,9 +310,7 @@ func (st *expanderState) expandRec(t SimpleType) ir.Type {
 
 	case arrayType:
 		inner := st.expandRec(ty.innerT)
-		// Create a synthetic TypeName for "Array"
-		// Use original range as approximation, or maybe inner range?
-		arrayTypeName := &ir.TypeName{Name: "Array", Range: rng}
+		arrayTypeName := &ir.TypeName{Name: ir.ListTypeName, Range: rng}
 		return &ir.AppliedType{
 			Base:  *arrayTypeName,
 			Args:  []ir.Type{inner},

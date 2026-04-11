@@ -1,4 +1,4 @@
-//ile:compilerTest test.Fib(10) | int64(55)
+//ile:compilerTest Fib(10) | int64(55)
 package test
 
 fn Fib(n: Int): Int {
